@@ -1,0 +1,30 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/icons/zodiac/aries.svg</file>
+        <file>resources/icons/zodiac/taurus.svg</file>
+        <file>resources/icons/zodiac/gemini.svg</file>
+        <file>resources/icons/zodiac/cancer.svg</file>
+        <file>resources/icons/zodiac/leo.svg</file>
+        <file>resources/icons/zodiac/virgo.svg</file>
+        <file>resources/icons/zodiac/libra.svg</file>
+        <file>resources/icons/zodiac/scorpio.svg</file>
+        <file>resources/icons/zodiac/sagittarius.svg</file>
+        <file>resources/icons/zodiac/capricorn.svg</file>
+        <file>resources/icons/zodiac/aquarius.svg</file>
+        <file>resources/icons/zodiac/pisces.svg</file>
+        <file>resources/icons/planets/sun.svg</file>
+        <file>resources/icons/planets/moon.svg</file>
+        <file>resources/icons/planets/mercury.svg</file>
+        <file>resources/icons/planets/venus.svg</file>
+        <file>resources/icons/planets/mars.svg</file>
+        <file>resources/icons/planets/jupiter.svg</file>
+        <file>resources/icons/planets/saturn.svg</file>
+        <file>resources/icons/planets/uranus.svg</file>
+        <file>resources/icons/planets/neptune.svg</file>
+        <file>resources/icons/planets/pluto.svg</file>
+        <file>resources/icons/planets/chiron.svg</file>
+        <file>resources/icons/planets/north_node.svg</file>
+        <file>resources/icons/planets/south_node.svg</file>
+        <file>resources/qml/world_map.qml</file>
+    </qresource>
+</RCC>

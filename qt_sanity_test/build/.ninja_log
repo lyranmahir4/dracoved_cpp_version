@@ -1,0 +1,8 @@
+# ninja log v6
+52	384	7905587278538245	dracoved_qt_sanity_test_autogen/timestamp	b922397ff1a2348c
+52	384	7905587278538245	dracoved_qt_sanity_test_autogen/mocs_compilation.cpp	b922397ff1a2348c
+52	384	7905587278538245	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/qt_sanity_test/build/dracoved_qt_sanity_test_autogen/timestamp	b922397ff1a2348c
+52	384	7905587278538245	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/qt_sanity_test/build/dracoved_qt_sanity_test_autogen/mocs_compilation.cpp	b922397ff1a2348c
+391	517	7905587279603447	CMakeFiles/dracoved_qt_sanity_test.dir/dracoved_qt_sanity_test_autogen/mocs_compilation.cpp.obj	42b6f6e35de18da0
+399	8724	7905587279683439	CMakeFiles/dracoved_qt_sanity_test.dir/main.cpp.obj	2cce81ee28909121
+8732	9006	7905587363012168	dracoved_qt_sanity_test.exe	cf8b448190b1793f
