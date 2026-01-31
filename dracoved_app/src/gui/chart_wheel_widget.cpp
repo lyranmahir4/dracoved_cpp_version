@@ -81,7 +81,7 @@ ChartWheelWidget::ChartWheelWidget(QWidget* parent)
         QColor("#BDBDBD"),          // tick
         QColor("#E0E0E0"),          // signBoundary - Soft Grey
         QColor("#5D4037"),          // signGlyph - Dark Brown/Gold for contrast on pastel
-        QColor("#EEEEEE"),          // houseLine - Very subtle
+        QColor("#C8C8C8"),          // houseLine - Darker for visibility
         QColor("#757575"),          // houseLabel - Dark Grey
         QColor("#E0E0E0"),          // transitRing
         QColor(255, 255, 255, 220), // aspectSymbolBg - White semi-transparent
@@ -515,7 +515,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     const double angleLabelWidth = 36.0 * fontScale_;
     const double angleLabelHeight = 20.0 * fontScale_;
     const double angleDegWidth = 46.0 * fontScale_;
-    const double degreeOffset = glyphHalf + 6.0;
+    const double degreeOffset = glyphHalf + 10.0;
+    const double angleLabelRadius = tickRing + 16.0;
+    const double angleDegRadius = tickRing + 40.0;
 
     // Degree ticks.
     if (showTicks_) {
@@ -642,7 +644,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
     // House lines + numbers.
     const QVector<double> cusps = buildHouseCusps();
-    painter.setPen(QPen(theme_.houseLine, 1.0));
+    const double houseLineWidth = 1.6 * fontScale_;
+    painter.setPen(QPen(theme_.houseLine, houseLineWidth, Qt::SolidLine, Qt::RoundCap));
     for (int i = 0; i < cusps.size(); ++i) {
         const double angle = angleForLongitude(cusps[i]);
         const QPointF p1 = pointOnCircle(center, houseOuter, angle);
@@ -942,6 +945,49 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
     planetHitAreas_.clear();
     planetTooltips_.clear();
+    QVector<QRectF> occupiedRects;
+    occupiedRects.reserve(128);
+
+    QFont degreeFont = smallFont;
+    degreeFont.setBold(true);
+    degreeFont.setPointSizeF(smallFont.pointSizeF() + 0.5);
+    QColor degreeBg = theme_.background;
+    degreeBg.setAlpha(220);
+
+    auto placeRadialRect = [&](double angleDeg, double baseRadius, double width, double height) {
+        const double step = 6.0 * fontScale_;
+        QRectF rect;
+        double r = baseRadius;
+        for (int attempt = 0; attempt < 6; ++attempt) {
+            const QPointF p = pointOnCircle(center, r, angleDeg);
+            rect = QRectF(p.x() - width * 0.5, p.y() - height * 0.5, width, height);
+            bool hit = false;
+            for (const auto& occ : occupiedRects) {
+                if (rect.intersects(occ)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) {
+                return rect;
+            }
+            r += step;
+        }
+        return rect;
+    };
+
+    // Reserve angle label/degree areas so planet degree labels avoid them.
+    for (int i = 0; i < angleLons.size(); ++i) {
+        const double angleLon = angleLons[i];
+        const QPointF labelPos = pointOnCircle(center, angleLabelRadius, angleForLongitude(angleLon));
+        const QRectF labelRect(labelPos.x() - angleLabelWidth * 0.5, labelPos.y() - angleLabelHeight * 0.5,
+                               angleLabelWidth, angleLabelHeight);
+        occupiedRects.push_back(labelRect.adjusted(-6, -4, 6, 4));
+        const QPointF degPos = pointOnCircle(center, angleDegRadius, angleForLongitude(angleLon));
+        const QRectF degRect(degPos.x() - angleDegWidth * 0.5, degPos.y() - degHeight * 0.5,
+                             angleDegWidth, degHeight);
+        occupiedRects.push_back(degRect.adjusted(-6, -4, 6, 4));
+    }
 
     auto drawBodies = [&](const QVector<BodyPosition>& bodies, double baseRadius, const QColor& color, const QString& prefix, bool isTransit) {
         QVector<BodyDraw> drawList;
@@ -953,73 +999,96 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             return a.lon < b.lon;
         });
 
-        QVector<double> offsets(drawList.size(), 0.0);
+        QVector<double> labelLons(drawList.size(), 0.0);
+        if (!drawList.isEmpty()) {
+            for (int i = 0; i < drawList.size(); ++i) {
+                labelLons[i] = normalizeDegrees(drawList[i].lon);
+            }
+        }
         if (drawList.size() > 1) {
-            // Cluster detection threshold in degrees
-            const double clusterThreshold = 6.0; 
-            
-            // 1. Identify clusters
-            // groupIds will store the cluster ID for each planet
-            QVector<int> groupIds(drawList.size(), 0);
-            int currentGroup = 0;
-            groupIds[0] = 0;
-            
-            for (int i = 1; i < drawList.size(); ++i) {
-                double diff = angularDiff(drawList[i].lon, drawList[i - 1].lon);
-                if (diff < clusterThreshold) {
-                    groupIds[i] = currentGroup;
-                } else {
-                    currentGroup++;
-                    groupIds[i] = currentGroup;
+            const double glyphSizeLocal = 22.0 * fontScale_;
+            const double minSpacingDeg = std::max(2.0, (glyphSizeLocal * 1.15 / baseRadius) * qRadiansToDegrees(1.0));
+            const double clusterThreshold = minSpacingDeg * 1.1;
+
+            QVector<double> lons(drawList.size());
+            for (int i = 0; i < drawList.size(); ++i) {
+                lons[i] = normalizeDegrees(drawList[i].lon);
+            }
+
+            QVector<bool> breakAfter(drawList.size(), false);
+            for (int i = 0; i < drawList.size() - 1; ++i) {
+                if ((lons[i + 1] - lons[i]) > clusterThreshold) {
+                    breakAfter[i] = true;
                 }
             }
-            
-            // Check wraparound cluster (last planet close to first planet)
-            if (angularDiff(drawList.front().lon, drawList.back().lon) < clusterThreshold && 
-                drawList.size() > 1 && groupIds.front() != groupIds.back()) {
-                int lastGroup = groupIds.back();
-                // Merge last group into first group (0)
-                for (int i = 0; i < groupIds.size(); ++i) {
-                    if (groupIds[i] == lastGroup) {
-                        groupIds[i] = 0;
+            const double wrapGap = (lons.front() + 360.0) - lons.back();
+            if (wrapGap > clusterThreshold) {
+                breakAfter[drawList.size() - 1] = true;
+            }
+
+            int start = 0;
+            for (int i = 0; i < breakAfter.size(); ++i) {
+                if (breakAfter[i]) {
+                    start = (i + 1) % breakAfter.size();
+                    break;
+                }
+            }
+
+            QVector<QVector<int>> clusters;
+            QVector<int> current;
+            current.reserve(drawList.size());
+            for (int step = 0; step < drawList.size(); ++step) {
+                const int idx = (start + step) % drawList.size();
+                current.append(idx);
+                if (breakAfter[idx] && step < drawList.size() - 1) {
+                    clusters.append(current);
+                    current.clear();
+                }
+            }
+            if (!current.isEmpty()) {
+                clusters.append(current);
+            }
+
+            for (const auto& cluster : clusters) {
+                const int count = cluster.size();
+                if (count <= 1) {
+                    continue;
+                }
+
+                QVector<double> unwrapped(count);
+                double prev = lons[cluster[0]];
+                unwrapped[0] = prev;
+                for (int k = 1; k < count; ++k) {
+                    double lon = lons[cluster[k]];
+                    if (lon < prev) {
+                        lon += 360.0;
+                    }
+                    unwrapped[k] = lon;
+                    prev = lon;
+                }
+
+                QVector<double> placed = unwrapped;
+                for (int k = 1; k < count; ++k) {
+                    if (placed[k] < placed[k - 1] + minSpacingDeg) {
+                        placed[k] = placed[k - 1] + minSpacingDeg;
                     }
                 }
-            }
+                for (int k = count - 2; k >= 0; --k) {
+                    if (placed[k] > placed[k + 1] - minSpacingDeg) {
+                        placed[k] = placed[k + 1] - minSpacingDeg;
+                    }
+                }
+                double deltaSum = 0.0;
+                for (int k = 0; k < count; ++k) {
+                    deltaSum += (unwrapped[k] - placed[k]);
+                }
+                const double delta = deltaSum / static_cast<double>(count);
+                for (int k = 0; k < count; ++k) {
+                    placed[k] += delta;
+                }
 
-            // 2. Assign radial offsets based on cluster size
-            // Group indices mapping: GroupID -> List of Planet Indices
-            QMap<int, QVector<int>> clusters;
-            for(int i=0; i<groupIds.size(); ++i) {
-                clusters[groupIds[i]].append(i);
-            }
-            
-            const double spacing = 22.0 * fontScale_; // Vertical spacing between stacked glyphs
-
-            for(auto it = clusters.begin(); it != clusters.end(); ++it) {
-                const QVector<int>& members = it.value();
-                int count = members.size();
-                if (count <= 1) continue;
-
-                // Stack logic: Center the stack around 0 offset
-                // e.g. count 2: -0.5, +0.5
-                // e.g. count 3: -1.0, 0.0, +1.0
-                // e.g. count 4: -1.5, -0.5, +0.5, +1.5
-                
-                // We want to sort members by longitude (already sorted) but maybe 
-                // we want to fan them out such that the 'earlier' longitude is inner or outer?
-                // Standard convention: usually just stack them.
-                // Let's use alternating separate if too close? No, radial stack is better for reading.
-                
-                for(int k=0; k<count; ++k) {
-                    int originalIndex = members[k];
-                    // Calculate "track" index centered around 0
-                    double track = k - (count - 1) / 2.0;
-                     // Invert logic: Inner tracks for earlier planets? 
-                     // Or maybe just direct mapping.
-                     // Let's try direct mapping. earliest longitude -> innermost track (most negative offset)
-                     // track ranges from -(N-1)/2 to +(N-1)/2
-                     
-                    offsets[originalIndex] = track * spacing;
+                for (int k = 0; k < count; ++k) {
+                    labelLons[cluster[k]] = placed[k];
                 }
             }
         }
@@ -1050,8 +1119,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
         for (int i = 0; i < drawList.size(); ++i) {
             const auto& item = drawList[i];
-            const double angle = angleForLongitude(item.lon);
-            const double r = baseRadius + offsets[i]; // Use stacked radius
+            const double labelLon = labelLons.value(i, item.lon);
+            const double angle = angleForLongitude(normalizeDegrees(labelLon));
+            const double r = baseRadius;
             const QPointF pos = pointOnCircle(center, r, angle);
             const QString degLabel = formatDegShort(item.lon);
             
@@ -1077,9 +1147,23 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 painter.restore();
             }
 
+            // Draw leader tick if label is shifted from the true longitude.
+            const double labelDelta = angularDiff(normalizeDegrees(labelLon), normalizeDegrees(item.lon));
+            if (labelDelta > 0.25) {
+                painter.save();
+                QPen tickPen(bodyColor, 1.0);
+                tickPen.setCapStyle(Qt::RoundCap);
+                painter.setPen(tickPen);
+                const QPointF tickInner = pointOnCircle(center, r - 5.0, angleForLongitude(item.lon));
+                const QPointF tickOuter = pointOnCircle(center, r + 5.0, angleForLongitude(item.lon));
+                painter.drawLine(tickInner, tickOuter);
+                painter.restore();
+            }
+
             // Draw Unicode Glyph
             painter.setPen(bodyColor);
             painter.drawText(glyphRect, Qt::AlignCenter, glyph);
+            occupiedRects.push_back(glyphRect.adjusted(-3, -3, 3, 3));
 
             // Draw Retrograde indicator if needed
             if (item.retrograde) {
@@ -1095,12 +1179,18 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 painter.restore();
             }
 
-            const QPointF textPos = pointOnCircle(center, baseRadius + offsets[i] + degreeOffset, angle);
             if (showDegrees_) {
-                painter.setFont(smallFont);
-                painter.drawText(QRectF(textPos.x() - degWidth * 0.5, textPos.y() - degHeight * 0.5,
-                                        degWidth, degHeight),
-                                 Qt::AlignCenter, degLabel);
+                painter.save();
+                painter.setFont(degreeFont);
+                QRectF textRect = placeRadialRect(angle, baseRadius + degreeOffset, degWidth, degHeight);
+                const QRectF bgRect = textRect.adjusted(-4, -2, 4, 2);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(degreeBg);
+                painter.drawRoundedRect(bgRect, 4, 4);
+                painter.setPen(bodyColor);
+                painter.drawText(textRect, Qt::AlignCenter, degLabel);
+                painter.restore();
+                occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
                 // Restore planet font
                 painter.setFont(planetFont);
             }
@@ -1129,23 +1219,36 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     }
 
     // Angle labels + degrees.
-    painter.setFont(angleFont);
+    QFont angleLabelFont = angleFont;
+    angleLabelFont.setPointSizeF(angleFont.pointSizeF() + 1.0);
+    painter.setFont(angleLabelFont);
     const QStringList angleNames = {"AC", "MC", "DC", "IC"};
     for (int i = 0; i < angleNames.size(); ++i) {
         const double angleLon = angleLons[i];
-        const QPointF labelPos = pointOnCircle(center, tickRing + 12.0, angleForLongitude(angleLon));
+        const QPointF labelPos = pointOnCircle(center, angleLabelRadius, angleForLongitude(angleLon));
         const QRectF labelRect(labelPos.x() - angleLabelWidth * 0.5, labelPos.y() - angleLabelHeight * 0.5,
                                 angleLabelWidth, angleLabelHeight);
+        painter.save();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(degreeBg);
+        painter.drawRoundedRect(labelRect.adjusted(-5, -3, 5, 3), 4, 4);
         painter.setPen(angleColors[i]);
         painter.drawText(labelRect, Qt::AlignCenter, angleNames[i]);
+        painter.restore();
         planetHitAreas_.push_back(labelRect.adjusted(-2, -2, 2, 2));
         if (showDegrees_) {
-            painter.setFont(smallFont);
-            const QPointF degPos = pointOnCircle(center, tickRing + 28.0, angleForLongitude(angleLon));
+            painter.setFont(degreeFont);
+            const QPointF degPos = pointOnCircle(center, angleDegRadius, angleForLongitude(angleLon));
             const QRectF degRect(degPos.x() - angleDegWidth * 0.5, degPos.y() - degHeight * 0.5,
                                   angleDegWidth, degHeight);
+            painter.save();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(degreeBg);
+            painter.drawRoundedRect(degRect.adjusted(-4, -2, 4, 2), 4, 4);
+            painter.setPen(angleColors[i]);
             painter.drawText(degRect, Qt::AlignCenter, formatDegShort(angleLon));
-            painter.setFont(angleFont);
+            painter.restore();
+            painter.setFont(angleLabelFont);
         }
         const QString tooltip = QString("%1 in %2 %3")
             .arg(angleNames[i])

@@ -3680,7 +3680,7 @@ ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
             QColor("#2b2f33"),
             QColor("#2f3337"),
             QColor("#b14040"),
-            QColor("#2a2d30"),
+            QColor("#3a3f44"),
             QColor("#9aa0a6"),
             QColor("#23272b"),
             QColor(11, 12, 13, 200),
@@ -3702,7 +3702,7 @@ ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
         QColor("#d0d0d0"),
         QColor("#cfcfcf"),
         QColor("#b14040"),
-        QColor("#d6d6d6"),
+        QColor("#c0c0c0"),
         QColor("#6f6f6f"),
         QColor("#d0d0d0"),
         QColor(245, 245, 245, 220),
@@ -3736,7 +3736,7 @@ void MainWindow::applyTheme(ThemeMode mode) {
                 QColor("#BDBDBD"),          // tick
                 QColor("#E0E0E0"),          // signBoundary - Soft Grey
                 QColor("#5D4037"),          // signGlyph - Dark Brown/Gold for contrast on pastel
-                QColor("#EEEEEE"),          // houseLine - Very subtle
+                QColor("#C8C8C8"),          // houseLine - Darker for visibility
                 QColor("#757575"),          // houseLabel - Dark Grey
                 QColor("#E0E0E0"),          // transitRing
                 QColor(255, 255, 255, 220), // aspectSymbolBg - White semi-transparent
