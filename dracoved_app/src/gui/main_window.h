@@ -101,6 +101,7 @@ private:
         Transits,
         Progression,
         SolarReturn,
+        Relocation,
         Astrocartography,
     };
 
@@ -118,6 +119,10 @@ private:
     enum class SolarAspectView {
         SolarReturn,
         SolarNatal,
+    };
+    enum class RelocationAspectView {
+        Relocation,
+        RelocationNatal,
     };
 
     enum class TransitMode {
@@ -189,6 +194,14 @@ private:
     void handleSolarCalculate();
     void refreshSolarReturnView();
     void showSolarPlaceholder();
+    void markRelocationPending();
+    void updateRelocationStatusLabels();
+    void updateRelocationTimezoneStatus();
+    void handleRelocationGeocode();
+    void fetchRelocationTimezoneForCoords(double lat, double lon);
+    void handleRelocationCalculate();
+    void refreshRelocationView();
+    void showRelocationPlaceholder();
     bool computeSolarReturnChart(int year, const QString& tzLabel, double targetLon, const QString& locationName,
                                  double lat, double lon, NatalChart* out, QString* error);
     bool solarReturnTimeUtc(int year, const QString& tzLabel, double targetLon, QDateTime* outUtc, QDateTime* outLocal, QString* error);
@@ -286,6 +299,7 @@ private:
     void populateTransitAspectsOverlay(const dracoved::NatalChart& transitChart, const dracoved::NatalChart& natalChart);
     void populateProgressedAspectsOverlay(const dracoved::NatalChart& progressedChart, const dracoved::NatalChart& natalChart);
     void populateSolarNatalAspectsOverlay(const dracoved::NatalChart& solarChart, const dracoved::NatalChart& natalChart);
+    void populateRelocationNatalAspectsOverlay(const dracoved::NatalChart& relocationChart, const dracoved::NatalChart& natalChart);
     void populateTransitList(const dracoved::NatalChart& transitChart, bool overlayMode);
     void populateCurrentTransits(const dracoved::NatalChart& transitChart, const dracoved::NatalChart& natalChart);
     void populateIngressCountdown(const dracoved::NatalChart& transitChart, const dracoved::NatalInput& transitInput);
@@ -462,6 +476,19 @@ private:
     QComboBox* solarTechniqueRankMetricCombo_ = nullptr;
     QComboBox* solarTechniqueRankOrderCombo_ = nullptr;
     QSpinBox* solarTechniqueTopSpin_ = nullptr;
+    QWidget* relocationControls_ = nullptr;
+    QLineEdit* relocationLocationEdit_ = nullptr;
+    QPushButton* relocationGeocodeButton_ = nullptr;
+    QDoubleSpinBox* relocationLatSpin_ = nullptr;
+    QDoubleSpinBox* relocationLonSpin_ = nullptr;
+    QLineEdit* relocationTimezoneEdit_ = nullptr;
+    QLabel* relocationTimezoneStatus_ = nullptr;
+    QRadioButton* relocationWholeRadio_ = nullptr;
+    QRadioButton* relocationPlacidusRadio_ = nullptr;
+    QCheckBox* relocationOverlayCheck_ = nullptr;
+    QPushButton* relocationCalculateButton_ = nullptr;
+    QLabel* relocationStatusLabel_ = nullptr;
+    QLabel* relocationLastLabel_ = nullptr;
     QStackedWidget* centerStack_ = nullptr;
     QWidget* chartViewPanel_ = nullptr;
     QWidget* worldMapPanel_ = nullptr;
@@ -485,6 +512,7 @@ private:
     bool hasTransitChart_ = false;
     bool hasProgressionChart_ = false;
     bool hasSolarChart_ = false;
+    bool hasRelocationChart_ = false;
     QString currentLocation_;
     QString currentProfileName_;
     dracoved::NatalInput currentInput_;
@@ -492,9 +520,12 @@ private:
     dracoved::NatalChart currentTransitChart_;
     dracoved::NatalChart currentProgressionChart_;
     dracoved::NatalChart currentSolarChart_;
+    dracoved::NatalChart currentRelocationChart_;
     dracoved::NatalInput currentProgressionInput_;
     dracoved::NatalInput currentSolarInput_;
+    dracoved::NatalInput currentRelocationInput_;
     QString currentSolarLocation_;
+    QString currentRelocationLocation_;
     QVector<dracoved::HouseCusp> natalPlacidusCusps_;
     dracoved::HouseSystem defaultHouseSystem_ = dracoved::HouseSystem::WholeSign;
     dracoved::AspectOrbs aspectOrbs_ = dracoved::defaultAspectOrbs();
@@ -506,9 +537,11 @@ private:
     bool transitPending_ = false;
     bool progressionPending_ = false;
     bool solarPending_ = false;
+    bool relocationPending_ = false;
     QDateTime lastTransitCalculated_;
     QDateTime lastProgressionCalculated_;
     QDateTime lastSolarCalculated_;
+    QDateTime lastRelocationCalculated_;
     bool overlayAspectsTransitNatal_ = true;
     bool overlayAspectsTransitTransit_ = false;
     bool overlayAspectsNatalNatal_ = false;
@@ -541,6 +574,8 @@ private:
     AspectHeaderMode aspectHeaderMode_ = AspectHeaderMode::Abbrev;
     ProgressionView progressionView_ = ProgressionView::ProgressedOnly;
     SolarAspectView solarAspectView_ = SolarAspectView::SolarReturn;
+    RelocationAspectView relocationAspectView_ = RelocationAspectView::Relocation;
+    dracoved::HouseSystem relocationHouseSystem_ = dracoved::HouseSystem::WholeSign;
     bool aspectTriangleEnabled_ = false;
     int aspectHoverRow_ = -1;
     int aspectHoverCol_ = -1;

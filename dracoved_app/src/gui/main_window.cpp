@@ -2273,6 +2273,7 @@ void MainWindow::setupDockLayout() {
     mainTabBar_->addTab("Transits");
     mainTabBar_->addTab("Progression");
     mainTabBar_->addTab("Solar Return");
+    mainTabBar_->addTab("Relocation");
 // Astrocartography tab is optional (QtLocation). Do not remove the guard.
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
     mainTabBar_->addTab("Astrocartography");
@@ -2590,8 +2591,88 @@ void MainWindow::setupDockLayout() {
     solarLayout->addStretch();
     solarControls_->setVisible(false);
 
+    relocationControls_ = new QWidget(dataPanel);
+    auto* relocationLayout = new QVBoxLayout(relocationControls_);
+    relocationLayout->setContentsMargins(0, 0, 0, 0);
+    relocationLayout->setSpacing(8);
+
+    auto* relocationLocationGroup = new QGroupBox("Location", relocationControls_);
+    auto* relocationLocationLayout = new QGridLayout(relocationLocationGroup);
+    relocationLocationLayout->setHorizontalSpacing(8);
+    relocationLocationLayout->setVerticalSpacing(6);
+    relocationLocationLayout->setColumnStretch(1, 1);
+    relocationLocationLayout->setColumnStretch(3, 1);
+    relocationLocationEdit_ = new QLineEdit(relocationLocationGroup);
+    relocationLocationEdit_->setPlaceholderText("Location");
+    relocationGeocodeButton_ = new QPushButton("Geocode", relocationLocationGroup);
+    relocationLatSpin_ = new QDoubleSpinBox(relocationLocationGroup);
+    relocationLonSpin_ = new QDoubleSpinBox(relocationLocationGroup);
+    relocationLatSpin_->setRange(-90.0, 90.0);
+    relocationLonSpin_->setRange(-180.0, 180.0);
+    relocationLatSpin_->setDecimals(6);
+    relocationLonSpin_->setDecimals(6);
+    relocationLatSpin_->setSingleStep(0.01);
+    relocationLonSpin_->setSingleStep(0.01);
+    relocationLocationLayout->addWidget(new QLabel("Location", relocationLocationGroup), 0, 0);
+    relocationLocationLayout->addWidget(relocationLocationEdit_, 0, 1, 1, 2);
+    relocationLocationLayout->addWidget(relocationGeocodeButton_, 0, 3);
+    relocationLocationLayout->addWidget(new QLabel("Latitude", relocationLocationGroup), 1, 0);
+    relocationLocationLayout->addWidget(relocationLatSpin_, 1, 1);
+    relocationLocationLayout->addWidget(new QLabel("Longitude", relocationLocationGroup), 1, 2);
+    relocationLocationLayout->addWidget(relocationLonSpin_, 1, 3);
+
+    auto* relocationTimezoneGroup = new QGroupBox("Timezone", relocationControls_);
+    auto* relocationTimezoneLayout = new QGridLayout(relocationTimezoneGroup);
+    relocationTimezoneLayout->setHorizontalSpacing(8);
+    relocationTimezoneLayout->setVerticalSpacing(6);
+    relocationTimezoneLayout->setColumnStretch(1, 1);
+    relocationTimezoneEdit_ = new QLineEdit(relocationTimezoneGroup);
+    relocationTimezoneEdit_->setPlaceholderText("Timezone (e.g., Asia/Dhaka)");
+    relocationTimezoneStatus_ = new QLabel("OK", relocationTimezoneGroup);
+    relocationTimezoneStatus_->setMinimumWidth(40);
+    const QByteArray relocationTzId = QTimeZone::systemTimeZoneId();
+    relocationTimezoneEdit_->setText(relocationTzId.isEmpty() ? "UTC" : QString::fromUtf8(relocationTzId));
+    relocationTimezoneLayout->addWidget(new QLabel("Timezone", relocationTimezoneGroup), 0, 0);
+    relocationTimezoneLayout->addWidget(relocationTimezoneEdit_, 0, 1);
+    relocationTimezoneLayout->addWidget(relocationTimezoneStatus_, 0, 2);
+
+    auto* relocationHouseGroup = new QGroupBox("House System", relocationControls_);
+    auto* relocationHouseLayout = new QVBoxLayout(relocationHouseGroup);
+    relocationWholeRadio_ = new QRadioButton("Whole Sign", relocationHouseGroup);
+    relocationPlacidusRadio_ = new QRadioButton("Placidus", relocationHouseGroup);
+    relocationWholeRadio_->setChecked(true);
+    relocationHouseLayout->addWidget(relocationWholeRadio_);
+    relocationHouseLayout->addWidget(relocationPlacidusRadio_);
+
+    auto* relocationViewGroup = new QGroupBox("View", relocationControls_);
+    auto* relocationViewLayout = new QVBoxLayout(relocationViewGroup);
+    relocationOverlayCheck_ = new QCheckBox("Overlay natal chart", relocationViewGroup);
+    relocationOverlayCheck_->setChecked(false);
+    relocationViewLayout->addWidget(relocationOverlayCheck_);
+
+    auto* relocationRunGroup = new QGroupBox("Run", relocationControls_);
+    auto* relocationRunLayout = new QHBoxLayout(relocationRunGroup);
+    relocationCalculateButton_ = new QPushButton("Calculate Relocation", relocationRunGroup);
+    relocationStatusLabel_ = new QLabel("Pending changes", relocationRunGroup);
+    relocationStatusLabel_->setObjectName("hintLabel");
+    relocationLastLabel_ = new QLabel("Last calculated: -", relocationRunGroup);
+    relocationLastLabel_->setObjectName("hintLabel");
+    relocationRunLayout->addWidget(relocationCalculateButton_);
+    relocationRunLayout->addStretch();
+    relocationRunLayout->addWidget(relocationStatusLabel_);
+    relocationRunLayout->addWidget(relocationLastLabel_);
+
+    relocationLayout->addWidget(relocationLocationGroup);
+    relocationLayout->addWidget(relocationTimezoneGroup);
+    relocationLayout->addWidget(relocationHouseGroup);
+    relocationLayout->addWidget(relocationViewGroup);
+    relocationLayout->addWidget(relocationRunGroup);
+    relocationLayout->addStretch();
+    relocationControls_->setVisible(false);
+
     dataLayout->addWidget(progressionControls_);
     dataLayout->addWidget(solarControls_);
+    dataLayout->addWidget(relocationControls_);
     dataLayout->addWidget(tabs_);
 
     transitPanel_ = new QFrame(this);
@@ -3759,6 +3840,22 @@ void MainWindow::refreshAspectsForHeaderMode() {
         }
         return;
     }
+    if (activeTab_ == AppTab::Relocation) {
+        if (!hasCurrentChart_ || !hasRelocationChart_) {
+            setupTable(aspectsTable_, {}, 0);
+            return;
+        }
+        switch (relocationAspectView_) {
+            case RelocationAspectView::RelocationNatal:
+                populateRelocationNatalAspectsOverlay(currentRelocationChart_, currentChart_);
+                break;
+            case RelocationAspectView::Relocation:
+            default:
+                populateAspects(currentRelocationChart_);
+                break;
+        }
+        return;
+    }
     if (transitMode_ == TransitMode::NatalOverlay) {
         if (!hasCurrentChart_ || !hasTransitChart_) {
             setupTable(aspectsTable_, {}, 0);
@@ -4119,6 +4216,52 @@ void MainWindow::setupConnections() {
     }
     if (solarCalculateButton_) {
         connect(solarCalculateButton_, &QPushButton::clicked, this, &MainWindow::handleSolarCalculate);
+    }
+    if (relocationLocationEdit_) {
+        connect(relocationLocationEdit_, &QLineEdit::editingFinished, this, &MainWindow::markRelocationPending);
+    }
+    if (relocationLatSpin_) {
+        connect(relocationLatSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::markRelocationPending);
+    }
+    if (relocationLonSpin_) {
+        connect(relocationLonSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::markRelocationPending);
+    }
+    if (relocationTimezoneEdit_) {
+        connect(relocationTimezoneEdit_, &QLineEdit::editingFinished, this, [this]() {
+            updateRelocationTimezoneStatus();
+            markRelocationPending();
+        });
+        connect(relocationTimezoneEdit_, &QLineEdit::textChanged, this, &MainWindow::updateRelocationTimezoneStatus);
+    }
+    if (relocationGeocodeButton_) {
+        connect(relocationGeocodeButton_, &QPushButton::clicked, this, &MainWindow::handleRelocationGeocode);
+    }
+    if (relocationWholeRadio_) {
+        connect(relocationWholeRadio_, &QRadioButton::toggled, this, [this](bool checked) {
+            if (checked) {
+                relocationHouseSystem_ = HouseSystem::WholeSign;
+                markRelocationPending();
+            }
+        });
+    }
+    if (relocationPlacidusRadio_) {
+        connect(relocationPlacidusRadio_, &QRadioButton::toggled, this, [this](bool checked) {
+            if (checked) {
+                relocationHouseSystem_ = HouseSystem::Placidus;
+                markRelocationPending();
+            }
+        });
+    }
+    if (relocationOverlayCheck_) {
+        connect(relocationOverlayCheck_, &QCheckBox::toggled, this, [this](bool) {
+            if (activeTab_ == AppTab::Relocation) {
+                refreshRelocationView();
+            }
+            updateChartLegend();
+        });
+    }
+    if (relocationCalculateButton_) {
+        connect(relocationCalculateButton_, &QPushButton::clicked, this, &MainWindow::handleRelocationCalculate);
     }
     if (solarTechniqueDateEdit_) {
         connect(solarTechniqueDateEdit_, &QDateEdit::dateChanged, this, &MainWindow::refreshSolarTechniqueView);
@@ -4766,6 +4909,34 @@ void MainWindow::loadUiState() {
     updateSolarLocationAvailability();
     updateSolarTimezoneStatus();
     markSolarPending();
+    const int relocationHouse = settings.value("relocation/house_system", 0).toInt();
+    relocationHouseSystem_ = (relocationHouse == 1) ? HouseSystem::Placidus : HouseSystem::WholeSign;
+    if (relocationWholeRadio_ && relocationPlacidusRadio_) {
+        relocationWholeRadio_->setChecked(relocationHouseSystem_ == HouseSystem::WholeSign);
+        relocationPlacidusRadio_->setChecked(relocationHouseSystem_ == HouseSystem::Placidus);
+    }
+    if (relocationLocationEdit_) {
+        relocationLocationEdit_->setText(settings.value("relocation/location", relocationLocationEdit_->text()).toString());
+    }
+    if (relocationLatSpin_) {
+        relocationLatSpin_->setValue(settings.value("relocation/lat", relocationLatSpin_->value()).toDouble());
+    }
+    if (relocationLonSpin_) {
+        relocationLonSpin_->setValue(settings.value("relocation/lon", relocationLonSpin_->value()).toDouble());
+    }
+    if (relocationTimezoneEdit_) {
+        relocationTimezoneEdit_->setText(settings.value("relocation/timezone", relocationTimezoneEdit_->text()).toString());
+    }
+    const bool relocationOverlay = settings.value("relocation/overlay", false).toBool();
+    if (relocationOverlayCheck_) {
+        relocationOverlayCheck_->setChecked(relocationOverlay);
+    }
+    const int relocationView = settings.value("relocation/aspect_view", 0).toInt();
+    if (relocationView >= 0 && relocationView <= 1) {
+        relocationAspectView_ = static_cast<RelocationAspectView>(relocationView);
+    }
+    updateRelocationTimezoneStatus();
+    markRelocationPending();
     updateAspectScopeTabs();
     updateChartLegend();
     updateTransitSearchTargets();
@@ -4830,6 +5001,23 @@ void MainWindow::saveUiState() {
         settings.setValue("solar/timezone", solarTimezoneEdit_->text());
     }
     settings.setValue("solar/aspect_view", static_cast<int>(solarAspectView_));
+    settings.setValue("relocation/house_system", relocationHouseSystem_ == HouseSystem::Placidus ? 1 : 0);
+    if (relocationLocationEdit_) {
+        settings.setValue("relocation/location", relocationLocationEdit_->text());
+    }
+    if (relocationLatSpin_) {
+        settings.setValue("relocation/lat", relocationLatSpin_->value());
+    }
+    if (relocationLonSpin_) {
+        settings.setValue("relocation/lon", relocationLonSpin_->value());
+    }
+    if (relocationTimezoneEdit_) {
+        settings.setValue("relocation/timezone", relocationTimezoneEdit_->text());
+    }
+    if (relocationOverlayCheck_) {
+        settings.setValue("relocation/overlay", relocationOverlayCheck_->isChecked());
+    }
+    settings.setValue("relocation/aspect_view", static_cast<int>(relocationAspectView_));
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -5149,6 +5337,8 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         updateProgressionTimezoneStatus();
     }
     markProgressionPending();
+    hasRelocationChart_ = false;
+    markRelocationPending();
     if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
     }
@@ -5158,6 +5348,8 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         refreshNatalTransitsPanels();
     } else if (activeTab_ == AppTab::Progression) {
         // Progression view already refreshed.
+    } else if (activeTab_ == AppTab::Relocation) {
+        refreshRelocationView();
     } else if (activeTab_ == AppTab::Astrocartography) {
         updateAstrocartographyView();
     } else {
@@ -5205,8 +5397,10 @@ void MainWindow::handleMainTabChanged(int index) {
         activeTab_ = AppTab::Progression;
     } else if (index == 3) {
         activeTab_ = AppTab::SolarReturn;
-#if defined(DRACOVED_ENABLE_ASTRO_MAP)
     } else if (index == 4) {
+        activeTab_ = AppTab::Relocation;
+#if defined(DRACOVED_ENABLE_ASTRO_MAP)
+    } else if (index == 5) {
         activeTab_ = AppTab::Astrocartography;
 #endif
     } else {
@@ -5228,6 +5422,9 @@ void MainWindow::handleMainTabChanged(int index) {
     }
     if (solarControls_) {
         solarControls_->setVisible(activeTab_ == AppTab::SolarReturn);
+    }
+    if (relocationControls_) {
+        relocationControls_->setVisible(activeTab_ == AppTab::Relocation);
     }
     if (tabs_ && solarTechniquePanel_) {
         const int techniqueIndex = tabs_->indexOf(solarTechniquePanel_);
@@ -5320,6 +5517,16 @@ void MainWindow::handleMainTabChanged(int index) {
         updateSolarStatusLabels();
         refreshSolarReturnView();
         refreshSolarTechniqueView();
+    } else if (activeTab_ == AppTab::Relocation) {
+        if (rightTopDock_) {
+            rightTopDock_->setWindowTitle("Relocation");
+        }
+        if (rightBottomDock_) {
+            rightBottomDock_->setWindowTitle("Relocation-Natal");
+        }
+        updateRelocationTimezoneStatus();
+        updateRelocationStatusLabels();
+        refreshRelocationView();
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
     } else if (activeTab_ == AppTab::Astrocartography) {
         if (rightTopDock_) {
@@ -5418,6 +5625,14 @@ void MainWindow::handleTransitAspectViewChanged(int index) {
         }
         solarAspectView_ = static_cast<SolarAspectView>(index);
         refreshSolarReturnView();
+        return;
+    }
+    if (activeTab_ == AppTab::Relocation) {
+        if (index < 0 || index > 1) {
+            return;
+        }
+        relocationAspectView_ = static_cast<RelocationAspectView>(index);
+        refreshRelocationView();
         return;
     }
     if (index < 0 || index > 2) {
@@ -5734,6 +5949,10 @@ void MainWindow::handleCopyAspects() {
         setStatusMessage("Calculate a solar return first to copy aspects.");
         return;
     }
+    if (activeTab_ == AppTab::Relocation && !hasRelocationChart_) {
+        setStatusMessage("Calculate relocation first to copy aspects.");
+        return;
+    }
 
     const QString text = buildAspectsClipboardText();
     if (text.isEmpty()) {
@@ -5877,6 +6096,7 @@ QString MainWindow::buildNatalReportText() const {
 QString MainWindow::buildAspectsClipboardText() const {
     QStringList lines;
     const QChar degSymbol(0x00B0);
+    const QString prefixRelocation = "Relocation";
     const QString prefixNatal = QString::fromUtf8(u8"ɴᴀᴛᴀʟ");
     const QString prefixTransit = QString::fromUtf8(u8"ᴛʀᴀɴsɪᴛ");
     const QString prefixProgressed = QString::fromUtf8(u8"ᴘʀᴏɢʀᴇssᴇᴅ");
@@ -5986,8 +6206,22 @@ QString MainWindow::buildAspectsClipboardText() const {
                 .arg(currentSolarChart_.localDateTime.toString("yyyy-MM-dd HH:mm:ss"))
                 .arg(currentSolarChart_.timezoneLabel);
         }
+    } else if (activeTab_ == AppTab::Relocation) {
+        if (relocationAspectView_ == RelocationAspectView::RelocationNatal) {
+            contextLabel = "Relocation (Relocation-Natal)";
+        } else {
+            contextLabel = "Relocation";
+        }
+        contextHouseSystem = currentRelocationInput_.houseSystem;
+        if (!currentRelocationLocation_.isEmpty()) {
+            lines << QString("Relocation location: %1").arg(currentRelocationLocation_);
+        }
+        if (hasRelocationChart_) {
+            lines << QString("Relocation time: %1 (%2)")
+                .arg(currentRelocationChart_.localDateTime.toString("yyyy-MM-dd HH:mm:ss"))
+                .arg(currentRelocationChart_.timezoneLabel);
+        }
     }
-
     lines.prepend(QString("Context: %1").arg(contextLabel));
     lines << QString("House system: %1").arg(houseSystemLabel(contextHouseSystem));
     lines << QString("Orbs: Conjunction %1%6, Sextile %2%6, Square %3%6, Trine %4%6, Opposition %5%6")
@@ -6168,8 +6402,13 @@ QString MainWindow::buildAspectsClipboardText() const {
         } else {
             appendChartMatrix(currentSolarChart_, prefixSolar);
         }
+    } else if (activeTab_ == AppTab::Relocation) {
+        if (relocationAspectView_ == RelocationAspectView::RelocationNatal) {
+            appendOverlayMatrix(currentRelocationChart_, currentChart_, true, prefixRelocation, prefixNatal);
+        } else {
+            appendChartMatrix(currentRelocationChart_, prefixRelocation);
+        }
     }
-
     return lines.join("\n");
 }
 
@@ -8169,7 +8408,8 @@ void MainWindow::updateAspectScopeTabs() {
 
     const bool showTransitTabs = (activeTab_ == AppTab::Transits && transitMode_ == TransitMode::NatalOverlay);
     const bool showSolarTabs = (activeTab_ == AppTab::SolarReturn && !isSolarTechniqueTabActive());
-    const bool showTabs = showTransitTabs || showSolarTabs;
+    const bool showRelocationTabs = (activeTab_ == AppTab::Relocation);
+    const bool showTabs = showTransitTabs || showSolarTabs || showRelocationTabs;
     aspectScopeTabs_->setVisible(showTabs);
     if (showTransitTabs) {
         ensureTabs({"Transit-Natal", "Transit-Transit", "Natal-Natal"});
@@ -8177,6 +8417,9 @@ void MainWindow::updateAspectScopeTabs() {
     } else if (showSolarTabs) {
         ensureTabs({"Solar Return", "Solar-Natal"});
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(solarAspectView_));
+    } else if (showRelocationTabs) {
+        ensureTabs({"Relocation", "Relocation-Natal"});
+        aspectScopeTabs_->setCurrentIndex(static_cast<int>(relocationAspectView_));
     }
 }
 
@@ -8192,6 +8435,9 @@ void MainWindow::updateChartLegend() {
     } else if (activeTab_ == AppTab::Progression && progressionView_ == ProgressionView::Overlay) {
         showLegend = true;
         label = "Natal (inner) / Progressed (outer)";
+    } else if (activeTab_ == AppTab::Relocation && relocationOverlayCheck_ && relocationOverlayCheck_->isChecked()) {
+        showLegend = true;
+        label = "Natal (inner) / Relocation (outer)";
     }
     if (showLegend) {
         chartLegendLabel_->setText(label);
@@ -8208,6 +8454,11 @@ void MainWindow::markSolarPending() {
     solarPending_ = true;
     updateSolarStatusLabels();
     refreshSolarTechniqueView();
+}
+
+void MainWindow::markRelocationPending() {
+    relocationPending_ = true;
+    updateRelocationStatusLabels();
 }
 
 void MainWindow::applyTransitCalculation() {
@@ -8264,6 +8515,28 @@ void MainWindow::updateSolarStatusLabels() {
     }
     if (solarCalculateButton_) {
         solarCalculateButton_->setEnabled(solarPending_);
+    }
+}
+
+void MainWindow::updateRelocationStatusLabels() {
+    if (!relocationStatusLabel_ || !relocationLastLabel_) {
+        return;
+    }
+    if (relocationPending_) {
+        relocationStatusLabel_->setText("Pending changes");
+        relocationStatusLabel_->setStyleSheet("color: #d4a24a;");
+    } else {
+        relocationStatusLabel_->setText("Up to date");
+        relocationStatusLabel_->setStyleSheet("color: #69c36d;");
+    }
+    if (lastRelocationCalculated_.isValid()) {
+        relocationLastLabel_->setText(QString("Last calculated: %1")
+            .arg(lastRelocationCalculated_.toString("yyyy-MM-dd HH:mm:ss")));
+    } else {
+        relocationLastLabel_->setText("Last calculated: -");
+    }
+    if (relocationCalculateButton_) {
+        relocationCalculateButton_->setEnabled(hasCurrentChart_ && relocationPending_);
     }
 }
 
@@ -8484,6 +8757,23 @@ void MainWindow::updateSolarTimezoneStatus() {
     }
 }
 
+void MainWindow::updateRelocationTimezoneStatus() {
+    if (!relocationTimezoneStatus_) {
+        return;
+    }
+    QTimeZone tz;
+    QString label;
+    QString err;
+    const QString tzText = relocationTimezoneEdit_ ? relocationTimezoneEdit_->text().trimmed() : QString("UTC");
+    if (parseTimezoneInput(tzText, &tz, &label, &err)) {
+        relocationTimezoneStatus_->setText("OK");
+        relocationTimezoneStatus_->setStyleSheet("color: #69c36d;");
+    } else {
+        relocationTimezoneStatus_->setText("Invalid");
+        relocationTimezoneStatus_->setStyleSheet("color: #e05555;");
+    }
+}
+
 void MainWindow::syncSolarLocationFromNatal() {
     if (!hasCurrentChart_) {
         return;
@@ -8615,6 +8905,119 @@ void MainWindow::fetchSolarTimezoneForCoords(double lat, double lon) {
                 .arg(QString::number(minutes).rightJustified(2, '0'));
             solarTimezoneEdit_->setText(label);
             updateSolarTimezoneStatus();
+        }
+    });
+}
+
+void MainWindow::handleRelocationGeocode() {
+    if (!net_) {
+        setStatusMessage("Network manager not available.");
+        return;
+    }
+    const QString queryText = relocationLocationEdit_ ? relocationLocationEdit_->text().trimmed() : QString();
+    if (queryText.isEmpty()) {
+        setStatusMessage("Enter a place name to geocode.");
+        return;
+    }
+    QUrl url("https://nominatim.openstreetmap.org/search");
+    QUrlQuery query;
+    query.addQueryItem("format", "json");
+    query.addQueryItem("limit", "1");
+    query.addQueryItem("q", queryText);
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "DracoVedCpp/0.1");
+    auto* reply = net_->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            setStatusMessage(QString("Geocoding failed: %1").arg(reply->errorString()));
+            return;
+        }
+        const auto payload = reply->readAll();
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(payload, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isArray()) {
+            setStatusMessage("Unable to parse geocoding response.");
+            return;
+        }
+        const QJsonArray arr = doc.array();
+        if (arr.isEmpty() || !arr[0].isObject()) {
+            setStatusMessage("No results found for that location.");
+            return;
+        }
+        const QJsonObject obj = arr[0].toObject();
+        bool okLat = false;
+        bool okLon = false;
+        const double lat = obj.value("lat").toString().toDouble(&okLat);
+        const double lon = obj.value("lon").toString().toDouble(&okLon);
+        if (!okLat || !okLon) {
+            setStatusMessage("Geocoding response missing coordinates.");
+            return;
+        }
+        if (relocationLatSpin_) {
+            relocationLatSpin_->setValue(lat);
+        }
+        if (relocationLonSpin_) {
+            relocationLonSpin_->setValue(lon);
+        }
+        fetchRelocationTimezoneForCoords(lat, lon);
+        markRelocationPending();
+    });
+}
+
+void MainWindow::fetchRelocationTimezoneForCoords(double lat, double lon) {
+    if (!net_) {
+        return;
+    }
+    QUrl url("https://api.open-meteo.com/v1/forecast");
+    QUrlQuery query;
+    query.addQueryItem("latitude", QString::number(lat, 'f', 6));
+    query.addQueryItem("longitude", QString::number(lon, 'f', 6));
+    query.addQueryItem("current", "temperature_2m");
+    query.addQueryItem("timezone", "auto");
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "DracoVedCpp/0.1");
+    auto* reply = net_->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            setStatusMessage(QString("Timezone lookup failed: %1").arg(reply->errorString()));
+            return;
+        }
+        const auto payload = reply->readAll();
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(payload, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            setStatusMessage("Unable to parse timezone response.");
+            return;
+        }
+        const QJsonObject obj = doc.object();
+        const QString tzName = obj.value("timezone").toString().trimmed();
+        if (!tzName.isEmpty()) {
+            if (relocationTimezoneEdit_) {
+                relocationTimezoneEdit_->setText(tzName);
+                updateRelocationTimezoneStatus();
+            }
+            return;
+        }
+        const int offsetSeconds = obj.value("utc_offset_seconds").toInt();
+        if (offsetSeconds != 0 && relocationTimezoneEdit_) {
+            const int totalMinutes = offsetSeconds / 60;
+            const int hours = totalMinutes / 60;
+            const int minutes = std::abs(totalMinutes % 60);
+            const QString sign = hours >= 0 ? "+" : "-";
+            const QString label = QString("UTC%1%2:%3")
+                .arg(sign)
+                .arg(QString::number(std::abs(hours)).rightJustified(2, '0'))
+                .arg(QString::number(minutes).rightJustified(2, '0'));
+            relocationTimezoneEdit_->setText(label);
+            updateRelocationTimezoneStatus();
         }
     });
 }
@@ -8982,6 +9385,83 @@ void MainWindow::handleSolarCalculate() {
     }
 }
 
+void MainWindow::handleRelocationCalculate() {
+    if (!hasCurrentChart_) {
+        setStatusMessage("Load a natal chart first to compute relocation.");
+        return;
+    }
+    if (ephePath_.isEmpty()) {
+        setStatusMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
+        return;
+    }
+    QTimeZone tz;
+    QString tzLabel;
+    QString tzErr;
+    const QString tzText = relocationTimezoneEdit_ ? relocationTimezoneEdit_->text().trimmed() : QString("UTC");
+    if (!parseTimezoneInput(tzText, &tz, &tzLabel, &tzErr)) {
+        setStatusMessage(tzErr);
+        return;
+    }
+
+    QDateTime natalUtc = currentChart_.utcDateTime;
+    if (!natalUtc.isValid()) {
+        QTimeZone natalTz;
+        QString natalLabel;
+        QString natalErr;
+        if (!parseTimezoneInput(currentInput_.timezone, &natalTz, &natalLabel, &natalErr)) {
+            natalTz = QTimeZone::utc();
+        }
+        QDateTime natalLocal(currentInput_.date, currentInput_.time, natalTz);
+        natalUtc = natalLocal.toUTC();
+    }
+    if (!natalUtc.isValid()) {
+        setStatusMessage("Invalid natal date/time.");
+        return;
+    }
+
+    const double lat = relocationLatSpin_ ? relocationLatSpin_->value() : currentInput_.latitude;
+    const double lon = relocationLonSpin_ ? relocationLonSpin_->value() : currentInput_.longitude;
+    const QString locationName = relocationLocationEdit_ ? relocationLocationEdit_->text().trimmed() : QString();
+    if (locationName.isEmpty() && std::abs(lat) < 0.0001 && std::abs(lon) < 0.0001) {
+        setStatusMessage("Set a relocation location or coordinates.");
+        return;
+    }
+
+    if (relocationPlacidusRadio_ && relocationPlacidusRadio_->isChecked()) {
+        relocationHouseSystem_ = HouseSystem::Placidus;
+    } else {
+        relocationHouseSystem_ = HouseSystem::WholeSign;
+    }
+
+    const QDateTime relocationLocal = natalUtc.toTimeZone(tz);
+    NatalInput input = currentInput_;
+    input.date = relocationLocal.date();
+    input.time = relocationLocal.time();
+    input.timezone = tzLabel;
+    input.latitude = lat;
+    input.longitude = lon;
+    input.houseSystem = relocationHouseSystem_;
+    input.aspectOrbs = aspectOrbs_;
+
+    NatalChart chart;
+    QString err;
+    if (!engine_.compute(input, &chart, &err)) {
+        setStatusMessage(err);
+        return;
+    }
+
+    currentRelocationChart_ = chart;
+    currentRelocationInput_ = input;
+    currentRelocationLocation_ = locationName;
+    hasRelocationChart_ = true;
+    relocationPending_ = false;
+    lastRelocationCalculated_ = QDateTime::currentDateTime();
+    updateRelocationStatusLabels();
+    if (activeTab_ == AppTab::Relocation) {
+        refreshRelocationView();
+    }
+}
+
 void MainWindow::showSolarPlaceholder() {
     const QString message = hasCurrentChart_
         ? "Enter inputs and click Calculate Solar Return."
@@ -9045,6 +9525,89 @@ void MainWindow::refreshSolarReturnView() {
             populateAspects(currentSolarChart_);
             break;
     }
+}
+
+void MainWindow::showRelocationPlaceholder() {
+    const QString message = hasCurrentChart_
+        ? (relocationPending_ ? "Pending changes. Click Calculate Relocation."
+                              : "Enter relocation inputs and click Calculate Relocation.")
+        : "Load a natal chart to compute relocation.";
+    if (summaryTable_) {
+        setupTable(summaryTable_, {"Info"}, 1);
+        summaryTable_->setItem(0, 0, makeCell(message));
+    }
+    if (anglesTable_) {
+        setupTable(anglesTable_, {"Info"}, 1);
+        anglesTable_->setItem(0, 0, makeCell(message));
+    }
+    if (planetsTable_) {
+        setupTable(planetsTable_, {"Info"}, 1);
+        planetsTable_->setItem(0, 0, makeCell(message));
+    }
+    if (housesTable_) {
+        setupTable(housesTable_, {"Info"}, 1);
+        housesTable_->setItem(0, 0, makeCell(message));
+    }
+    if (aspectsTable_) {
+        setupTable(aspectsTable_, {}, 0);
+    }
+    aspectTriangleEnabled_ = false;
+    clearAspectHover();
+    if (chartWheel_) {
+        chartWheel_->clearChart();
+    }
+    if (rightTopTable_) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell(message));
+    }
+    if (rightBottomTable_) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell(message));
+    }
+}
+
+void MainWindow::refreshRelocationView() {
+    if (activeTab_ != AppTab::Relocation) {
+        return;
+    }
+    if (!hasCurrentChart_ || !hasRelocationChart_) {
+        showRelocationPlaceholder();
+        return;
+    }
+    populateSummary(currentRelocationChart_, currentRelocationInput_, currentRelocationLocation_);
+    populateAngles(currentRelocationChart_);
+    populatePlanets(currentRelocationChart_);
+    populateHouses(currentRelocationChart_, currentRelocationInput_.houseSystem);
+    if (chartWheel_) {
+        if (relocationOverlayCheck_ && relocationOverlayCheck_->isChecked()) {
+            chartWheel_->setOverlayLabel("Relocation");
+            chartWheel_->setShowAspects(true);
+            chartWheel_->setOverlayCharts(currentChart_, currentRelocationChart_, currentRelocationInput_.houseSystem, aspectOrbs_);
+            chartWheel_->setOverlayAspectScopes(true, false, false);
+        } else {
+            chartWheel_->setChart(currentRelocationChart_, currentRelocationInput_.houseSystem);
+        }
+        chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+    }
+    switch (relocationAspectView_) {
+        case RelocationAspectView::RelocationNatal:
+            populateRelocationNatalAspectsOverlay(currentRelocationChart_, currentChart_);
+            break;
+        case RelocationAspectView::Relocation:
+        default:
+            populateAspects(currentRelocationChart_);
+            break;
+    }
+    if (rightTopTable_) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Relocation chart shown in left panels."));
+    }
+    if (rightBottomTable_) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Use Aspect Scope to compare Relocation and Natal charts."));
+    }
+    updateRelocationStatusLabels();
+    updateChartLegend();
 }
 
 void MainWindow::refreshSolarTechniqueView() {
@@ -10434,6 +10997,132 @@ void MainWindow::populateSolarNatalAspectsOverlay(const NatalChart& solarChart, 
                     .arg(QString::number(orb, 'f', 1));
                 auto* item = makeCell(text, Qt::AlignCenter);
                 const QString tooltip = QString("Solar %1 vs Natal %2: %3 (orb %4 deg)")
+                    .arg(sName)
+                    .arg(nName)
+                    .arg(label)
+                    .arg(QString::number(orb, 'f', 2));
+                item->setToolTip(tooltip);
+                if (label == "Square" || label == "Opposition") {
+                    item->setForeground(QColor("#e05555"));
+                } else if (label == "Trine" || label == "Sextile") {
+                    item->setForeground(QColor("#4aa3ff"));
+                }
+                aspectsTable_->setItem(r, c, item);
+            } else {
+                aspectsTable_->setItem(r, c, makeCell(""));
+            }
+        }
+    }
+    clearAspectHover();
+}
+
+void MainWindow::populateRelocationNatalAspectsOverlay(const NatalChart& relocationChart, const NatalChart& natalChart) {
+    if (!aspectsTable_) {
+        return;
+    }
+    aspectTriangleEnabled_ = false;
+    QMap<QString, double> relocationMap;
+    for (const auto& body : relocationChart.bodies) {
+        relocationMap.insert(body.name, body.longitude);
+    }
+    relocationMap.insert("Ascendant", relocationChart.angles.asc);
+    relocationMap.insert("Midheaven", relocationChart.angles.mc);
+    relocationMap.insert("Descendant", relocationChart.angles.desc);
+    relocationMap.insert("IC", relocationChart.angles.ic);
+
+    QMap<QString, double> natalMap;
+    for (const auto& body : natalChart.bodies) {
+        natalMap.insert(body.name, body.longitude);
+    }
+    natalMap.insert("Ascendant", natalChart.angles.asc);
+    natalMap.insert("Midheaven", natalChart.angles.mc);
+    natalMap.insert("Descendant", natalChart.angles.desc);
+    natalMap.insert("IC", natalChart.angles.ic);
+
+    QStringList rowNames;
+    QStringList colNames;
+    for (const auto& name : tropicalBodyOrder()) {
+        if (relocationMap.contains(name)) {
+            rowNames.push_back(name);
+        }
+        if (natalMap.contains(name)) {
+            colNames.push_back(name);
+        }
+    }
+
+    const int rows = rowNames.size();
+    const int cols = colNames.size();
+    aspectsTable_->clear();
+    aspectsTable_->clearSpans();
+    aspectsTable_->setRowCount(rows);
+    aspectsTable_->setColumnCount(cols);
+    aspectsTable_->verticalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setVisible(true);
+
+    QStringList rowHeaders;
+    QStringList colHeaders;
+    rowHeaders.reserve(rows);
+    colHeaders.reserve(cols);
+    for (const auto& name : rowNames) {
+        rowHeaders.push_back(QString("Relocation %1").arg(aspectHeaderLabel(name)));
+    }
+    for (const auto& name : colNames) {
+        colHeaders.push_back(QString("Natal %1").arg(aspectHeaderLabel(name)));
+    }
+    aspectsTable_->setHorizontalHeaderLabels(colHeaders);
+    aspectsTable_->setVerticalHeaderLabels(rowHeaders);
+    aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->setShowGrid(true);
+    aspectsTable_->setAlternatingRowColors(false);
+    aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
+    aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
+    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
+        QFont glyphFont = aspectsTable_->font();
+        glyphFont.setFamily("Segoe UI Symbol");
+        glyphFont.setPointSize(9);
+        aspectsTable_->setFont(glyphFont);
+        aspectsTable_->horizontalHeader()->setFont(glyphFont);
+        aspectsTable_->verticalHeader()->setFont(glyphFont);
+    } else {
+        QFont baseFont = aspectsTable_->font();
+        aspectsTable_->setFont(baseFont);
+        aspectsTable_->horizontalHeader()->setFont(baseFont);
+        aspectsTable_->verticalHeader()->setFont(baseFont);
+    }
+
+    for (int r = 0; r < rows; ++r) {
+        if (auto* item = aspectsTable_->verticalHeaderItem(r)) {
+            item->setToolTip("Relocation " + rowNames[r]);
+        }
+    }
+    for (int c = 0; c < cols; ++c) {
+        if (auto* item = aspectsTable_->horizontalHeaderItem(c)) {
+            item->setToolTip("Natal " + colNames[c]);
+        }
+    }
+
+    for (int r = 0; r < rows; ++r) {
+        const QString& sName = rowNames[r];
+        const double sLon = relocationMap.value(sName);
+        for (int c = 0; c < cols; ++c) {
+            const QString& nName = colNames[c];
+            const double nLon = natalMap.value(nName);
+            const double diff = angularDiff(sLon, nLon);
+            QString label;
+            double orb = 0.0;
+            double maxOrb = 0.0;
+            if (aspectForDiff(diff, aspectOrbs_, &label, &orb, &maxOrb)) {
+                if (aspectDisplayMaxOrb_ > 0.0 && orb > aspectDisplayMaxOrb_) {
+                    aspectsTable_->setItem(r, c, makeCell(""));
+                    continue;
+                }
+                const QString text = QString("%1 %2")
+                    .arg(aspectSymbolForLabel(label))
+                    .arg(QString::number(orb, 'f', 1));
+                auto* item = makeCell(text, Qt::AlignCenter);
+                const QString tooltip = QString("Relocation %1 vs Natal %2: %3 (orb %4 deg)")
                     .arg(sName)
                     .arg(nName)
                     .arg(label)

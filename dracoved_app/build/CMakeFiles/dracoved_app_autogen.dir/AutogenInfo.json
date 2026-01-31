@@ -1,17 +1,70 @@
 {
 	"AUTOGEN_COMMAND_LINE_LENGTH_MAX" : 32000,
-	"BUILD_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen",
-	"CMAKE_BINARY_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build",
-	"CMAKE_CURRENT_BINARY_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build",
-	"CMAKE_CURRENT_SOURCE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app",
+	"BUILD_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen",
+	"CMAKE_BINARY_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build",
+	"CMAKE_CURRENT_BINARY_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build",
+	"CMAKE_CURRENT_SOURCE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app",
 	"CMAKE_EXECUTABLE" : "C:/Qt/Tools/CMake_64/bin/cmake.exe",
 	"CMAKE_LIST_FILES" : 
 	[
-		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/CMakeLists.txt",
-		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeSystem.cmake",
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/CMakeLists.txt",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineSystem.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystem.cmake.in",
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeSystem.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeNinjaFindMake.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-Initialize.cmake",
-		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeCXXCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCXXCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-Determine-CXX.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCompilerIdDetection.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ADSP-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMCC-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMClang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/AppleClang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Borland-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Cray-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CrayClang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Embarcadero-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Fujitsu-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GHS-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/HP-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IAR-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Intel-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVHPC-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVIDIA-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OrangeC-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PGI-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PathScale-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SCO-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TI-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TIClang-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Tasking-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Watcom-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XL-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindBinUtils.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GNU-FindBinUtils.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompiler.cmake.in",
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeCXXCompiler.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake",
@@ -24,11 +77,27 @@
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-GNU-CXX.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-GNU.cmake",
-		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeRCCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineRCCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeRCCompiler.cmake.in",
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeRCCompiler.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeRCInformation.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-windres.cmake",
-		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-GNU-CXX-ABI.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestRCCompiler.cmake",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitIncludeInfo.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitLinkInfo.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseLibraryArchitecture.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompilerABI.cpp",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerSupport.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/FeatureTesting.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompiler.cmake.in",
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/3.30.5/CMakeCXXCompiler.cmake",
+		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-GNU-CXX-ABI.cmake",
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6/Qt6ConfigVersion.cmake",
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake",
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6/Qt6Config.cmake",
@@ -298,78 +367,78 @@
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6SvgWidgets/Qt6SvgWidgetsTargets-relwithdebinfo.cmake",
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6SvgWidgets/Qt6SvgWidgetsAdditionalTargetInfo.cmake",
 		"C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6SvgWidgets/Qt6SvgWidgetsVersionlessAliasTargets.cmake",
-		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/resources.qrc"
+		"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/resources.qrc"
 	],
-	"CMAKE_SOURCE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app",
+	"CMAKE_SOURCE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app",
 	"CROSS_CONFIG" : false,
-	"DEP_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/deps",
+	"DEP_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/deps",
 	"DEP_FILE_RULE_NAME" : "dracoved_app_autogen/timestamp",
 	"HEADERS" : 
 	[
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/chart_types.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/chart_types.h",
 			"MU",
 			"PRMOGMWJPH/moc_chart_types.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h",
 			"MU",
 			"PRMOGMWJPH/moc_formatting.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.h",
 			"MU",
 			"PRMOGMWJPH/moc_progression.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h",
 			"MU",
 			"PRMOGMWJPH/moc_swiss_eph.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h",
 			"MU",
 			"PRMOGMWJPH/moc_timezone_utils.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h",
 			"MU",
 			"PRMOGMWJPH/moc_tropical_natal.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_aspect_orbs_dialog.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_chart_setup_dialog.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h",
 			"MU",
 			"MXUWEOXILK/moc_chart_wheel_widget.cpp",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h",
 			"MU",
 			"MXUWEOXILK/moc_main_window.cpp",
 			null
 		]
 	],
 	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
-	"INCLUDE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/include",
-	"MOC_COMPILATION_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/mocs_compilation.cpp",
+	"INCLUDE_DIR" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/include",
+	"MOC_COMPILATION_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/mocs_compilation.cpp",
 	"MOC_DEFINITIONS" : 
 	[
 		"MINGW_HAS_SECURE_API=1",
@@ -424,73 +493,73 @@
 	"MOC_PATH_PREFIX" : false,
 	"MOC_PREDEFS_CMD" : 
 	[
-		"C:/Qt/Tools/mingw1310_64/bin/g++.exe",
+		"C:/Qt/Tools/mingw1310_64/bin/c++.exe",
 		"-std=gnu++20",
 		"-dM",
 		"-E",
 		"-c",
 		"C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompilerABI.cpp"
 	],
-	"MOC_PREDEFS_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h",
+	"MOC_PREDEFS_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h",
 	"MOC_RELAXED_MODE" : false,
 	"MOC_SKIP" : [],
 	"MULTI_CONFIG" : false,
 	"PARALLEL" : 4,
-	"PARSE_CACHE_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/dracoved_app_autogen.dir/ParseCache.txt",
+	"PARSE_CACHE_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/dracoved_app_autogen.dir/ParseCache.txt",
 	"QT_MOC_EXECUTABLE" : "C:/Qt/6.10.1/mingw_64/bin/moc.exe",
 	"QT_UIC_EXECUTABLE" : "C:/Qt/6.10.1/mingw_64/bin/uic.exe",
 	"QT_VERSION_MAJOR" : 6,
 	"QT_VERSION_MINOR" : 10,
-	"SETTINGS_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/dracoved_app_autogen.dir/AutogenUsed.txt",
+	"SETTINGS_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/dracoved_app_autogen.dir/AutogenUsed.txt",
 	"SOURCES" : 
 	[
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp",
 			"MU",
 			null
 		],
 		[
-			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/main.cpp",
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/main.cpp",
 			"MU",
 			null
 		]

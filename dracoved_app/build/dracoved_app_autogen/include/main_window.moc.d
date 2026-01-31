@@ -1,5 +1,5 @@
-C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/include/main_window.moc: C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h \
+C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/include/main_window.moc: C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QCoreApplication \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDate \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
@@ -628,13 +628,13 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracove
   C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include/vadefs.h \
   C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include/wchar.h \
   C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include/wctype.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/chart_types.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h \
-  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/chart_types.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h
