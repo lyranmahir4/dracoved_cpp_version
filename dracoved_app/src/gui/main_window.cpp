@@ -4043,6 +4043,15 @@ void MainWindow::setupDockLayout() {
     auto* rightBottomLayout = new QVBoxLayout(rightBottomPanel);
     rightBottomLayout->setContentsMargins(6, 6, 6, 6);
     rightBottomLayout->addWidget(rightBottomTable_);
+    auto* rightBottomFooter = new QWidget(rightBottomPanel);
+    auto* rightBottomFooterLayout = new QHBoxLayout(rightBottomFooter);
+    rightBottomFooterLayout->setContentsMargins(0, 0, 0, 0);
+    rightBottomCopyButton_ = new QPushButton("Copy Lunation Placements", rightBottomFooter);
+    rightBottomCopyButton_->setVisible(false);
+    rightBottomCopyButton_->setEnabled(false);
+    rightBottomFooterLayout->addStretch();
+    rightBottomFooterLayout->addWidget(rightBottomCopyButton_);
+    rightBottomLayout->addWidget(rightBottomFooter);
 
     rightBottomDock_ = new QDockWidget("Ingress Countdown", this);
     rightBottomDock_->setObjectName("dock_right_bottom");
@@ -5360,6 +5369,9 @@ void MainWindow::setupConnections() {
     if (reportCopyButton_) {
         connect(reportCopyButton_, &QPushButton::clicked, this, &MainWindow::handleCopyReport);
     }
+    if (rightBottomCopyButton_) {
+        connect(rightBottomCopyButton_, &QPushButton::clicked, this, &MainWindow::handleCopyLunationDetails);
+    }
     if (aspectsTable_) {
         connect(aspectsTable_, &QTableWidget::cellEntered, this, &MainWindow::updateAspectHover);
     }
@@ -5414,6 +5426,7 @@ void MainWindow::setupConnections() {
     }
 
     updateLunationModeAvailability();
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::resetDockLayout() {
@@ -6833,6 +6846,18 @@ void MainWindow::handleCopyAspects() {
     setStatusMessage("Aspect matrix copied to clipboard.");
 }
 
+void MainWindow::handleCopyLunationDetails() {
+    const QString text = buildLunationDetailsClipboardText();
+    if (text.isEmpty()) {
+        setStatusMessage("Select a lunation result first.");
+        return;
+    }
+    if (auto* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+    setStatusMessage("Lunation details copied to clipboard.");
+}
+
 void MainWindow::handleCopyReport() {
     if (!hasCurrentChart_) {
         setStatusMessage("Load a natal chart to generate the report.");
@@ -6847,6 +6872,63 @@ void MainWindow::handleCopyReport() {
         clipboard->setText(text);
     }
     setStatusMessage("Natal report copied to clipboard.");
+}
+
+void MainWindow::updateLunationCopyButtonState() {
+    if (!rightBottomCopyButton_) {
+        return;
+    }
+    const bool inLunations = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations);
+    const bool showingEventDetails = lunationBottomEventOrder_.isEmpty();
+    rightBottomCopyButton_->setVisible(inLunations);
+    rightBottomCopyButton_->setEnabled(inLunations && showingEventDetails && hasLunationSelection_ && hasTransitChart_);
+}
+
+QString MainWindow::buildLunationDetailsClipboardText() const {
+    if (!hasLunationSelection_ || !hasTransitChart_) {
+        return QString();
+    }
+
+    const LunationResult& result = lastLunationSelection_;
+    const NatalChart& chart = currentTransitChart_;
+    QStringList lines;
+    lines << "Lunation Details";
+    lines << QString("Event: %1").arg(result.event);
+    if (!result.eclipseType.isEmpty()) {
+        lines << QString("Eclipse Type: %1").arg(result.eclipseType);
+    }
+    lines << QString("Local Time: %1").arg(result.timeLocal.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("UTC Time: %1").arg(result.timeUtc.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("Timezone: %1").arg(result.tzLabel);
+    lines << QString("Sun: %1").arg(formatDegInSign(result.sunLon));
+    lines << QString("Moon: %1").arg(formatDegInSign(result.moonLon));
+    lines << "";
+    lines << "Moment Placements:";
+
+    QMap<QString, BodyPosition> bodyMap;
+    for (const auto& body : chart.bodies) {
+        bodyMap.insert(body.name, body);
+    }
+    for (const auto& name : tropicalBodyOrder()) {
+        if (!bodyMap.contains(name)) {
+            continue;
+        }
+        const auto body = bodyMap.value(name);
+        const QString motion = body.retrograde ? " R" : "";
+        const QString house = body.house > 0 ? QString(" (H%1%2)").arg(body.house).arg(motion)
+                                             : (motion.isEmpty() ? QString() : QString(" (%1)").arg(motion.trimmed()));
+        lines << QString("%1: %2%3").arg(body.name, formatDegInSign(body.longitude), house);
+        bodyMap.remove(name);
+    }
+    for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
+        const auto& body = it.value();
+        const QString motion = body.retrograde ? " R" : "";
+        const QString house = body.house > 0 ? QString(" (H%1%2)").arg(body.house).arg(motion)
+                                             : (motion.isEmpty() ? QString() : QString(" (%1)").arg(motion.trimmed()));
+        lines << QString("%1: %2%3").arg(body.name, formatDegInSign(body.longitude), house);
+    }
+
+    return lines.join("\n");
 }
 
 void MainWindow::refreshNatalReport() {
@@ -7312,6 +7394,7 @@ void MainWindow::updateTransitSearchVisibility() {
         if (chartWheel_) {
             chartWheel_->clearHighlight();
         }
+        updateLunationCopyButtonState();
         return;
     }
     const bool inSearch = (transitSubTab_ == TransitSubTab::Search);
@@ -7361,6 +7444,7 @@ void MainWindow::updateTransitSearchVisibility() {
     if (inLunations) {
         updateLunationModeAvailability();
     }
+    updateLunationCopyButtonState();
 
     const QString eventType = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
     const bool isSignEvent = eventType.contains("Sign", Qt::CaseInsensitive);
@@ -8566,6 +8650,7 @@ void MainWindow::showLunationResults() {
         rightTopTable_->setItem(0, 0, makeCell("Searching..."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("Search in progress."));
+        updateLunationCopyButtonState();
         return;
     }
     if (lunationResults_.isEmpty()) {
@@ -8573,6 +8658,7 @@ void MainWindow::showLunationResults() {
         rightTopTable_->setItem(0, 0, makeCell("Run a lunation search to see results."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("No lunation results yet."));
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8582,6 +8668,7 @@ void MainWindow::showLunationResults() {
 
     if (lunationAnalysisMode_ != LunationAnalysisMode::List) {
         showLunationAnalysisResults();
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8604,6 +8691,7 @@ void MainWindow::showLunationResults() {
             lunationAutoApplied_ = true;
         }
     }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::buildLunationDegreeGroups() {
@@ -8839,6 +8927,7 @@ void MainWindow::showLunationAnalysisResults() {
             rightTopTable_->setItem(0, 0, makeCell("No matching events found."));
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("No event details to display."));
+            updateLunationCopyButtonState();
             return;
         }
         lunationBottomEventOrder_.clear();
@@ -8874,6 +8963,7 @@ void MainWindow::showLunationAnalysisResults() {
                 lunationAutoApplied_ = true;
             }
         }
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8882,6 +8972,7 @@ void MainWindow::showLunationAnalysisResults() {
         rightTopTable_->setItem(0, 0, makeCell("No repeated degrees found."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("No group details to display."));
+        updateLunationCopyButtonState();
         return;
     }
     lunationBottomEventOrder_.clear();
@@ -8942,6 +9033,7 @@ void MainWindow::showLunationAnalysisResults() {
     if (rightTopTable_) {
         rightTopTable_->selectRow(0);
     }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::showLunationGroupDetails(int groupIndex) {
@@ -8949,6 +9041,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         return;
     }
     if (groupIndex < 0 || groupIndex >= lunationDegreeGroups_.size()) {
+        updateLunationCopyButtonState();
         return;
     }
     lunationSelectedGroupIndex_ = groupIndex;
@@ -8982,6 +9075,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         }
         rightBottomTable_->setItem(row, 4, makeCell(houseLabel));
     }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::showLunationDetails(const LunationResult& result) {
@@ -8990,7 +9084,12 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     }
     lunationBottomEventOrder_.clear();
     const bool hasEclipse = !result.eclipseType.isEmpty();
-    const int totalRows = hasEclipse ? 7 : 6;
+    const bool hasMomentPlacements = hasTransitChart_
+        && hasLunationSelection_
+        && lastLunationSelection_.timeUtc == result.timeUtc
+        && lastLunationSelection_.event == result.event;
+    const int placementRows = hasMomentPlacements ? currentTransitChart_.bodies.size() : 0;
+    const int totalRows = (hasEclipse ? 7 : 6) + (hasMomentPlacements ? 1 + placementRows : 1);
     setupTable(rightBottomTable_, {"Item", "Value"}, totalRows);
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
@@ -9009,6 +9108,64 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.sunLon)));
     rightBottomTable_->setItem(row, 0, makeCell("Moon"));
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.moonLon)));
+
+    if (!hasMomentPlacements) {
+        rightBottomTable_->setItem(row, 0, makeCell("Placements"));
+        rightBottomTable_->setItem(row++, 1, makeCell("Select this event to load full moment placements."));
+        updateLunationCopyButtonState();
+        return;
+    }
+
+    rightBottomTable_->setItem(row, 0, makeCell("Placements"));
+    rightBottomTable_->setItem(row++, 1, makeCell("Deg in sign (House, Motion)"));
+
+    QMap<QString, BodyPosition> bodyMap;
+    for (const auto& body : currentTransitChart_.bodies) {
+        bodyMap.insert(body.name, body);
+    }
+    for (const auto& name : tropicalBodyOrder()) {
+        if (!bodyMap.contains(name)) {
+            continue;
+        }
+        const auto body = bodyMap.value(name);
+        QString suffix;
+        if (body.house > 0) {
+            suffix = QString(" (H%1").arg(body.house);
+            if (body.retrograde) {
+                suffix += ", R";
+            } else {
+                suffix += ", D";
+            }
+            suffix += ")";
+        } else if (body.retrograde) {
+            suffix = " (R)";
+        } else {
+            suffix = " (D)";
+        }
+        rightBottomTable_->setItem(row, 0, makeCell(body.name));
+        rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(body.longitude) + suffix));
+        bodyMap.remove(name);
+    }
+    for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
+        const auto& body = it.value();
+        QString suffix;
+        if (body.house > 0) {
+            suffix = QString(" (H%1").arg(body.house);
+            if (body.retrograde) {
+                suffix += ", R";
+            } else {
+                suffix += ", D";
+            }
+            suffix += ")";
+        } else if (body.retrograde) {
+            suffix = " (R)";
+        } else {
+            suffix = " (D)";
+        }
+        rightBottomTable_->setItem(row, 0, makeCell(body.name));
+        rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(body.longitude) + suffix));
+    }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::applyLunationResult(const LunationResult& result) {

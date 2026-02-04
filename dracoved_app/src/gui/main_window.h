@@ -256,6 +256,7 @@ private:
     void handleTransitScanResultActivated(int row, int column);
     void handleTransitScanFinished();
     void handleCopyAspects();
+    void handleCopyLunationDetails();
     void handleCopyReport();
     void markTransitPending();
     void applyTransitCalculation();
@@ -298,6 +299,8 @@ private:
     void showLunationGroupDetails(int groupIndex);
     void showLunationDetails(const LunationResult& result);
     void applyLunationResult(const LunationResult& result);
+    void updateLunationCopyButtonState();
+    QString buildLunationDetailsClipboardText() const;
     void refreshNatalReport();
     QString buildNatalReportText() const;
     QString buildAspectsClipboardText() const;
@@ -344,6 +347,7 @@ private:
     QTableWidget* aspectsTable_ = nullptr;
     QTableWidget* rightTopTable_ = nullptr;
     QTableWidget* rightBottomTable_ = nullptr;
+    QPushButton* rightBottomCopyButton_ = nullptr;
     QWidget* transitPanel_ = nullptr;
     QTabBar* transitSubTabBar_ = nullptr;
     QStackedWidget* transitPanelStack_ = nullptr;
