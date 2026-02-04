@@ -4,6 +4,7 @@
 #include <QNetworkAccessManager>
 #include <QStringList>
 #include <QVariant>
+#include <QTimeZone>
 
 #include "../core/chart_types.h"
 #include "../core/swiss_eph.h"
@@ -57,6 +58,14 @@ public:
         QString aspect;
         double orb = 0.0;
         bool hasOrb = false;
+    };
+    struct TransitCalendarEvent {
+        QDateTime timeUtc;
+        QString tzLabel;
+        QString planet;
+        QString event;
+        QString signHouse;
+        double longitude = 0.0;
     };
     struct LunationResult {
         QDateTime timeLocal;
@@ -137,6 +146,7 @@ private:
     enum class TransitSubTab {
         Overview,
         Search,
+        Calendar,
         Scan,
         Lunations,
     };
@@ -236,6 +246,8 @@ private:
     void handleTransitSearchRun();
     void handleTransitSearchStop();
     void handleTransitSearchResultActivated(int row, int column);
+    void handleTransitCalendarRun();
+    void handleTransitCalendarResultActivated(int row, int column);
     void handleLunationSearchRun();
     void handleLunationSearchStop();
     void handleLunationResultActivated(int row, int column);
@@ -275,6 +287,8 @@ private:
     void updateTransitSearchTargets();
     void runTransitSearch();
     void showTransitSearchResults();
+    void showTransitCalendarResults();
+    void showTransitCalendarDetails(const TransitCalendarEvent& result);
     void runLunationSearch();
     void updateLunationModeAvailability();
     void updateLunationAnalysisAvailability();
@@ -335,6 +349,7 @@ private:
     QStackedWidget* transitPanelStack_ = nullptr;
     QWidget* transitOverviewPanel_ = nullptr;
     QWidget* transitSearchPanel_ = nullptr;
+    QWidget* transitCalendarPanel_ = nullptr;
     QWidget* aspectsPanel_ = nullptr;
     QRadioButton* transitOverlayRadio_ = nullptr;
     QRadioButton* transitOnlyRadio_ = nullptr;
@@ -379,6 +394,15 @@ private:
     QPushButton* searchUseCurrentButton_ = nullptr;
     QLabel* searchStatusLabel_ = nullptr;
     QLabel* searchTargetLabel_ = nullptr;
+    QComboBox* calendarYearCombo_ = nullptr;
+    QComboBox* calendarMonthCombo_ = nullptr;
+    QCheckBox* calendarShowIngressCheck_ = nullptr;
+    QCheckBox* calendarShowEgressCheck_ = nullptr;
+    QCheckBox* calendarShowStationCheck_ = nullptr;
+    QCheckBox* calendarShowShadowCheck_ = nullptr;
+    QCheckBox* calendarIncludeHousesCheck_ = nullptr;
+    QPushButton* calendarRefreshButton_ = nullptr;
+    QLabel* calendarStatusLabel_ = nullptr;
     QWidget* transitLunationPanel_ = nullptr;
     QCheckBox* lunationNewMoonCheck_ = nullptr;
     QCheckBox* lunationFullMoonCheck_ = nullptr;
@@ -548,6 +572,8 @@ private:
     double aspectDisplayMaxOrb_ = 0.0;
     bool transitSearchCancel_ = false;
     QVector<TransitSearchResult> transitSearchResults_;
+    QVector<TransitCalendarEvent> transitCalendarEvents_;
+    QVector<int> transitCalendarDisplayOrder_;
     QVector<DayScanResult> transitScanResults_;
     QVector<int> transitScanDisplayOrder_;
     bool transitScanRunning_ = false;
@@ -555,6 +581,12 @@ private:
     QObject* scanWorker_ = nullptr;
     QThread* searchThread_ = nullptr;
     SearchWorker* searchWorker_ = nullptr;
+    QThread* calendarThread_ = nullptr;
+    QObject* calendarWorker_ = nullptr;
+    bool calendarRunning_ = false;
+    bool calendarRestartPending_ = false;
+    QTimeZone calendarTz_;
+    QString calendarTzLabel_;
     bool searchRunning_ = false;
     bool searchAutoApplied_ = false;
     QVector<LunationResult> lunationResults_;

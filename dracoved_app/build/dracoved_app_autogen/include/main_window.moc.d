@@ -14,6 +14,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/QJsonObject \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QJsonParseError \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QList \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QLocale \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QMap \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QMetaType \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QObject \

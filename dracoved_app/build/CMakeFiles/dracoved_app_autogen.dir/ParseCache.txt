@@ -445,6 +445,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QJsonObject
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QJsonParseError
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QList
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QLocale
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QMap
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QMetaType
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QObject
@@ -1940,6 +1941,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QSharedDataPointer
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QString
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QTimeZone
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QUrl
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QVariant
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QVector
@@ -2061,6 +2063,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtenvironmentvariables.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtextstream.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtformat_impl.h
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtimezone.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtmetamacros.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtnoop.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/qtpreprocessorsupport.h

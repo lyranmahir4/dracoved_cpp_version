@@ -31,6 +31,7 @@
 #include <QLineEdit>
 #include <QList>
 #include <QMap>
+#include <QLocale>
 #include <QSet>
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
 // Astrocartography / Geodetic world map support (QtLocation/QML).
@@ -163,6 +164,23 @@ struct LunationParams {
     QString tzLabel;
     QString ephePath;
     QStringList dllSearchPaths;
+};
+
+struct CalendarParams {
+    QDateTime startUtc;
+    QDateTime endUtc;
+    QTimeZone tz;
+    QString tzLabel;
+    QString ephePath;
+    QStringList dllSearchPaths;
+    QStringList planetNames;
+    bool includeHouses = false;
+    bool overlayMode = false;
+    HouseSystem houseSystem = HouseSystem::WholeSign;
+    QVector<double> natalCusps;
+    double natalAsc = 0.0;
+    double latitude = 0.0;
+    double longitude = 0.0;
 };
 
 class ComboPopupOnClick : public QObject {
@@ -966,6 +984,535 @@ private:
     std::atomic<bool> cancelled_{false};
     MainWindow::TransitSearchResult bestResult_;
     bool hasBestResult_ = false;
+};
+
+class CalendarWorker : public QObject {
+    Q_OBJECT
+
+public:
+    explicit CalendarWorker(const CalendarParams& params)
+        : params_(params) {}
+
+    const QVector<MainWindow::TransitCalendarEvent>& results() const { return events_; }
+
+public slots:
+    void run() {
+        QString err;
+        if (!swe_.load(params_.dllSearchPaths, &err)) {
+            emit finished(false, err);
+            return;
+        }
+        if (!params_.ephePath.isEmpty()) {
+            swe_.setEphePath(params_.ephePath);
+        }
+        if (params_.planetNames.isEmpty()) {
+            emit finished(false, "No planets selected.");
+            return;
+        }
+
+        events_.clear();
+        const int totalPlanets = params_.planetNames.size();
+        constexpr int kShadowBufferDays = 400;
+        const QDateTime scanStartUtc = params_.startUtc.addDays(-kShadowBufferDays);
+        const QDateTime scanEndUtc = params_.endUtc.addDays(kShadowBufferDays);
+        const qint64 totalSecs = std::max<qint64>(1, std::llabs(scanStartUtc.secsTo(scanEndUtc)));
+        int lastProgress = -1;
+
+        for (int pIndex = 0; pIndex < totalPlanets; ++pIndex) {
+            if (cancelled_.load()) {
+                emit finished(true, QString());
+                return;
+            }
+            const QString planetName = params_.planetNames[pIndex];
+            QDateTime t0 = scanStartUtc;
+            QString planetErr;
+            double lon0 = 0.0;
+            if (!planetLongitude(t0, planetName, &lon0, &planetErr)) {
+                emit finished(false, planetErr);
+                return;
+            }
+
+            QVector<StationMarker> stations;
+
+            while (t0 < scanEndUtc) {
+                if (cancelled_.load()) {
+                    emit finished(true, QString());
+                    return;
+                }
+                double speed = 0.0;
+                if (!planetSpeed(t0, planetName, &speed, &planetErr)) {
+                    emit finished(false, planetErr);
+                    return;
+                }
+                if (isNodeName(planetName)) {
+                    speed = -std::abs(speed);
+                }
+                const double stepDays = clampStepDays(std::abs(speed));
+                qint64 stepSecs = static_cast<qint64>(stepDays * 86400.0);
+                if (stepSecs <= 0) {
+                    stepSecs = 3600;
+                }
+                QDateTime t1 = t0.addSecs(stepSecs);
+                if (t1 > scanEndUtc) {
+                    t1 = scanEndUtc;
+                }
+
+                double lon1 = 0.0;
+                if (!planetLongitude(t1, planetName, &lon1, &planetErr)) {
+                    emit finished(false, planetErr);
+                    return;
+                }
+
+                handleSignEvent(t0, t1, lon0, lon1, planetName);
+                if (params_.includeHouses) {
+                    handleHouseEvent(t0, t1, lon0, lon1, planetName);
+                }
+                handleStationEvent(t0, t1, planetName, &stations);
+
+                t0 = t1;
+                lon0 = lon1;
+
+                const qint64 elapsed = scanStartUtc.secsTo(t0);
+                const double planetProgress = static_cast<double>(std::min<qint64>(std::llabs(elapsed), totalSecs)) / totalSecs;
+                const double overall = (static_cast<double>(pIndex) + planetProgress) / totalPlanets;
+                const int progress = static_cast<int>(overall * 100.0);
+                if (progress != lastProgress && progress % 5 == 0) {
+                    lastProgress = progress;
+                    emit progressUpdate(progress, QString("Computing calendar (%1%)").arg(progress));
+                }
+            }
+
+            std::sort(stations.begin(), stations.end(), [](const StationMarker& a, const StationMarker& b) {
+                return a.timeUtc < b.timeUtc;
+            });
+            for (int i = 0; i < stations.size(); ++i) {
+                if (!stations[i].retrograde) {
+                    continue;
+                }
+                int directIndex = -1;
+                for (int j = i + 1; j < stations.size(); ++j) {
+                    if (!stations[j].retrograde) {
+                        directIndex = j;
+                        break;
+                    }
+                }
+                if (directIndex < 0) {
+                    continue;
+                }
+                const double shadowDegree = stations[i].longitude;
+                QDateTime preShadowStart;
+                if (findShadowCrossing(stations[i].timeUtc, planetName, shadowDegree, false, &preShadowStart)) {
+                    emitEvent(preShadowStart, planetName, "Pre-shadow start", signName(signIndex(shadowDegree)), shadowDegree);
+                }
+                QDateTime postShadowEnd;
+                if (findShadowCrossing(stations[directIndex].timeUtc, planetName, shadowDegree, true, &postShadowEnd)) {
+                    emitEvent(postShadowEnd, planetName, "Post-shadow end", signName(signIndex(shadowDegree)), shadowDegree);
+                }
+            }
+        }
+
+        std::sort(events_.begin(), events_.end(), [](const MainWindow::TransitCalendarEvent& a, const MainWindow::TransitCalendarEvent& b) {
+            if (a.timeUtc == b.timeUtc) {
+                if (a.planet == b.planet) {
+                    return a.event < b.event;
+                }
+                return a.planet < b.planet;
+            }
+            return a.timeUtc < b.timeUtc;
+        });
+
+        emit finished(false, QString());
+    }
+
+    void cancel() {
+        cancelled_.store(true);
+    }
+
+signals:
+    void progressUpdate(int percent, const QString& status);
+    void finished(bool cancelled, const QString& error);
+
+private:
+    struct StationMarker {
+        QDateTime timeUtc;
+        bool retrograde = false;
+        double longitude = 0.0;
+    };
+
+    bool inDisplayRange(const QDateTime& utc) const {
+        return utc >= params_.startUtc && utc <= params_.endUtc;
+    }
+
+    bool planetLongitude(const QDateTime& utc, const QString& name, double* outLon, QString* error) {
+        const int bodyId = bodyIdForName(name);
+        if (bodyId < 0) {
+            if (error) {
+                *error = QString("Unsupported body: %1").arg(name);
+            }
+            return false;
+        }
+        const QDate date = utc.date();
+        const QTime time = utc.time();
+        const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
+        const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
+        double lon = 0.0;
+        QString calcErr;
+        if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+            if (error) {
+                *error = calcErr;
+            }
+            return false;
+        }
+        lon = normalizeDegrees(lon);
+        if (name == "South Node") {
+            lon = normalizeDegrees(lon + 180.0);
+        }
+        if (outLon) {
+            *outLon = lon;
+        }
+        return true;
+    }
+
+    bool planetSpeed(const QDateTime& utc, const QString& name, double* outSpeed, QString* error) {
+        const double deltaDays = 0.5;
+        const QDateTime next = utc.addSecs(static_cast<qint64>(deltaDays * 86400.0));
+        double lon0 = 0.0;
+        double lon1 = 0.0;
+        if (!planetLongitude(utc, name, &lon0, error)) {
+            return false;
+        }
+        if (!planetLongitude(next, name, &lon1, error)) {
+            return false;
+        }
+        const double diff = angularDiffSigned(lon1, lon0);
+        if (outSpeed) {
+            *outSpeed = diff / deltaDays;
+        }
+        return true;
+    }
+
+    bool houseData(const QDateTime& utc, double* outAsc, QVector<double>* outCusps, QString* error) {
+        const QDate date = utc.date();
+        const QTime time = utc.time();
+        const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
+        const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
+        double cuspsRaw[13] = {0};
+        double ascmc[10] = {0};
+        QString houseErr;
+        if (!swe_.houses(jd, params_.latitude, params_.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
+            if (error) {
+                *error = houseErr;
+            }
+            return false;
+        }
+        if (outAsc) {
+            *outAsc = normalizeDegrees(ascmc[0]);
+        }
+        if (outCusps) {
+            outCusps->clear();
+            outCusps->reserve(12);
+            for (int i = 1; i <= 12; ++i) {
+                outCusps->push_back(normalizeDegrees(cuspsRaw[i]));
+            }
+        }
+        return true;
+    }
+
+    int houseForLongitude(double lon, const QVector<double>& cusps, double asc) const {
+        if (params_.houseSystem == HouseSystem::Placidus && cusps.size() == 12) {
+            const double c1 = cusps[0];
+            double target = normalizeDegrees(lon - c1);
+            int house = 1;
+            double last = 0.0;
+            for (int i = 0; i < cusps.size(); ++i) {
+                double v = normalizeDegrees(cusps[i] - c1);
+                if (v < last) {
+                    continue;
+                }
+                if (target >= v) {
+                    house = i + 1;
+                    last = v;
+                }
+            }
+            return house;
+        }
+        const int ascIdx = signIndex(asc);
+        const int lonIdx = signIndex(lon);
+        return ((lonIdx - ascIdx + 12) % 12) + 1;
+    }
+
+    void emitEvent(const QDateTime& utc, const QString& planetName, const QString& eventLabel, const QString& signHouse, double longitude) {
+        if (!inDisplayRange(utc)) {
+            return;
+        }
+        MainWindow::TransitCalendarEvent result;
+        result.timeUtc = utc;
+        result.tzLabel = params_.tzLabel;
+        result.planet = planetName;
+        result.event = eventLabel;
+        result.signHouse = signHouse;
+        result.longitude = normalizeDegrees(longitude);
+        events_.push_back(result);
+    }
+
+    void handleSignEvent(const QDateTime& t0, const QDateTime& t1, double lon0, double lon1, const QString& planetName) {
+        const int s0 = signIndex(lon0);
+        const int s1 = signIndex(lon1);
+        if (s0 == s1) {
+            return;
+        }
+        QDateTime lo = t0;
+        QDateTime hi = t1;
+        int signLo = s0;
+        for (int i = 0; i < 24; ++i) {
+            const QDateTime mid = midTimeUtc(lo, hi);
+            double lonMid = 0.0;
+            if (!planetLongitude(mid, planetName, &lonMid, nullptr)) {
+                break;
+            }
+            const int sMid = signIndex(lonMid);
+            if (sMid == signLo) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        double lonEvent = 0.0;
+        if (!planetLongitude(hi, planetName, &lonEvent, nullptr)) {
+            return;
+        }
+        const int sOld = s0;
+        const int sNew = signIndex(lonEvent);
+        emitEvent(hi, planetName, "Sign Egress", signName(sOld), lonEvent);
+        emitEvent(hi, planetName, "Sign Ingress", signName(sNew), lonEvent);
+    }
+
+    void handleHouseEvent(const QDateTime& t0, const QDateTime& t1, double lon0, double lon1, const QString& planetName) {
+        int house0 = 0;
+        int house1 = 0;
+        if (params_.overlayMode) {
+            house0 = houseForLongitude(lon0, params_.natalCusps, params_.natalAsc);
+            house1 = houseForLongitude(lon1, params_.natalCusps, params_.natalAsc);
+        } else {
+            QVector<double> cusps0;
+            QVector<double> cusps1;
+            double asc0 = 0.0;
+            double asc1 = 0.0;
+            if (!houseData(t0, &asc0, &cusps0, nullptr) || !houseData(t1, &asc1, &cusps1, nullptr)) {
+                return;
+            }
+            house0 = houseForLongitude(lon0, cusps0, asc0);
+            house1 = houseForLongitude(lon1, cusps1, asc1);
+        }
+        if (house0 == house1) {
+            return;
+        }
+
+        QDateTime lo = t0;
+        QDateTime hi = t1;
+        int houseLo = house0;
+        for (int i = 0; i < 24; ++i) {
+            const QDateTime mid = midTimeUtc(lo, hi);
+            double lonMid = 0.0;
+            if (!planetLongitude(mid, planetName, &lonMid, nullptr)) {
+                break;
+            }
+            int houseMid = 0;
+            if (params_.overlayMode) {
+                houseMid = houseForLongitude(lonMid, params_.natalCusps, params_.natalAsc);
+            } else {
+                QVector<double> cuspsMid;
+                double ascMid = 0.0;
+                if (!houseData(mid, &ascMid, &cuspsMid, nullptr)) {
+                    break;
+                }
+                houseMid = houseForLongitude(lonMid, cuspsMid, ascMid);
+            }
+            if (houseMid == houseLo) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+
+        double lonEvent = 0.0;
+        if (!planetLongitude(hi, planetName, &lonEvent, nullptr)) {
+            return;
+        }
+        const int hOld = house0;
+        int hNew = 0;
+        if (params_.overlayMode) {
+            hNew = houseForLongitude(lonEvent, params_.natalCusps, params_.natalAsc);
+        } else {
+            QVector<double> cuspsEvent;
+            double ascEvent = 0.0;
+            if (!houseData(hi, &ascEvent, &cuspsEvent, nullptr)) {
+                return;
+            }
+            hNew = houseForLongitude(lonEvent, cuspsEvent, ascEvent);
+        }
+        emitEvent(hi, planetName, "House Egress", QString("House %1").arg(hOld), lonEvent);
+        emitEvent(hi, planetName, "House Ingress", QString("House %1").arg(hNew), lonEvent);
+    }
+
+    void handleStationEvent(const QDateTime& t0, const QDateTime& t1, const QString& planetName, QVector<StationMarker>* stations) {
+        if (isNodeName(planetName)) {
+            return;
+        }
+        double speed0 = 0.0;
+        double speed1 = 0.0;
+        if (!planetSpeed(t0, planetName, &speed0, nullptr) || !planetSpeed(t1, planetName, &speed1, nullptr)) {
+            return;
+        }
+        if (speed0 == 0.0 || speed0 * speed1 > 0.0) {
+            return;
+        }
+        QDateTime station = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
+            double speed = 0.0;
+            if (!planetSpeed(t, planetName, &speed, nullptr)) {
+                return 0.0;
+            }
+            if (outDiff) {
+                *outDiff = speed;
+            }
+            return speed;
+        });
+        double speedAt = 0.0;
+        if (!planetSpeed(station, planetName, &speedAt, nullptr)) {
+            return;
+        }
+        double lon = 0.0;
+        if (!planetLongitude(station, planetName, &lon, nullptr)) {
+            return;
+        }
+        const bool retrograde = (speedAt < 0.0);
+        const QString label = retrograde ? "Station Retrograde" : "Station Direct";
+        emitEvent(station, planetName, label, signName(signIndex(lon)), lon);
+        if (stations) {
+            StationMarker marker;
+            marker.timeUtc = station;
+            marker.retrograde = retrograde;
+            marker.longitude = lon;
+            stations->push_back(marker);
+        }
+    }
+
+    bool crossesLongitude(double lon0, double lon1, double targetLon) const {
+        const double d0 = angularDiffSigned(lon0, targetLon);
+        const double d1 = angularDiffSigned(lon1, targetLon);
+        if (std::fabs(d0) < 1e-6 || std::fabs(d1) < 1e-6) {
+            return true;
+        }
+        return (d0 <= 0.0 && d1 >= 0.0) || (d0 >= 0.0 && d1 <= 0.0);
+    }
+
+    QDateTime bisectRoot(const QDateTime& lo, const QDateTime& hi,
+                         const std::function<double(const QDateTime&, double*)>& func) {
+        QDateTime a = lo;
+        QDateTime b = hi;
+        double fa = 0.0;
+        double fb = 0.0;
+        func(a, &fa);
+        func(b, &fb);
+        for (int i = 0; i < 24; ++i) {
+            if (cancelled_.load()) {
+                return a;
+            }
+            if (a.secsTo(b) <= 60) {
+                return b;
+            }
+            const QDateTime mid = midTimeUtc(a, b);
+            double fm = 0.0;
+            func(mid, &fm);
+            if ((fa <= 0.0 && fm <= 0.0) || (fa >= 0.0 && fm >= 0.0)) {
+                a = mid;
+                fa = fm;
+            } else {
+                b = mid;
+                fb = fm;
+            }
+        }
+        return b;
+    }
+
+    QDateTime bisectLongitude(const QDateTime& lo, const QDateTime& hi, const QString& planetName, double targetLon) {
+        return bisectRoot(lo, hi, [&](const QDateTime& t, double* outDiff) {
+            double lon = 0.0;
+            if (!planetLongitude(t, planetName, &lon, nullptr)) {
+                if (outDiff) {
+                    *outDiff = 0.0;
+                }
+                return 0.0;
+            }
+            const double diff = angularDiffSigned(lon, targetLon);
+            if (outDiff) {
+                *outDiff = diff;
+            }
+            return diff;
+        });
+    }
+
+    bool findShadowCrossing(const QDateTime& anchor, const QString& planetName, double targetLon,
+                            bool forward, QDateTime* outTime) {
+        if (!outTime) {
+            return false;
+        }
+        QDateTime t0 = anchor;
+        double lon0 = 0.0;
+        if (!planetLongitude(t0, planetName, &lon0, nullptr)) {
+            return false;
+        }
+        if (std::fabs(angularDiffSigned(lon0, targetLon)) < 1e-6) {
+            t0 = t0.addSecs(forward ? 60 : -60);
+            if (!planetLongitude(t0, planetName, &lon0, nullptr)) {
+                return false;
+            }
+        }
+        double travelledDays = 0.0;
+        constexpr double kMaxDays = 500.0;
+        while (travelledDays < kMaxDays) {
+            if (cancelled_.load()) {
+                return false;
+            }
+            double speed = 0.0;
+            if (!planetSpeed(t0, planetName, &speed, nullptr)) {
+                return false;
+            }
+            double stepDays = clampStepDays(std::abs(speed));
+            if (stepDays < 0.1) {
+                stepDays = 0.1;
+            }
+            qint64 stepSecs = static_cast<qint64>(stepDays * 86400.0);
+            if (stepSecs <= 0) {
+                stepSecs = 60;
+            }
+            if (!forward) {
+                stepSecs = -stepSecs;
+            }
+            const QDateTime t1 = t0.addSecs(stepSecs);
+            double lon1 = 0.0;
+            if (!planetLongitude(t1, planetName, &lon1, nullptr)) {
+                return false;
+            }
+            if (crossesLongitude(lon0, lon1, targetLon)) {
+                if (forward) {
+                    *outTime = bisectLongitude(t0, t1, planetName, targetLon);
+                } else {
+                    *outTime = bisectLongitude(t1, t0, planetName, targetLon);
+                }
+                return outTime->isValid();
+            }
+            t0 = t1;
+            lon0 = lon1;
+            travelledDays += stepDays;
+        }
+        return false;
+    }
+
+    CalendarParams params_;
+    SwissEph swe_;
+    std::atomic<bool> cancelled_{false};
+    QVector<MainWindow::TransitCalendarEvent> events_;
 };
 
 class LunationWorker : public QObject {
@@ -2684,6 +3231,7 @@ void MainWindow::setupDockLayout() {
     transitSubTabBar_ = new QTabBar(transitPanel_);
     transitSubTabBar_->addTab("Overview");
     transitSubTabBar_->addTab("Search");
+    transitSubTabBar_->addTab("Calendar");
     transitSubTabBar_->addTab("Best Days");
     transitSubTabBar_->addTab("Lunations");
     transitSubTabBar_->setExpanding(false);
@@ -2949,6 +3497,66 @@ void MainWindow::setupDockLayout() {
     transitSearchLayout->addWidget(searchFilterGroup);
     transitSearchLayout->addWidget(searchRunGroup);
     transitSearchLayout->addStretch();
+
+    transitCalendarPanel_ = new QWidget(transitPanelStack_);
+    auto* calendarLayout = new QVBoxLayout(transitCalendarPanel_);
+    calendarLayout->setContentsMargins(0, 0, 0, 0);
+    calendarLayout->setSpacing(8);
+
+    auto* calendarRangeGroup = new QGroupBox("Range", transitCalendarPanel_);
+    auto* calendarRangeLayout = new QGridLayout(calendarRangeGroup);
+    calendarRangeLayout->setHorizontalSpacing(8);
+    calendarRangeLayout->setVerticalSpacing(6);
+    calendarRangeLayout->setColumnStretch(1, 1);
+    calendarYearCombo_ = new QComboBox(calendarRangeGroup);
+    for (int year = 1800; year <= 2399; ++year) {
+        calendarYearCombo_->addItem(QString::number(year), year);
+    }
+    const int calendarYear = QDate::currentDate().year();
+    const int calendarIndex = std::clamp(calendarYear - 1800, 0, calendarYearCombo_->count() - 1);
+    calendarYearCombo_->setCurrentIndex(calendarIndex);
+    calendarMonthCombo_ = new QComboBox(calendarRangeGroup);
+    calendarMonthCombo_->addItem("All Months", 0);
+    const QLocale calendarLocale;
+    for (int month = 1; month <= 12; ++month) {
+        calendarMonthCombo_->addItem(calendarLocale.standaloneMonthName(month, QLocale::LongFormat), month);
+    }
+    calendarRangeLayout->addWidget(new QLabel("Year", calendarRangeGroup), 0, 0);
+    calendarRangeLayout->addWidget(calendarYearCombo_, 0, 1);
+    calendarRangeLayout->addWidget(new QLabel("Month", calendarRangeGroup), 1, 0);
+    calendarRangeLayout->addWidget(calendarMonthCombo_, 1, 1);
+
+    auto* calendarOptionsGroup = new QGroupBox("Options", transitCalendarPanel_);
+    auto* calendarOptionsLayout = new QVBoxLayout(calendarOptionsGroup);
+    calendarShowIngressCheck_ = new QCheckBox("Show ingress events", calendarOptionsGroup);
+    calendarShowIngressCheck_->setChecked(true);
+    calendarShowEgressCheck_ = new QCheckBox("Show egress events", calendarOptionsGroup);
+    calendarShowEgressCheck_->setChecked(true);
+    calendarShowStationCheck_ = new QCheckBox("Show station events", calendarOptionsGroup);
+    calendarShowStationCheck_->setChecked(true);
+    calendarShowShadowCheck_ = new QCheckBox("Show shadow events", calendarOptionsGroup);
+    calendarShowShadowCheck_->setChecked(true);
+    calendarIncludeHousesCheck_ = new QCheckBox("Include house ingress/egress", calendarOptionsGroup);
+    calendarIncludeHousesCheck_->setChecked(false);
+    calendarOptionsLayout->addWidget(calendarShowIngressCheck_);
+    calendarOptionsLayout->addWidget(calendarShowEgressCheck_);
+    calendarOptionsLayout->addWidget(calendarShowStationCheck_);
+    calendarOptionsLayout->addWidget(calendarShowShadowCheck_);
+    calendarOptionsLayout->addWidget(calendarIncludeHousesCheck_);
+
+    auto* calendarRunGroup = new QGroupBox("Run", transitCalendarPanel_);
+    auto* calendarRunLayout = new QHBoxLayout(calendarRunGroup);
+    calendarRefreshButton_ = new QPushButton("Refresh Calendar", calendarRunGroup);
+    calendarStatusLabel_ = new QLabel("Idle", calendarRunGroup);
+    calendarStatusLabel_->setObjectName("hintLabel");
+    calendarRunLayout->addWidget(calendarRefreshButton_);
+    calendarRunLayout->addStretch();
+    calendarRunLayout->addWidget(calendarStatusLabel_);
+
+    calendarLayout->addWidget(calendarRangeGroup);
+    calendarLayout->addWidget(calendarOptionsGroup);
+    calendarLayout->addWidget(calendarRunGroup);
+    calendarLayout->addStretch();
 
     auto* transitScanPanel = new QWidget(transitPanelStack_);
     auto* scanLayout = new QVBoxLayout(transitScanPanel);
@@ -3284,6 +3892,7 @@ void MainWindow::setupDockLayout() {
 
     transitPanelStack_->addWidget(transitOverviewPanel_);
     transitPanelStack_->addWidget(transitSearchPanel_);
+    transitPanelStack_->addWidget(transitCalendarPanel_);
     transitPanelStack_->addWidget(transitScanPanel);
     transitPanelStack_->addWidget(transitLunationPanel_);
 
@@ -4071,6 +4680,9 @@ void MainWindow::setupConnections() {
                 transitHouseSystem_ = HouseSystem::WholeSign;
                 refreshTransitsTab();
                 updateTransitSearchTargets();
+                if (transitSubTab_ == TransitSubTab::Calendar && calendarIncludeHousesCheck_ && calendarIncludeHousesCheck_->isChecked()) {
+                    handleTransitCalendarRun();
+                }
             }
         });
     }
@@ -4080,6 +4692,9 @@ void MainWindow::setupConnections() {
                 transitHouseSystem_ = HouseSystem::Placidus;
                 refreshTransitsTab();
                 updateTransitSearchTargets();
+                if (transitSubTab_ == TransitSubTab::Calendar && calendarIncludeHousesCheck_ && calendarIncludeHousesCheck_->isChecked()) {
+                    handleTransitCalendarRun();
+                }
             }
         });
     }
@@ -4124,6 +4739,9 @@ void MainWindow::setupConnections() {
             updateTransitTimezoneStatus();
             markTransitPending();
             updateAstrocartographyView();
+            if (transitSubTab_ == TransitSubTab::Calendar) {
+                handleTransitCalendarRun();
+            }
         });
         connect(transitTimezoneEdit_, &QLineEdit::textChanged, this, &MainWindow::updateTransitTimezoneStatus);
     }
@@ -4135,6 +4753,9 @@ void MainWindow::setupConnections() {
                 syncTransitLocationFromNatal();
             }
             markTransitPending();
+            if (transitSubTab_ == TransitSubTab::Calendar && calendarIncludeHousesCheck_ && calendarIncludeHousesCheck_->isChecked()) {
+                handleTransitCalendarRun();
+            }
         });
     }
     if (transitLocationEdit_) {
@@ -4502,6 +5123,44 @@ void MainWindow::setupConnections() {
     if (searchEventCombo_) {
         connect(searchEventCombo_, &QComboBox::currentIndexChanged, this, &MainWindow::updateTransitSearchTargets);
     }
+    if (calendarYearCombo_) {
+        connect(calendarYearCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            handleTransitCalendarRun();
+        });
+    }
+    if (calendarMonthCombo_) {
+        connect(calendarMonthCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            showTransitCalendarResults();
+        });
+    }
+    if (calendarShowIngressCheck_) {
+        connect(calendarShowIngressCheck_, &QCheckBox::toggled, this, [this](bool) {
+            showTransitCalendarResults();
+        });
+    }
+    if (calendarShowEgressCheck_) {
+        connect(calendarShowEgressCheck_, &QCheckBox::toggled, this, [this](bool) {
+            showTransitCalendarResults();
+        });
+    }
+    if (calendarShowStationCheck_) {
+        connect(calendarShowStationCheck_, &QCheckBox::toggled, this, [this](bool) {
+            showTransitCalendarResults();
+        });
+    }
+    if (calendarShowShadowCheck_) {
+        connect(calendarShowShadowCheck_, &QCheckBox::toggled, this, [this](bool) {
+            showTransitCalendarResults();
+        });
+    }
+    if (calendarIncludeHousesCheck_) {
+        connect(calendarIncludeHousesCheck_, &QCheckBox::toggled, this, [this](bool) {
+            handleTransitCalendarRun();
+        });
+    }
+    if (calendarRefreshButton_) {
+        connect(calendarRefreshButton_, &QPushButton::clicked, this, &MainWindow::handleTransitCalendarRun);
+    }
     if (scanModeCombo_) {
         connect(scanModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
             const bool combined = (index == static_cast<int>(TransitScanMode::Combined));
@@ -4725,6 +5384,8 @@ void MainWindow::setupConnections() {
             }
             if (transitSubTab_ == TransitSubTab::Search) {
                 handleTransitSearchResultActivated(row, column);
+            } else if (transitSubTab_ == TransitSubTab::Calendar) {
+                handleTransitCalendarResultActivated(row, column);
             } else if (transitSubTab_ == TransitSubTab::Scan) {
                 handleTransitScanResultActivated(row, column);
             } else if (transitSubTab_ == TransitSubTab::Lunations) {
@@ -5613,6 +6274,9 @@ void MainWindow::handleTransitModeChanged() {
     updateAspectScopeTabs();
     updateChartLegend();
     updateTransitSearchTargets();
+    if (transitSubTab_ == TransitSubTab::Calendar && calendarIncludeHousesCheck_ && calendarIncludeHousesCheck_->isChecked()) {
+        handleTransitCalendarRun();
+    }
 }
 
 void MainWindow::handleTransitAspectViewChanged(int index) {
@@ -5671,8 +6335,10 @@ void MainWindow::handleTransitSubTabChanged(int index) {
     if (index == 1) {
         transitSubTab_ = TransitSubTab::Search;
     } else if (index == 2) {
-        transitSubTab_ = TransitSubTab::Scan;
+        transitSubTab_ = TransitSubTab::Calendar;
     } else if (index == 3) {
+        transitSubTab_ = TransitSubTab::Scan;
+    } else if (index == 4) {
         transitSubTab_ = TransitSubTab::Lunations;
     } else {
         transitSubTab_ = TransitSubTab::Overview;
@@ -5686,14 +6352,20 @@ void MainWindow::handleTransitSubTabChanged(int index) {
             case TransitSubTab::Search:
                 stackIndex = 1;
                 break;
-            case TransitSubTab::Scan:
+            case TransitSubTab::Calendar:
                 stackIndex = 2;
                 break;
-            case TransitSubTab::Lunations:
+            case TransitSubTab::Scan:
                 stackIndex = 3;
+                break;
+            case TransitSubTab::Lunations:
+                stackIndex = 4;
                 break;
         }
         transitPanelStack_->setCurrentIndex(stackIndex);
+    }
+    if (transitSubTab_ == TransitSubTab::Calendar && transitCalendarEvents_.isEmpty() && !calendarRunning_) {
+        handleTransitCalendarRun();
     }
     updateTransitSearchTargets();
     updateTransitSearchVisibility();
@@ -5719,6 +6391,202 @@ void MainWindow::handleTransitSearchResultActivated(int row, int column) {
         return;
     }
     applyTransitSearchResult(transitSearchResults_[row]);
+}
+
+void MainWindow::handleTransitCalendarRun() {
+    if (!calendarYearCombo_) {
+        return;
+    }
+    if (calendarRunning_) {
+        calendarRestartPending_ = true;
+        if (calendarWorker_) {
+            QMetaObject::invokeMethod(calendarWorker_, "cancel", Qt::QueuedConnection);
+        }
+        if (calendarStatusLabel_) {
+            calendarStatusLabel_->setText("Stopping...");
+        }
+        return;
+    }
+    if (ephePath_.isEmpty()) {
+        setStatusMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
+        return;
+    }
+
+    QString tzText = transitTimezoneEdit_ ? transitTimezoneEdit_->text().trimmed() : QString("UTC");
+    if (tzText.isEmpty()) {
+        tzText = "UTC";
+    }
+    QTimeZone tz;
+    QString normLabel;
+    QString tzErr;
+    if (!parseTimezoneInput(tzText, &tz, &normLabel, &tzErr)) {
+        setStatusMessage(tzErr);
+        return;
+    }
+    calendarTz_ = tz;
+    calendarTzLabel_ = normLabel;
+
+    int year = calendarYearCombo_->currentData().toInt();
+    if (year <= 0) {
+        year = calendarYearCombo_->currentText().toInt();
+    }
+    if (year < 1800 || year > 2399) {
+        setStatusMessage("Calendar year must be between 1800 and 2399.");
+        return;
+    }
+
+    const QDateTime startLocal(QDate(year, 1, 1), QTime(0, 0, 0), calendarTz_);
+    const QDateTime endLocal(QDate(year, 12, 31), QTime(23, 59, 59), calendarTz_);
+    if (!startLocal.isValid() || !endLocal.isValid()) {
+        setStatusMessage("Invalid calendar range.");
+        return;
+    }
+
+    const bool includeHouses = (calendarIncludeHousesCheck_ && calendarIncludeHousesCheck_->isChecked());
+    const bool overlayMode = (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_);
+    double latitude = 0.0;
+    double longitude = 0.0;
+    if (transitUseNatalLocation_ && transitUseNatalLocation_->isChecked() && hasCurrentChart_) {
+        latitude = currentInput_.latitude;
+        longitude = currentInput_.longitude;
+    } else {
+        latitude = transitLatSpin_ ? transitLatSpin_->value() : currentInput_.latitude;
+        longitude = transitLonSpin_ ? transitLonSpin_->value() : currentInput_.longitude;
+    }
+    if (includeHouses && !overlayMode) {
+        const QString locationName = transitLocationEdit_ ? transitLocationEdit_->text().trimmed() : QString();
+        if (locationName.isEmpty() && std::abs(latitude) < 0.0001 && std::abs(longitude) < 0.0001) {
+            setStatusMessage("Set transit location or latitude/longitude to include house ingress/egress.");
+            return;
+        }
+    }
+
+    CalendarParams params;
+    params.startUtc = startLocal.toUTC();
+    params.endUtc = endLocal.toUTC();
+    params.tz = calendarTz_;
+    params.tzLabel = calendarTzLabel_;
+    params.ephePath = ephePath_;
+    params.dllSearchPaths = sweSearchPaths();
+    params.planetNames = {
+        "Sun", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+        "Uranus", "Neptune", "Pluto", "Chiron", "North Node", "South Node", "Lilith",
+    };
+    params.includeHouses = includeHouses;
+    params.overlayMode = overlayMode;
+    params.houseSystem = transitHouseSystem_;
+    params.latitude = latitude;
+    params.longitude = longitude;
+    if (overlayMode) {
+        params.natalAsc = currentChart_.angles.asc;
+        params.natalCusps.reserve(natalPlacidusCusps_.size());
+        for (const auto& cusp : natalPlacidusCusps_) {
+            params.natalCusps.push_back(cusp.longitude);
+        }
+    }
+
+    transitCalendarEvents_.clear();
+    transitCalendarDisplayOrder_.clear();
+    calendarRestartPending_ = false;
+    calendarRunning_ = true;
+    if (calendarStatusLabel_) {
+        calendarStatusLabel_->setText("Computing...");
+    }
+    if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+        showTransitCalendarResults();
+    }
+
+    auto* worker = new CalendarWorker(params);
+    calendarWorker_ = worker;
+    calendarThread_ = new QThread(this);
+    worker->moveToThread(calendarThread_);
+    connect(calendarThread_, &QThread::started, worker, &CalendarWorker::run);
+    connect(worker, &CalendarWorker::progressUpdate, this, [this](int, const QString& status) {
+        if (calendarStatusLabel_) {
+            calendarStatusLabel_->setText(status);
+        }
+    });
+    connect(worker, &CalendarWorker::finished, this, [this](bool cancelled, const QString& error) {
+        calendarRunning_ = false;
+        if (calendarWorker_) {
+            auto* typedWorker = qobject_cast<CalendarWorker*>(calendarWorker_);
+            if (typedWorker) {
+                transitCalendarEvents_ = typedWorker->results();
+            }
+            calendarWorker_->deleteLater();
+            calendarWorker_ = nullptr;
+        }
+        if (calendarThread_) {
+            calendarThread_->quit();
+            calendarThread_->deleteLater();
+            calendarThread_ = nullptr;
+        }
+
+        if (!error.isEmpty()) {
+            if (calendarStatusLabel_) {
+                calendarStatusLabel_->setText("Idle");
+            }
+            setStatusMessage(error);
+        } else if (cancelled) {
+            if (calendarStatusLabel_) {
+                calendarStatusLabel_->setText("Cancelled");
+            }
+        } else if (calendarStatusLabel_) {
+            calendarStatusLabel_->setText(QString("Done (%1 events)").arg(transitCalendarEvents_.size()));
+        }
+
+        if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+            showTransitCalendarResults();
+        }
+
+        if (calendarRestartPending_) {
+            calendarRestartPending_ = false;
+            handleTransitCalendarRun();
+        }
+    });
+    calendarThread_->start();
+}
+
+void MainWindow::handleTransitCalendarResultActivated(int row, int column) {
+    Q_UNUSED(column);
+    if (row < 0 || row >= transitCalendarDisplayOrder_.size()) {
+        return;
+    }
+    const int eventIndex = transitCalendarDisplayOrder_[row];
+    if (eventIndex < 0 || eventIndex >= transitCalendarEvents_.size()) {
+        return;
+    }
+    const auto& event = transitCalendarEvents_[eventIndex];
+    const QTimeZone tz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
+    const QString tzLabel = event.tzLabel.isEmpty() ? QString("UTC") : event.tzLabel;
+    const QDateTime localTime = event.timeUtc.toTimeZone(tz);
+
+    NatalChart chart;
+    QString err;
+    if (!computeTransitChartAt(localTime, tzLabel, &chart, &err)) {
+        setStatusMessage(err);
+        return;
+    }
+
+    currentTransitChart_ = chart;
+    hasTransitChart_ = true;
+    transitPending_ = false;
+    lastTransitCalculated_ = QDateTime::currentDateTime();
+    updateTransitTargetLabels();
+
+    if (chartWheel_) {
+        if (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_) {
+            chartWheel_->setShowAspects(true);
+            chartWheel_->setOverlayLabel("Transit");
+            chartWheel_->setOverlayCharts(currentChart_, chart, transitHouseSystem_, aspectOrbs_);
+            chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
+        } else {
+            chartWheel_->setTransitChart(chart, transitHouseSystem_);
+        }
+        chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+        chartWheel_->setHighlight(event.planet, true, event.event, QColor("#f0c24b"));
+    }
+    showTransitCalendarDetails(event);
 }
 
 void MainWindow::handleLunationSearchRun() {
@@ -6447,11 +7315,14 @@ void MainWindow::updateTransitSearchVisibility() {
         return;
     }
     const bool inSearch = (transitSubTab_ == TransitSubTab::Search);
+    const bool inCalendar = (transitSubTab_ == TransitSubTab::Calendar);
     const bool inScan = (transitSubTab_ == TransitSubTab::Scan);
     const bool inLunations = (transitSubTab_ == TransitSubTab::Lunations);
     if (rightTopDock_) {
         if (inSearch) {
             rightTopDock_->setWindowTitle("Search Results");
+        } else if (inCalendar) {
+            rightTopDock_->setWindowTitle("Calendar Events");
         } else if (inScan) {
             rightTopDock_->setWindowTitle("Scan Results");
         } else if (inLunations) {
@@ -6463,6 +7334,8 @@ void MainWindow::updateTransitSearchVisibility() {
     if (rightBottomDock_) {
         if (inSearch) {
             rightBottomDock_->setWindowTitle("Result Details");
+        } else if (inCalendar) {
+            rightBottomDock_->setWindowTitle("Event Details");
         } else if (inScan) {
             rightBottomDock_->setWindowTitle("Scan Details");
         } else if (inLunations) {
@@ -6473,6 +7346,8 @@ void MainWindow::updateTransitSearchVisibility() {
     }
     if (inSearch) {
         showTransitSearchResults();
+    } else if (inCalendar) {
+        showTransitCalendarResults();
     } else if (inScan) {
         refreshTransitScanTab();
     } else if (inLunations) {
@@ -6480,7 +7355,7 @@ void MainWindow::updateTransitSearchVisibility() {
     } else if (activeTab_ == AppTab::Transits) {
         refreshTransitsTab();
     }
-    if (!inSearch && chartWheel_) {
+    if (!inSearch && !inCalendar && chartWheel_) {
         chartWheel_->clearHighlight();
     }
     if (inLunations) {
@@ -7356,6 +8231,128 @@ void MainWindow::showTransitSearchResults() {
             searchAutoApplied_ = true;
         }
     }
+}
+
+void MainWindow::showTransitCalendarResults() {
+    if (!rightTopTable_) {
+        return;
+    }
+    if (transitCalendarEvents_.isEmpty()) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell(calendarRunning_ ? "Computing calendar..." : "No calendar events yet."));
+        if (rightBottomTable_) {
+            setupTable(rightBottomTable_, {"Info"}, 1);
+            rightBottomTable_->setItem(0, 0, makeCell("Select a calendar event to view details."));
+        }
+        transitCalendarDisplayOrder_.clear();
+        return;
+    }
+
+    const QTimeZone displayTz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
+    const int monthFilter = calendarMonthCombo_ ? calendarMonthCombo_->currentData().toInt() : 0;
+    const bool showIngress = !calendarShowIngressCheck_ || calendarShowIngressCheck_->isChecked();
+    const bool showEgress = !calendarShowEgressCheck_ || calendarShowEgressCheck_->isChecked();
+    const bool showStation = !calendarShowStationCheck_ || calendarShowStationCheck_->isChecked();
+    const bool showShadow = !calendarShowShadowCheck_ || calendarShowShadowCheck_->isChecked();
+
+    auto eventAllowed = [showIngress, showEgress, showStation, showShadow](const QString& eventText) {
+        if (eventText.contains("Ingress", Qt::CaseInsensitive)) {
+            return showIngress;
+        }
+        if (eventText.contains("Egress", Qt::CaseInsensitive)) {
+            return showEgress;
+        }
+        if (eventText.startsWith("Station", Qt::CaseInsensitive)) {
+            return showStation;
+        }
+        if (eventText.contains("shadow", Qt::CaseInsensitive)) {
+            return showShadow;
+        }
+        return true;
+    };
+
+    transitCalendarDisplayOrder_.clear();
+    transitCalendarDisplayOrder_.reserve(transitCalendarEvents_.size());
+    for (int i = 0; i < transitCalendarEvents_.size(); ++i) {
+        const auto& event = transitCalendarEvents_[i];
+        if (!eventAllowed(event.event)) {
+            continue;
+        }
+        const auto local = transitCalendarEvents_[i].timeUtc.toTimeZone(displayTz);
+        if (monthFilter > 0 && local.date().month() != monthFilter) {
+            continue;
+        }
+        transitCalendarDisplayOrder_.push_back(i);
+    }
+
+    if (transitCalendarDisplayOrder_.isEmpty()) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("No events match the current month/event filters."));
+        if (rightBottomTable_) {
+            setupTable(rightBottomTable_, {"Info"}, 1);
+            rightBottomTable_->setItem(0, 0, makeCell("Adjust month or event filters to see results."));
+        }
+        return;
+    }
+
+    setupTable(rightTopTable_, {"Date", "Time", "Planet", "Event", "Sign/House", "Longitude"}, transitCalendarDisplayOrder_.size());
+    rightTopTable_->verticalHeader()->setDefaultSectionSize(24);
+    auto* header = rightTopTable_->horizontalHeader();
+    if (header) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(5, QHeaderView::Stretch);
+    }
+    for (int row = 0; row < transitCalendarDisplayOrder_.size(); ++row) {
+        const int idx = transitCalendarDisplayOrder_[row];
+        if (idx < 0 || idx >= transitCalendarEvents_.size()) {
+            continue;
+        }
+        const auto& event = transitCalendarEvents_[idx];
+        const QDateTime local = event.timeUtc.toTimeZone(displayTz);
+        rightTopTable_->setItem(row, 0, makeCell(local.toString("ddd, MMM d, yyyy")));
+        rightTopTable_->setItem(row, 1, makeCell(local.toString("hh:mm AP"), Qt::AlignHCenter | Qt::AlignVCenter));
+        rightTopTable_->setItem(row, 2, makeCell(event.planet));
+        rightTopTable_->setItem(row, 3, makeCell(event.event));
+        rightTopTable_->setItem(row, 4, makeCell(event.signHouse.isEmpty() ? "-" : event.signHouse));
+        rightTopTable_->setItem(row, 5, makeCell(formatDegInSign(event.longitude)));
+    }
+
+    if (!transitCalendarDisplayOrder_.isEmpty()) {
+        const int firstIndex = transitCalendarDisplayOrder_.front();
+        if (firstIndex >= 0 && firstIndex < transitCalendarEvents_.size()) {
+            showTransitCalendarDetails(transitCalendarEvents_[firstIndex]);
+        }
+    }
+}
+
+void MainWindow::showTransitCalendarDetails(const TransitCalendarEvent& result) {
+    if (!rightBottomTable_) {
+        return;
+    }
+    const QTimeZone displayTz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
+    const QDateTime localTime = result.timeUtc.toTimeZone(displayTz);
+    const QString tzLabel = result.tzLabel.isEmpty() ? QString("UTC") : result.tzLabel;
+
+    setupTable(rightBottomTable_, {"Item", "Value"}, 7);
+    int row = 0;
+    rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
+    rightBottomTable_->setItem(row++, 1, makeCell(localTime.toString("yyyy-MM-dd HH:mm:ss")));
+    rightBottomTable_->setItem(row, 0, makeCell("UTC Time"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.timeUtc.toString("yyyy-MM-dd HH:mm:ss")));
+    rightBottomTable_->setItem(row, 0, makeCell("Timezone"));
+    rightBottomTable_->setItem(row++, 1, makeCell(tzLabel));
+    rightBottomTable_->setItem(row, 0, makeCell("Planet"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.planet));
+    rightBottomTable_->setItem(row, 0, makeCell("Event"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.event));
+    rightBottomTable_->setItem(row, 0, makeCell("Sign/House"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.signHouse.isEmpty() ? "-" : result.signHouse));
+    rightBottomTable_->setItem(row, 0, makeCell("Longitude"));
+    rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.longitude)));
 }
 
 void MainWindow::showTransitSearchDetails(const TransitSearchResult& result) {

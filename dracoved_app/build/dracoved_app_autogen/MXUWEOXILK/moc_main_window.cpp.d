@@ -8,6 +8,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSharedDataPointer \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QTimeZone \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QUrl \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QVariant \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QVector \
@@ -129,6 +130,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtenvironmentvariables.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtextstream.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtformat_impl.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qtimezone.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtmetamacros.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtnoop.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtpreprocessorsupport.h \

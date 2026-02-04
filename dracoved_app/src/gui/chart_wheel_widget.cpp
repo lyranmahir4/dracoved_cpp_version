@@ -2,7 +2,9 @@
 
 #include "../core/formatting.h"
 
+#include <QContextMenuEvent>
 #include <QMap>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -417,7 +419,8 @@ void ChartWheelWidget::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void ChartWheelWidget::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::MiddleButton) {
+    const bool leftPan = (event->button() == Qt::LeftButton && zoom_ > 1.0);
+    if (event->button() == Qt::MiddleButton || leftPan) {
         panning_ = true;
         lastPanPos_ = event->position();
         setCursor(Qt::ClosedHandCursor);
@@ -428,13 +431,37 @@ void ChartWheelWidget::mousePressEvent(QMouseEvent* event) {
 }
 
 void ChartWheelWidget::mouseReleaseEvent(QMouseEvent* event) {
-    if (event->button() == Qt::MiddleButton && panning_) {
+    if ((event->button() == Qt::MiddleButton || event->button() == Qt::LeftButton) && panning_) {
         panning_ = false;
         updateCursor();
         event->accept();
         return;
     }
     QWidget::mouseReleaseEvent(event);
+}
+
+void ChartWheelWidget::contextMenuEvent(QContextMenuEvent* event) {
+    QMenu menu(this);
+    QAction* fitAction = menu.addAction("Fit to Screen");
+    QAction* zoomInAction = menu.addAction("Zoom In");
+    QAction* zoomOutAction = menu.addAction("Zoom Out");
+    QAction* centerAction = menu.addAction("Center Chart");
+
+    QAction* chosen = menu.exec(event->globalPos());
+    if (!chosen) {
+        return;
+    }
+    if (chosen == fitAction) {
+        resetZoom();
+    } else if (chosen == zoomInAction) {
+        zoomIn();
+    } else if (chosen == zoomOutAction) {
+        zoomOut();
+    } else if (chosen == centerAction) {
+        panOffset_ = {0.0, 0.0};
+        updateCursor();
+        update();
+    }
 }
 
 void ChartWheelWidget::leaveEvent(QEvent* event) {
@@ -1117,6 +1144,23 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             return QChar();
         };
 
+        auto planetSvgPath = [](const QString& name) -> QString {
+            if (name == "Sun") return ":/resources/icons/planets/sun.svg";
+            if (name == "Moon") return ":/resources/icons/planets/moon.svg";
+            if (name == "Mercury") return ":/resources/icons/planets/mercury.svg";
+            if (name == "Venus") return ":/resources/icons/planets/venus.svg";
+            if (name == "Mars") return ":/resources/icons/planets/mars.svg";
+            if (name == "Jupiter") return ":/resources/icons/planets/jupiter.svg";
+            if (name == "Saturn") return ":/resources/icons/planets/saturn.svg";
+            if (name == "Uranus") return ":/resources/icons/planets/uranus.svg";
+            if (name == "Neptune") return ":/resources/icons/planets/neptune.svg";
+            if (name == "Pluto") return ":/resources/icons/planets/pluto.svg";
+            if (name == "Chiron") return ":/resources/icons/planets/chiron.svg";
+            if (name == "North Node") return ":/resources/icons/planets/north_node.svg";
+            if (name == "South Node") return ":/resources/icons/planets/south_node.svg";
+            return "";
+        };
+
         for (int i = 0; i < drawList.size(); ++i) {
             const auto& item = drawList[i];
             const double labelLon = labelLons.value(i, item.lon);
@@ -1160,9 +1204,31 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 painter.restore();
             }
 
-            // Draw Unicode Glyph
-            painter.setPen(bodyColor);
-            painter.drawText(glyphRect, Qt::AlignCenter, glyph);
+            // Draw SVG icon if available, otherwise fallback to Unicode glyph/text.
+            bool drewSvg = false;
+            const QString svgPath = planetSvgPath(item.name);
+            if (!svgPath.isEmpty()) {
+                QSvgRenderer renderer(svgPath);
+                if (renderer.isValid()) {
+                    painter.save();
+                    painter.translate(glyphRect.topLeft());
+                    QPixmap px(glyphRect.size().toSize() * painter.device()->devicePixelRatio());
+                    px.fill(Qt::transparent);
+                    px.setDevicePixelRatio(painter.device()->devicePixelRatio());
+                    QPainter p(&px);
+                    renderer.render(&p);
+                    p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+                    p.fillRect(px.rect(), bodyColor);
+                    p.end();
+                    painter.drawPixmap(0, 0, px);
+                    painter.restore();
+                    drewSvg = true;
+                }
+            }
+            if (!drewSvg) {
+                painter.setPen(bodyColor);
+                painter.drawText(glyphRect, Qt::AlignCenter, glyph);
+            }
             occupiedRects.push_back(glyphRect.adjusted(-3, -3, 3, 3));
 
             // Draw Retrograde indicator if needed
