@@ -10000,14 +10000,15 @@ void MainWindow::showLunationResults() {
         return;
     }
 
-    setupTable(rightTopTable_, {"Date/Time", "Event", "Sun", "Moon", "Eclipse"}, lunationResults_.size());
+    setupTable(rightTopTable_, {"Date", "Time", "Event", "Sun", "Moon", "Eclipse"}, lunationResults_.size());
     for (int i = 0; i < lunationResults_.size(); ++i) {
         const auto& res = lunationResults_[i];
-        rightTopTable_->setItem(i, 0, makeCell(res.timeLocal.toString("yyyy-MM-dd HH:mm")));
-        rightTopTable_->setItem(i, 1, makeCell(res.event));
-        rightTopTable_->setItem(i, 2, makeCell(formatDegInSign(res.sunLon)));
-        rightTopTable_->setItem(i, 3, makeCell(formatDegInSign(res.moonLon)));
-        rightTopTable_->setItem(i, 4, makeCell(res.eclipseType.isEmpty() ? "-" : res.eclipseType));
+        rightTopTable_->setItem(i, 0, makeCell(res.timeLocal.toString("ddd, MMM d, yyyy")));
+        rightTopTable_->setItem(i, 1, makeCell(res.timeLocal.toString("hh:mm AP"), Qt::AlignHCenter | Qt::AlignVCenter));
+        rightTopTable_->setItem(i, 2, makeCell(res.event));
+        rightTopTable_->setItem(i, 3, makeCell(formatDegInSign(res.sunLon)));
+        rightTopTable_->setItem(i, 4, makeCell(formatDegInSign(res.moonLon)));
+        rightTopTable_->setItem(i, 5, makeCell(res.eclipseType.isEmpty() ? "-" : res.eclipseType));
     }
     if (!lunationResults_.isEmpty()) {
         showLunationDetails(lunationResults_.front());
@@ -10259,17 +10260,18 @@ void MainWindow::showLunationAnalysisResults() {
             return;
         }
         lunationBottomEventOrder_.clear();
-        setupTable(rightTopTable_, {"Date/Time", "Event", "Moon Deg", "Sign", "House", "Eclipse"}, lunationAnalysisEventOrder_.size());
+        setupTable(rightTopTable_, {"Date", "Time", "Event", "Moon Deg", "Sign", "House", "Eclipse"}, lunationAnalysisEventOrder_.size());
         for (int row = 0; row < lunationAnalysisEventOrder_.size(); ++row) {
             const int idx = lunationAnalysisEventOrder_[row];
             if (idx < 0 || idx >= lunationResults_.size()) {
                 continue;
             }
             const auto& res = lunationResults_[idx];
-            rightTopTable_->setItem(row, 0, makeCell(res.timeLocal.toString("yyyy-MM-dd HH:mm")));
-            rightTopTable_->setItem(row, 1, makeCell(res.event));
-            rightTopTable_->setItem(row, 2, makeCell(formatDegOnly(res.moonLon)));
-            rightTopTable_->setItem(row, 3, makeCell(signName(signIndex(res.moonLon))));
+            rightTopTable_->setItem(row, 0, makeCell(res.timeLocal.toString("ddd, MMM d, yyyy")));
+            rightTopTable_->setItem(row, 1, makeCell(res.timeLocal.toString("hh:mm AP"), Qt::AlignHCenter | Qt::AlignVCenter));
+            rightTopTable_->setItem(row, 2, makeCell(res.event));
+            rightTopTable_->setItem(row, 3, makeCell(formatDegOnly(res.moonLon)));
+            rightTopTable_->setItem(row, 4, makeCell(signName(signIndex(res.moonLon))));
             QString houseLabel = "-";
             if (hasCurrentChart_) {
                 const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
@@ -10277,8 +10279,8 @@ void MainWindow::showLunationAnalysisResults() {
                     houseLabel = QString::number(house);
                 }
             }
-            rightTopTable_->setItem(row, 4, makeCell(houseLabel));
-            rightTopTable_->setItem(row, 5, makeCell(res.eclipseType.isEmpty() ? "-" : res.eclipseType));
+            rightTopTable_->setItem(row, 5, makeCell(houseLabel));
+            rightTopTable_->setItem(row, 6, makeCell(res.eclipseType.isEmpty() ? "-" : res.eclipseType));
         }
         const int firstIdx = lunationAnalysisEventOrder_.front();
         if (firstIdx >= 0 && firstIdx < lunationResults_.size()) {
@@ -10382,7 +10384,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         if (b < 0 || b >= lunationResults_.size()) return true;
         return lunationResults_[a].timeUtc < lunationResults_[b].timeUtc;
     });
-    setupTable(rightBottomTable_, {"Date/Time", "Event", "Moon Deg", "Sign", "House"}, indices.size());
+    setupTable(rightBottomTable_, {"Date", "Time", "Event", "Moon Deg", "Sign", "House"}, indices.size());
     for (int row = 0; row < indices.size(); ++row) {
         const int idx = indices[row];
         if (idx < 0 || idx >= lunationResults_.size()) {
@@ -10390,10 +10392,11 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         }
         lunationBottomEventOrder_.push_back(idx);
         const auto& res = lunationResults_[idx];
-        rightBottomTable_->setItem(row, 0, makeCell(res.timeLocal.toString("yyyy-MM-dd HH:mm")));
-        rightBottomTable_->setItem(row, 1, makeCell(res.event));
-        rightBottomTable_->setItem(row, 2, makeCell(formatDegOnly(res.moonLon)));
-        rightBottomTable_->setItem(row, 3, makeCell(signName(signIndex(res.moonLon))));
+        rightBottomTable_->setItem(row, 0, makeCell(res.timeLocal.toString("ddd, MMM d, yyyy")));
+        rightBottomTable_->setItem(row, 1, makeCell(res.timeLocal.toString("hh:mm AP"), Qt::AlignHCenter | Qt::AlignVCenter));
+        rightBottomTable_->setItem(row, 2, makeCell(res.event));
+        rightBottomTable_->setItem(row, 3, makeCell(formatDegOnly(res.moonLon)));
+        rightBottomTable_->setItem(row, 4, makeCell(signName(signIndex(res.moonLon))));
         QString houseLabel = "-";
         if (hasCurrentChart_) {
             const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
@@ -10401,7 +10404,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
                 houseLabel = QString::number(house);
             }
         }
-        rightBottomTable_->setItem(row, 4, makeCell(houseLabel));
+        rightBottomTable_->setItem(row, 5, makeCell(houseLabel));
     }
     updateLunationCopyButtonState();
 }
