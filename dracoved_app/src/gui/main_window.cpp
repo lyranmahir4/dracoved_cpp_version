@@ -393,7 +393,7 @@ static QStringList selectedCheckableItems(QComboBox* combo) {
     return checkedItemsFromModel(model);
 }
 
-static void updateTransitPlanetComboLabel(QComboBox* combo) {
+static void updateCheckableComboLabel(QComboBox* combo) {
     if (!combo) {
         return;
     }
@@ -415,6 +415,10 @@ static void updateTransitPlanetComboLabel(QComboBox* combo) {
     }
     const QSignalBlocker blocker(combo);
     combo->setEditText(label);
+}
+
+static void updateTransitPlanetComboLabel(QComboBox* combo) {
+    updateCheckableComboLabel(combo);
 }
 
 static QString formatDegreeDms(double deg) {
@@ -3521,10 +3525,39 @@ void MainWindow::setupDockLayout() {
     for (int month = 1; month <= 12; ++month) {
         calendarMonthCombo_->addItem(calendarLocale.standaloneMonthName(month, QLocale::LongFormat), month);
     }
+    calendarPlanetCombo_ = new QComboBox(calendarRangeGroup);
+    calendarPlanetCombo_->setEditable(true);
+    if (auto* edit = calendarPlanetCombo_->lineEdit()) {
+        edit->setReadOnly(true);
+        edit->setPlaceholderText("Select planets");
+        edit->setCursor(Qt::ArrowCursor);
+        edit->installEventFilter(new ComboPopupOnClick(calendarPlanetCombo_));
+    }
+    auto* calendarPlanetModel = new QStandardItemModel(calendarPlanetCombo_);
+    auto* calendarAllItem = new QStandardItem("All");
+    calendarAllItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+    calendarAllItem->setData(Qt::Unchecked, Qt::CheckStateRole);
+    calendarPlanetModel->appendRow(calendarAllItem);
+    const QStringList calendarBodies = {
+        "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+        "Uranus", "Neptune", "Pluto", "Chiron", "North Node", "South Node", "Lilith",
+    };
+    for (const auto& name : calendarBodies) {
+        auto* item = new QStandardItem(name);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+        const bool checkedByDefault = (name != "Moon");
+        item->setData(checkedByDefault ? Qt::Checked : Qt::Unchecked, Qt::CheckStateRole);
+        calendarPlanetModel->appendRow(item);
+    }
+    calendarPlanetCombo_->setModel(calendarPlanetModel);
+    calendarPlanetCombo_->setCurrentIndex(0);
+    updateCheckableComboLabel(calendarPlanetCombo_);
     calendarRangeLayout->addWidget(new QLabel("Year", calendarRangeGroup), 0, 0);
     calendarRangeLayout->addWidget(calendarYearCombo_, 0, 1);
     calendarRangeLayout->addWidget(new QLabel("Month", calendarRangeGroup), 1, 0);
     calendarRangeLayout->addWidget(calendarMonthCombo_, 1, 1);
+    calendarRangeLayout->addWidget(new QLabel("Planets", calendarRangeGroup), 2, 0);
+    calendarRangeLayout->addWidget(calendarPlanetCombo_, 2, 1);
 
     auto* calendarOptionsGroup = new QGroupBox("Options", transitCalendarPanel_);
     auto* calendarOptionsLayout = new QVBoxLayout(calendarOptionsGroup);
@@ -5142,6 +5175,57 @@ void MainWindow::setupConnections() {
             showTransitCalendarResults();
         });
     }
+    if (calendarPlanetCombo_) {
+        auto* model = qobject_cast<QStandardItemModel*>(calendarPlanetCombo_->model());
+        if (model && model->rowCount() > 0) {
+            updateCheckableComboLabel(calendarPlanetCombo_);
+            connect(model, &QStandardItemModel::itemChanged, this, [this, model](QStandardItem* item) {
+                if (!item) {
+                    return;
+                }
+                const QSignalBlocker blocker(model);
+                if (item->row() == 0) {
+                    const bool checked = (item->checkState() == Qt::Checked);
+                    for (int i = 1; i < model->rowCount(); ++i) {
+                        if (auto* planetItem = model->item(i)) {
+                            planetItem->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+                        }
+                    }
+                } else {
+                    bool allChecked = true;
+                    for (int i = 1; i < model->rowCount(); ++i) {
+                        const auto* planetItem = model->item(i);
+                        if (!planetItem || planetItem->checkState() != Qt::Checked) {
+                            allChecked = false;
+                            break;
+                        }
+                    }
+                    if (auto* allItem = model->item(0)) {
+                        allItem->setCheckState(allChecked ? Qt::Checked : Qt::Unchecked);
+                    }
+                }
+                updateCheckableComboLabel(calendarPlanetCombo_);
+                showTransitCalendarResults();
+                if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+                    handleTransitCalendarRun();
+                }
+            });
+            if (auto* view = calendarPlanetCombo_->view()) {
+                connect(view, &QAbstractItemView::pressed, this, [model](const QModelIndex& index) {
+                    if (!index.isValid()) {
+                        return;
+                    }
+                    auto* item = model->itemFromIndex(index);
+                    if (!item) {
+                        return;
+                    }
+                    const Qt::CheckState nextState =
+                        (item->checkState() == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+                    item->setCheckState(nextState);
+                });
+            }
+        }
+    }
     if (calendarShowIngressCheck_) {
         connect(calendarShowIngressCheck_, &QCheckBox::toggled, this, [this](bool) {
             showTransitCalendarResults();
@@ -6234,6 +6318,7 @@ void MainWindow::handleMainTabChanged(int index) {
     updateAspectScopeTabs();
     updateChartLegend();
     updateTransitSearchVisibility();
+    refreshNatalReport();
 }
 
 void MainWindow::handleTransitNow() {
@@ -6481,10 +6566,14 @@ void MainWindow::handleTransitCalendarRun() {
     params.tzLabel = calendarTzLabel_;
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
-    params.planetNames = {
-        "Sun", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
-        "Uranus", "Neptune", "Pluto", "Chiron", "North Node", "South Node", "Lilith",
-    };
+    params.planetNames = selectedCheckableItems(calendarPlanetCombo_);
+    if (params.planetNames.isEmpty()) {
+        setStatusMessage("Select at least one calendar planet.");
+        if (calendarStatusLabel_) {
+            calendarStatusLabel_->setText("Select planets");
+        }
+        return;
+    }
     params.includeHouses = includeHouses;
     params.overlayMode = overlayMode;
     params.houseSystem = transitHouseSystem_;
@@ -6946,24 +7035,51 @@ QString MainWindow::buildNatalReportText() const {
     if (!hasCurrentChart_) {
         return QString();
     }
-    const NatalChart& chart = currentChart_;
-    const NatalInput& input = currentInput_;
+    const NatalChart* chartPtr = &currentChart_;
+    const NatalInput* inputPtr = &currentInput_;
+    QString reportTitle = "Natal Report";
+    QString localTimeLabel = "Birth time (Local)";
+    QString utcTimeLabel = "Birth time (UTC)";
+    QString modeContext;
+    QVector<HouseCusp> placidusCusps = natalPlacidusCusps_;
+
+    if (activeTab_ == AppTab::Progression) {
+        reportTitle = "Progression Report";
+        localTimeLabel = "Chart time (Local)";
+        utcTimeLabel = "Chart time (UTC)";
+        if (progressionView_ != ProgressionView::NatalOnly && hasProgressionChart_) {
+            chartPtr = &currentProgressionChart_;
+            inputPtr = &currentProgressionInput_;
+            modeContext = (progressionView_ == ProgressionView::Overlay)
+                ? "Progressed (overlay mode)"
+                : "Progressed";
+            placidusCusps = currentProgressionChart_.cusps;
+        } else {
+            modeContext = "Natal (progression natal-only)";
+        }
+    }
+
+    const NatalChart& chart = *chartPtr;
+    const NatalInput& input = *inputPtr;
     QStringList lines;
     auto addRow = [&](const QStringList& cols) {
         lines << cols.join('\t');
     };
-    lines << "Natal Report";
+    lines << reportTitle;
     lines << "";
     lines << "Summary:";
     addRow({"Field", "Value"});
     addRow({"Name", input.name.isEmpty() ? "-" : input.name});
     addRow({"Location", currentLocation_.isEmpty() ? "-" : currentLocation_});
-    addRow({"Birth time (Local)", chart.localDateTime.toString("yyyy-MM-dd HH:mm:ss")});
-    addRow({"Birth time (UTC)", chart.utcDateTime.toString("yyyy-MM-dd HH:mm:ss")});
+    addRow({localTimeLabel, chart.localDateTime.toString("yyyy-MM-dd HH:mm:ss")});
+    addRow({utcTimeLabel, chart.utcDateTime.toString("yyyy-MM-dd HH:mm:ss")});
     addRow({"Latitude", QString::number(input.latitude, 'f', 6)});
     addRow({"Longitude", QString::number(input.longitude, 'f', 6)});
     addRow({"Timezone", chart.timezoneLabel.isEmpty() ? "-" : chart.timezoneLabel});
     addRow({"House system (UI)", input.houseSystem == HouseSystem::Placidus ? "Placidus" : "Whole Sign"});
+    if (!modeContext.isEmpty()) {
+        addRow({"Mode Context", modeContext});
+    }
     addRow({"Mode", "Tropical"});
     addRow({"Day/Night", chart.isDayChart ? "Day" : "Night"});
     lines << "";
@@ -6992,7 +7108,7 @@ QString MainWindow::buildNatalReportText() const {
     for (const auto& body : chart.bodies) {
         bodyMap.insert(body.name, body);
     }
-    const bool hasPlacidusCusps = (natalPlacidusCusps_.size() == 12);
+    const bool hasPlacidusCusps = (placidusCusps.size() == 12);
     for (const auto& name : tropicalBodyOrder()) {
         if (!bodyMap.contains(name)) {
             continue;
@@ -7001,7 +7117,7 @@ QString MainWindow::buildNatalReportText() const {
         const QString motion = body.retrograde ? "Retrograde" : "Direct";
         const int houseWhole = calcHouseForLongitude(body.longitude, {}, chart.angles.asc, HouseSystem::WholeSign);
         const int housePlacidus = hasPlacidusCusps
-            ? calcHouseForLongitude(body.longitude, natalPlacidusCusps_, chart.angles.asc, HouseSystem::Placidus)
+            ? calcHouseForLongitude(body.longitude, placidusCusps, chart.angles.asc, HouseSystem::Placidus)
             : 0;
         addRow({
             body.name,
@@ -7029,7 +7145,7 @@ QString MainWindow::buildNatalReportText() const {
     lines << "Houses (Placidus Cusps):";
     if (hasPlacidusCusps) {
         addRow({"House", "Cusp Deg", "Sign"});
-        for (const auto& cusp : natalPlacidusCusps_) {
+        for (const auto& cusp : placidusCusps) {
             addRow({
                 QString::number(cusp.number),
                 formatDegOnly(cusp.longitude),
@@ -8334,6 +8450,9 @@ void MainWindow::showTransitCalendarResults() {
 
     const QTimeZone displayTz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
     const int monthFilter = calendarMonthCombo_ ? calendarMonthCombo_->currentData().toInt() : 0;
+    const QStringList selectedPlanetList = selectedCheckableItems(calendarPlanetCombo_);
+    const QSet<QString> selectedPlanets(selectedPlanetList.begin(), selectedPlanetList.end());
+    const bool filterByPlanetSelection = (calendarPlanetCombo_ != nullptr);
     const bool showIngress = !calendarShowIngressCheck_ || calendarShowIngressCheck_->isChecked();
     const bool showEgress = !calendarShowEgressCheck_ || calendarShowEgressCheck_->isChecked();
     const bool showStation = !calendarShowStationCheck_ || calendarShowStationCheck_->isChecked();
@@ -8359,6 +8478,9 @@ void MainWindow::showTransitCalendarResults() {
     transitCalendarDisplayOrder_.reserve(transitCalendarEvents_.size());
     for (int i = 0; i < transitCalendarEvents_.size(); ++i) {
         const auto& event = transitCalendarEvents_[i];
+        if (filterByPlanetSelection && !selectedPlanets.contains(event.planet)) {
+            continue;
+        }
         if (!eventAllowed(event.event)) {
             continue;
         }
@@ -8371,10 +8493,10 @@ void MainWindow::showTransitCalendarResults() {
 
     if (transitCalendarDisplayOrder_.isEmpty()) {
         setupTable(rightTopTable_, {"Info"}, 1);
-        rightTopTable_->setItem(0, 0, makeCell("No events match the current month/event filters."));
+        rightTopTable_->setItem(0, 0, makeCell("No events match the current month/planet/event filters."));
         if (rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
-            rightBottomTable_->setItem(0, 0, makeCell("Adjust month or event filters to see results."));
+            rightBottomTable_->setItem(0, 0, makeCell("Adjust month, planet, or event filters to see results."));
         }
         return;
     }
@@ -9340,6 +9462,7 @@ void MainWindow::handleProgressionCalculate() {
     if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
     }
+    refreshNatalReport();
 }
 
 void MainWindow::handleProgressionViewChanged() {
@@ -9353,6 +9476,7 @@ void MainWindow::handleProgressionViewChanged() {
     if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
     }
+    refreshNatalReport();
 }
 
 void MainWindow::showProgressionPlaceholder() {

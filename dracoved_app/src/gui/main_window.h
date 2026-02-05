@@ -400,6 +400,7 @@ private:
     QLabel* searchTargetLabel_ = nullptr;
     QComboBox* calendarYearCombo_ = nullptr;
     QComboBox* calendarMonthCombo_ = nullptr;
+    QComboBox* calendarPlanetCombo_ = nullptr;
     QCheckBox* calendarShowIngressCheck_ = nullptr;
     QCheckBox* calendarShowEgressCheck_ = nullptr;
     QCheckBox* calendarShowStationCheck_ = nullptr;
