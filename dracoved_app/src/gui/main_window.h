@@ -67,6 +67,17 @@ public:
         QString signHouse;
         double longitude = 0.0;
     };
+    struct TransitConjunctionWindow {
+        QDateTime startUtc;
+        QDateTime endUtc;
+        QString tzLabel;
+        QString bucketLabel;
+        QStringList planetsInBucketAtStart;
+        QStringList orbClusterAtStart;
+        int bucketCount = 0;
+        int clusterCount = 0;
+        double clusterSpanDeg = 0.0;
+    };
     struct LunationResult {
         QDateTime timeLocal;
         QDateTime timeUtc;
@@ -147,8 +158,14 @@ private:
         Overview,
         Search,
         Calendar,
+        Conjunctions,
         Scan,
         Lunations,
+    };
+    enum class ConjunctionFindMode {
+        Range,
+        Next,
+        Previous,
     };
     enum class ProgressionView {
         NatalOnly,
@@ -248,6 +265,9 @@ private:
     void handleTransitSearchResultActivated(int row, int column);
     void handleTransitCalendarRun();
     void handleTransitCalendarResultActivated(int row, int column);
+    void handleTransitConjunctionRun();
+    void handleTransitConjunctionStop();
+    void handleTransitConjunctionResultActivated(int row, int column);
     void handleLunationSearchRun();
     void handleLunationSearchStop();
     void handleLunationResultActivated(int row, int column);
@@ -290,9 +310,12 @@ private:
     void showTransitSearchResults();
     void showTransitCalendarResults();
     void showTransitCalendarDetails(const TransitCalendarEvent& result);
+    void showTransitConjunctionResults();
+    void showTransitConjunctionDetails(const TransitConjunctionWindow& result);
     void runLunationSearch();
     void updateLunationModeAvailability();
     void updateLunationAnalysisAvailability();
+    void updateConjunctionModeAvailability();
     void buildLunationDegreeGroups();
     void showLunationResults();
     void showLunationAnalysisResults();
@@ -354,6 +377,7 @@ private:
     QWidget* transitOverviewPanel_ = nullptr;
     QWidget* transitSearchPanel_ = nullptr;
     QWidget* transitCalendarPanel_ = nullptr;
+    QWidget* transitConjunctionPanel_ = nullptr;
     QWidget* aspectsPanel_ = nullptr;
     QRadioButton* transitOverlayRadio_ = nullptr;
     QRadioButton* transitOnlyRadio_ = nullptr;
@@ -408,6 +432,21 @@ private:
     QCheckBox* calendarIncludeHousesCheck_ = nullptr;
     QPushButton* calendarRefreshButton_ = nullptr;
     QLabel* calendarStatusLabel_ = nullptr;
+    QRadioButton* conjModeNextRadio_ = nullptr;
+    QRadioButton* conjModePrevRadio_ = nullptr;
+    QRadioButton* conjModeRangeRadio_ = nullptr;
+    QSpinBox* conjStartYearSpin_ = nullptr;
+    QSpinBox* conjEndYearSpin_ = nullptr;
+    QLabel* conjReferenceLabel_ = nullptr;
+    QRadioButton* conjBucketSignRadio_ = nullptr;
+    QRadioButton* conjBucketHouseRadio_ = nullptr;
+    QComboBox* conjPlanetCombo_ = nullptr;
+    QSpinBox* conjCountSpin_ = nullptr;
+    QCheckBox* conjUseOrbCheck_ = nullptr;
+    QDoubleSpinBox* conjOrbSpin_ = nullptr;
+    QPushButton* conjRunButton_ = nullptr;
+    QPushButton* conjStopButton_ = nullptr;
+    QLabel* conjStatusLabel_ = nullptr;
     QWidget* transitLunationPanel_ = nullptr;
     QCheckBox* lunationNewMoonCheck_ = nullptr;
     QCheckBox* lunationFullMoonCheck_ = nullptr;
@@ -579,6 +618,8 @@ private:
     QVector<TransitSearchResult> transitSearchResults_;
     QVector<TransitCalendarEvent> transitCalendarEvents_;
     QVector<int> transitCalendarDisplayOrder_;
+    QVector<TransitConjunctionWindow> transitConjunctionResults_;
+    QVector<int> transitConjunctionDisplayOrder_;
     QVector<DayScanResult> transitScanResults_;
     QVector<int> transitScanDisplayOrder_;
     bool transitScanRunning_ = false;
@@ -592,6 +633,15 @@ private:
     bool calendarRestartPending_ = false;
     QTimeZone calendarTz_;
     QString calendarTzLabel_;
+    QThread* conjThread_ = nullptr;
+    QObject* conjWorker_ = nullptr;
+    bool conjRunning_ = false;
+    bool conjRestartPending_ = false;
+    bool conjAutoApplied_ = false;
+    ConjunctionFindMode conjFindMode_ = ConjunctionFindMode::Range;
+    QDateTime conjAnchorUtc_;
+    QTimeZone conjTz_;
+    QString conjTzLabel_;
     bool searchRunning_ = false;
     bool searchAutoApplied_ = false;
     QVector<LunationResult> lunationResults_;
