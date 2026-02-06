@@ -164,6 +164,9 @@ struct LunationParams {
     bool includeFullMoon = true;
     bool includeSolarEclipse = false;
     bool includeLunarEclipse = false;
+    bool useDegreeRange = false;
+    double degreeRangeStart = 0.0;
+    double degreeRangeEnd = 29.99;
     QTimeZone tz;
     QString tzLabel;
     QString ephePath;
@@ -2281,6 +2284,20 @@ private:
         return a;
     }
 
+    bool matchesDegreeRange(double moonLon) const {
+        if (!params_.useDegreeRange) {
+            return true;
+        }
+        const double degree = degInSign(moonLon);
+        const double start = std::clamp(params_.degreeRangeStart, 0.0, 29.99);
+        const double end = std::clamp(params_.degreeRangeEnd, 0.0, 29.99);
+        if (start <= end) {
+            return degree >= (start - 1e-9) && degree <= (end + 1e-9);
+        }
+        // Wrap-around range support, e.g. 29.0 -> 2.0.
+        return degree >= (start - 1e-9) || degree <= (end + 1e-9);
+    }
+
     bool phaseAngleAtUtc(const QDateTime& utc, double* outAngle, QString* error) {
         if (!outAngle) {
             return false;
@@ -2546,79 +2563,133 @@ private:
         results_.push_back(incoming);
     }
 
+    bool findMatchingPhase(const QDateTime& anchor, double targetAngle, bool forward, const QString& label,
+                           QDateTime* outUtc, double* outSunLon, double* outMoonLon, QString* error) {
+        QDateTime cursor = anchor;
+        for (int i = 0; i < 600; ++i) {
+            if (cancelled_.load()) {
+                return false;
+            }
+            QDateTime eventUtc;
+            const bool ok = forward
+                ? findNextPhase(cursor, targetAngle, &eventUtc, error)
+                : findPreviousPhase(cursor, targetAngle, &eventUtc, error);
+            if (!ok) {
+                return false;
+            }
+            double sunLon = 0.0;
+            double moonLon = 0.0;
+            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+                return false;
+            }
+            if (matchesDegreeRange(moonLon)) {
+                if (outUtc) *outUtc = eventUtc;
+                if (outSunLon) *outSunLon = sunLon;
+                if (outMoonLon) *outMoonLon = moonLon;
+                return true;
+            }
+            if (forward) {
+                cursor = eventUtc > cursor ? eventUtc.addSecs(60) : cursor.addSecs(60);
+            } else {
+                cursor = eventUtc < cursor ? eventUtc.addSecs(-60) : cursor.addSecs(-60);
+            }
+        }
+        if (error) {
+            *error = QString("No %1 found in the selected degree range.").arg(label.toLower());
+        }
+        return false;
+    }
+
+    bool findMatchingEclipse(const QDateTime& anchor, bool solar, bool forward,
+                             QDateTime* outUtc, QString* outType, int* outFlags,
+                             double* outSunLon, double* outMoonLon, QString* error) {
+        QDateTime cursor = anchor;
+        for (int i = 0; i < 800; ++i) {
+            if (cancelled_.load()) {
+                return false;
+            }
+            double tret[10] = {0};
+            const double jdStart = toJulianDay(cursor);
+            const int backward = forward ? 0 : 1;
+            const int ret = solar
+                ? swe_.solEclipseWhenGlob(jdStart, 0, 0, tret, backward, error)
+                : swe_.lunEclipseWhen(jdStart, 0, 0, tret, backward, error);
+            if (ret < 0) {
+                return false;
+            }
+            QDateTime eventUtc;
+            if (!jdToUtc(tret[0], &eventUtc, error)) {
+                return false;
+            }
+            double sunLon = 0.0;
+            double moonLon = 0.0;
+            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+                return false;
+            }
+            if (matchesDegreeRange(moonLon)) {
+                if (outUtc) *outUtc = eventUtc;
+                if (outType) *outType = eclipseTypeForFlags(ret, solar);
+                if (outFlags) *outFlags = ret;
+                if (outSunLon) *outSunLon = sunLon;
+                if (outMoonLon) *outMoonLon = moonLon;
+                return true;
+            }
+            if (forward) {
+                cursor = eventUtc > cursor ? eventUtc.addSecs(60) : cursor.addSecs(60);
+            } else {
+                cursor = eventUtc < cursor ? eventUtc.addSecs(-60) : cursor.addSecs(-60);
+            }
+        }
+        if (error) {
+            *error = QString("No %1 found in the selected degree range.")
+                .arg(solar ? "solar eclipse" : "lunar eclipse");
+        }
+        return false;
+    }
+
     bool runSingle(bool forward, QString* error) {
         const QDateTime anchor = params_.startUtc;
         const double newAngle = 0.0;
         const double fullAngle = 180.0;
         if (params_.includeNewMoon) {
             QDateTime eventUtc;
-            const bool ok = forward
-                ? findNextPhase(anchor, newAngle, &eventUtc, error)
-                : findPreviousPhase(anchor, newAngle, &eventUtc, error);
-            if (!ok) {
-                return false;
-            }
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+            if (!findMatchingPhase(anchor, newAngle, forward, "New Moon", &eventUtc, &sunLon, &moonLon, error)) {
                 return false;
             }
             addResult(eventUtc, "New Moon", QString(), 0, sunLon, moonLon);
         }
         if (params_.includeFullMoon) {
             QDateTime eventUtc;
-            const bool ok = forward
-                ? findNextPhase(anchor, fullAngle, &eventUtc, error)
-                : findPreviousPhase(anchor, fullAngle, &eventUtc, error);
-            if (!ok) {
-                return false;
-            }
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+            if (!findMatchingPhase(anchor, fullAngle, forward, "Full Moon", &eventUtc, &sunLon, &moonLon, error)) {
                 return false;
             }
             addResult(eventUtc, "Full Moon", QString(), 0, sunLon, moonLon);
         }
         if (params_.includeSolarEclipse) {
             QDateTime eventUtc;
-            double tret[10] = {0};
-            const double jdStart = toJulianDay(anchor);
-            const int backward = forward ? 0 : 1;
-            const int ret = swe_.solEclipseWhenGlob(jdStart, 0, 0, tret, backward, error);
-            if (ret < 0) {
-                return false;
-            }
-            if (!jdToUtc(tret[0], &eventUtc, error)) {
-                return false;
-            }
+            QString type;
+            int flags = 0;
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+            if (!findMatchingEclipse(anchor, true, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)) {
                 return false;
             }
-            const QString type = eclipseTypeForFlags(ret, true);
-            addResult(eventUtc, "Solar Eclipse", type, ret, sunLon, moonLon);
+            addResult(eventUtc, "Solar Eclipse", type, flags, sunLon, moonLon);
         }
         if (params_.includeLunarEclipse) {
             QDateTime eventUtc;
-            double tret[10] = {0};
-            const double jdStart = toJulianDay(anchor);
-            const int backward = forward ? 0 : 1;
-            const int ret = swe_.lunEclipseWhen(jdStart, 0, 0, tret, backward, error);
-            if (ret < 0) {
-                return false;
-            }
-            if (!jdToUtc(tret[0], &eventUtc, error)) {
-                return false;
-            }
+            QString type;
+            int flags = 0;
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+            if (!findMatchingEclipse(anchor, false, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)) {
                 return false;
             }
-            const QString type = eclipseTypeForFlags(ret, false);
-            addResult(eventUtc, "Lunar Eclipse", type, ret, sunLon, moonLon);
+            addResult(eventUtc, "Lunar Eclipse", type, flags, sunLon, moonLon);
         }
         return true;
     }
@@ -2658,8 +2729,10 @@ private:
                 if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
                     return false;
                 }
-                addResult(eventUtc, label, QString(), 0, sunLon, moonLon);
-                updateProgress();
+                if (matchesDegreeRange(moonLon)) {
+                    addResult(eventUtc, label, QString(), 0, sunLon, moonLon);
+                    updateProgress();
+                }
                 cursor = eventUtc.addSecs(60);
                 if (!findNextPhase(cursor, targetAngle, &eventUtc, &localErr)) {
                     if (error) {
@@ -2698,9 +2771,11 @@ private:
                     if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
                         return false;
                     }
-                    const QString type = eclipseTypeForFlags(ret, solar);
-                    addResult(eventUtc, solar ? "Solar Eclipse" : "Lunar Eclipse", type, ret, sunLon, moonLon);
-                    updateProgress();
+                    if (matchesDegreeRange(moonLon)) {
+                        const QString type = eclipseTypeForFlags(ret, solar);
+                        addResult(eventUtc, solar ? "Solar Eclipse" : "Lunar Eclipse", type, ret, sunLon, moonLon);
+                        updateProgress();
+                    }
                 }
                 cursor = eventUtc.addSecs(60);
             }
@@ -4558,6 +4633,28 @@ void MainWindow::setupDockLayout() {
     const int lunationYear = QDate::currentDate().year();
     lunationStartYearSpin_->setValue(lunationYear);
     lunationEndYearSpin_->setValue(lunationYear);
+    lunationDegreeRangeCheck_ = new QCheckBox("Filter by degree range (in sign)", lunationModeGroup);
+    auto* lunationDegreeRangeRow = new QWidget(lunationModeGroup);
+    auto* lunationDegreeRangeLayout = new QHBoxLayout(lunationDegreeRangeRow);
+    lunationDegreeRangeLayout->setContentsMargins(0, 0, 0, 0);
+    lunationDegreeRangeLayout->setSpacing(6);
+    lunationDegreeRangeStartSpin_ = new QDoubleSpinBox(lunationDegreeRangeRow);
+    lunationDegreeRangeStartSpin_->setRange(0.0, 29.99);
+    lunationDegreeRangeStartSpin_->setDecimals(2);
+    lunationDegreeRangeStartSpin_->setSingleStep(0.25);
+    lunationDegreeRangeStartSpin_->setValue(27.0);
+    lunationDegreeRangeStartSpin_->setSuffix(QString(QChar(0x00B0)));
+    lunationDegreeRangeEndSpin_ = new QDoubleSpinBox(lunationDegreeRangeRow);
+    lunationDegreeRangeEndSpin_->setRange(0.0, 29.99);
+    lunationDegreeRangeEndSpin_->setDecimals(2);
+    lunationDegreeRangeEndSpin_->setSingleStep(0.25);
+    lunationDegreeRangeEndSpin_->setValue(29.0);
+    lunationDegreeRangeEndSpin_->setSuffix(QString(QChar(0x00B0)));
+    lunationDegreeRangeLayout->addWidget(new QLabel("From", lunationDegreeRangeRow));
+    lunationDegreeRangeLayout->addWidget(lunationDegreeRangeStartSpin_);
+    lunationDegreeRangeLayout->addWidget(new QLabel("To", lunationDegreeRangeRow));
+    lunationDegreeRangeLayout->addWidget(lunationDegreeRangeEndSpin_);
+    lunationDegreeRangeLayout->addStretch();
     lunationTimezoneLabel_ = new QLabel("Timezone: natal", lunationModeGroup);
     lunationTimezoneLabel_->setObjectName("hintLabel");
     auto* lunationRefLabel = new QLabel("Reference: system now", lunationModeGroup);
@@ -4568,9 +4665,11 @@ void MainWindow::setupDockLayout() {
     lunationModeLayout->addWidget(lunationStartYearSpin_, 1, 1);
     lunationModeLayout->addWidget(new QLabel("End Year", lunationModeGroup), 2, 0);
     lunationModeLayout->addWidget(lunationEndYearSpin_, 2, 1);
-    lunationModeLayout->addWidget(new QLabel("Timezone", lunationModeGroup), 3, 0);
-    lunationModeLayout->addWidget(lunationTimezoneLabel_, 3, 1, 1, 2);
-    lunationModeLayout->addWidget(lunationRefLabel, 4, 0, 1, 3);
+    lunationModeLayout->addWidget(lunationDegreeRangeCheck_, 3, 0, 1, 3);
+    lunationModeLayout->addWidget(lunationDegreeRangeRow, 4, 1, 1, 2);
+    lunationModeLayout->addWidget(new QLabel("Timezone", lunationModeGroup), 5, 0);
+    lunationModeLayout->addWidget(lunationTimezoneLabel_, 5, 1, 1, 2);
+    lunationModeLayout->addWidget(lunationRefLabel, 6, 0, 1, 3);
 
     auto* lunationAnalysisGroup = new QGroupBox("Degree Analysis", transitLunationPanel_);
     auto* lunationAnalysisLayout = new QGridLayout(lunationAnalysisGroup);
@@ -6186,6 +6285,15 @@ void MainWindow::setupConnections() {
     }
     if (lunationModeRangeRadio_) {
         connect(lunationModeRangeRadio_, &QRadioButton::toggled, this, &MainWindow::updateLunationModeAvailability);
+    }
+    if (lunationDegreeRangeCheck_) {
+        connect(lunationDegreeRangeCheck_, &QCheckBox::toggled, this, &MainWindow::updateLunationModeAvailability);
+    }
+    if (lunationDegreeRangeStartSpin_) {
+        connect(lunationDegreeRangeStartSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::updateLunationModeAvailability);
+    }
+    if (lunationDegreeRangeEndSpin_) {
+        connect(lunationDegreeRangeEndSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::updateLunationModeAvailability);
     }
     if (lunationAnalysisCombo_) {
         connect(lunationAnalysisCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateLunationAnalysisAvailability);
@@ -9364,11 +9472,18 @@ void MainWindow::setWorldMapOverlays(const QVariantList& lineOverlays, const QVa
 
 void MainWindow::updateLunationModeAvailability() {
     const bool useRange = lunationModeRangeRadio_ && lunationModeRangeRadio_->isChecked();
+    const bool useDegreeRange = lunationDegreeRangeCheck_ && lunationDegreeRangeCheck_->isChecked();
     if (lunationStartYearSpin_) {
         lunationStartYearSpin_->setEnabled(useRange);
     }
     if (lunationEndYearSpin_) {
         lunationEndYearSpin_->setEnabled(useRange);
+    }
+    if (lunationDegreeRangeStartSpin_) {
+        lunationDegreeRangeStartSpin_->setEnabled(useDegreeRange);
+    }
+    if (lunationDegreeRangeEndSpin_) {
+        lunationDegreeRangeEndSpin_->setEnabled(useDegreeRange);
     }
     if (lunationTimezoneLabel_) {
         QString tzLabel = currentInput_.timezone.trimmed();
@@ -10374,6 +10489,11 @@ void MainWindow::runLunationSearch() {
     params.includeFullMoon = includeFull;
     params.includeSolarEclipse = includeSolar;
     params.includeLunarEclipse = includeLunar;
+    params.useDegreeRange = lunationDegreeRangeCheck_ && lunationDegreeRangeCheck_->isChecked();
+    if (params.useDegreeRange) {
+        params.degreeRangeStart = lunationDegreeRangeStartSpin_ ? lunationDegreeRangeStartSpin_->value() : 0.0;
+        params.degreeRangeEnd = lunationDegreeRangeEndSpin_ ? lunationDegreeRangeEndSpin_->value() : 29.99;
+    }
 
     if (lunationModeRangeRadio_ && lunationModeRangeRadio_->isChecked()) {
         params.findMode = LunationFindMode::Range;

@@ -469,6 +469,9 @@ private:
     QRadioButton* lunationModeRangeRadio_ = nullptr;
     QSpinBox* lunationStartYearSpin_ = nullptr;
     QSpinBox* lunationEndYearSpin_ = nullptr;
+    QCheckBox* lunationDegreeRangeCheck_ = nullptr;
+    QDoubleSpinBox* lunationDegreeRangeStartSpin_ = nullptr;
+    QDoubleSpinBox* lunationDegreeRangeEndSpin_ = nullptr;
     QLabel* lunationTimezoneLabel_ = nullptr;
     QPushButton* lunationRunButton_ = nullptr;
     QPushButton* lunationStopButton_ = nullptr;
