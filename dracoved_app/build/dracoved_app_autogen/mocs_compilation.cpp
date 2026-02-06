@@ -3,3 +3,4 @@
 #include "MXUWEOXILK/moc_chart_setup_dialog.cpp"
 #include "MXUWEOXILK/moc_chart_wheel_widget.cpp"
 #include "MXUWEOXILK/moc_main_window.cpp"
+#include "MXUWEOXILK/moc_transit_workers.cpp"

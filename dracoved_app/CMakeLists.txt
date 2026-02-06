@@ -24,6 +24,9 @@ add_executable(dracoved_app
     src/gui/chart_setup_dialog.cpp
     src/gui/chart_wheel_widget.h
     src/gui/chart_wheel_widget.cpp
+    src/gui/transit_workers.h
+    src/gui/transit_calc_service.h
+    src/gui/transit_calc_service.cpp
     src/core/chart_types.h
     src/core/formatting.h
     src/core/formatting.cpp

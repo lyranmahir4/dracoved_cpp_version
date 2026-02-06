@@ -35,25 +35,42 @@ static bool parseOffsetString(const QString& raw, int* outSeconds) {
         if (!okh || !okm) {
             return false;
         }
+        if (hours < 0 || minutes < 0 || minutes >= 60) {
+            return false;
+        }
     } else if (text.contains(".")) {
         bool ok = false;
         double h = text.toDouble(&ok);
         if (!ok) {
             return false;
         }
-        hours = static_cast<int>(h);
-        double frac = h - hours;
-        minutes = static_cast<int>(frac * 60.0 + 0.5);
+        if (h < 0.0) {
+            return false;
+        }
+        hours = static_cast<int>(std::floor(h));
+        const double frac = h - hours;
+        minutes = static_cast<int>(std::llround(frac * 60.0));
+        if (minutes >= 60) {
+            minutes = 0;
+            hours += 1;
+        }
     } else {
         bool ok = false;
         hours = text.toInt(&ok);
         if (!ok) {
             return false;
         }
+        if (hours < 0) {
+            return false;
+        }
         minutes = 0;
     }
 
     int total = hours * 3600 + minutes * 60;
+    constexpr int kMaxOffsetSeconds = 14 * 3600;
+    if (total < 0 || total > kMaxOffsetSeconds) {
+        return false;
+    }
     if (sign == "-") {
         total = -total;
     }

@@ -358,12 +358,10 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     const bool isDay = (sunHouse >= 7 && sunHouse <= 12);
 
     double pof = 0.0;
-    if (sunLon > 0.0 || moonLon > 0.0) {
-        if (isDay) {
-            pof = normalizeDegrees(angles.asc + moonLon - sunLon);
-        } else {
-            pof = normalizeDegrees(angles.asc + sunLon - moonLon);
-        }
+    if (isDay) {
+        pof = normalizeDegrees(angles.asc + moonLon - sunLon);
+    } else {
+        pof = normalizeDegrees(angles.asc + sunLon - moonLon);
     }
 
     {

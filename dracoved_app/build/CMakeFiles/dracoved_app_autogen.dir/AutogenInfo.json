@@ -365,6 +365,18 @@
 			"MU",
 			"MXUWEOXILK/moc_main_window.cpp",
 			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.h",
+			"MU",
+			"MXUWEOXILK/moc_transit_calc_service.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_workers.h",
+			"MU",
+			"MXUWEOXILK/moc_transit_workers.cpp",
+			null
 		]
 	],
 	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
@@ -486,6 +498,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.cpp",
 			"MU",
 			null
 		],
