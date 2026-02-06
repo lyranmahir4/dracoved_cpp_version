@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QDateTime>
 #include <QVector>
 
@@ -82,6 +83,7 @@ struct NatalChart {
     AnglePositions angles;
     QVector<BodyPosition> bodies;
     QVector<HouseCusp> cusps;
+    QStringList warnings;
     bool isDayChart = false;
     double partOfFortune = 0.0;
     bool hasPartOfFortune = false;

@@ -135,6 +135,12 @@ private:
         Abbrev,
         Full,
     };
+    enum class ChartReadabilityPreset {
+        Clean,
+        Standard,
+        Technical,
+        Custom,
+    };
 
     enum class SolarAspectView {
         SolarReturn,
@@ -241,6 +247,10 @@ private:
     void loadUiState();
     void saveUiState();
     void showChartSettingsMenu();
+    void showAsteroidSelectionDialog();
+    void applyChartReadabilityPreset(ChartReadabilityPreset preset);
+    void markChartReadabilityCustom();
+    bool isAsteroidVisible(const QString& name) const;
 
     void openChartSetupDialog(bool newChart);
     bool computeChart(const dracoved::NatalInput& input, const QString& location);
@@ -276,6 +286,7 @@ private:
     void handleTransitScanResultActivated(int row, int column);
     void handleTransitScanFinished();
     void handleCopyAspects();
+    void handleCopyTransitSearchDetails();
     void handleCopyLunationDetails();
     void handleCopyReport();
     void markTransitPending();
@@ -323,6 +334,7 @@ private:
     void showLunationDetails(const LunationResult& result);
     void applyLunationResult(const LunationResult& result);
     void updateLunationCopyButtonState();
+    QString buildTransitSearchDetailsClipboardText() const;
     QString buildLunationDetailsClipboardText() const;
     void refreshNatalReport();
     QString buildNatalReportText() const;
@@ -614,8 +626,14 @@ private:
     bool overlayAspectsTransitTransit_ = false;
     bool overlayAspectsNatalNatal_ = false;
     double aspectDisplayMaxOrb_ = 0.0;
+    bool showAsteroids_ = false;
+    bool includeAsteroidAspects_ = false;
+    QStringList visibleAsteroids_;
+    ChartReadabilityPreset chartReadabilityPreset_ = ChartReadabilityPreset::Clean;
     bool transitSearchCancel_ = false;
     QVector<TransitSearchResult> transitSearchResults_;
+    bool hasTransitSearchSelection_ = false;
+    TransitSearchResult lastTransitSearchSelection_;
     QVector<TransitCalendarEvent> transitCalendarEvents_;
     QVector<int> transitCalendarDisplayOrder_;
     QVector<TransitConjunctionWindow> transitConjunctionResults_;
@@ -647,6 +665,7 @@ private:
     QVector<LunationResult> lunationResults_;
     QVector<LunationDegreeGroup> lunationDegreeGroups_;
     QVector<int> lunationDegreeGroupDisplayOrder_;
+    QVector<int> lunationListDisplayOrder_;
     QVector<int> lunationAnalysisEventOrder_;
     QVector<int> lunationBottomEventOrder_;
     int lunationSelectedGroupIndex_ = -1;

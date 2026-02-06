@@ -73,6 +73,7 @@ ChartWheelWidget::ChartWheelWidget(QWidget* parent)
     : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    setVisibleAsteroids(asteroidBodyOrder());
     theme_ = ChartWheelTheme{
         QColor("#FFFFFF"),          // background - White
         QColor("#E0E0E0"),          // ringOuter - Soft Grey
@@ -197,6 +198,43 @@ void ChartWheelWidget::setShowDegrees(bool value) {
     update();
 }
 
+void ChartWheelWidget::setShowAspectSymbols(bool value) {
+    showAspectSymbols_ = value;
+    update();
+}
+
+void ChartWheelWidget::setShowAsteroids(bool value) {
+    showAsteroids_ = value;
+    update();
+}
+
+void ChartWheelWidget::setIncludeAsteroidAspects(bool value) {
+    includeAsteroidAspects_ = value;
+    update();
+}
+
+void ChartWheelWidget::setVisibleAsteroids(const QStringList& names) {
+    QSet<QString> nextSet;
+    for (const auto& name : names) {
+        if (isAsteroidBody(name)) {
+            nextSet.insert(name);
+        }
+    }
+    visibleAsteroidSet_ = nextSet;
+    visibleAsteroids_.clear();
+    for (const auto& name : asteroidBodyOrder()) {
+        if (visibleAsteroidSet_.contains(name)) {
+            visibleAsteroids_.push_back(name);
+        }
+    }
+    update();
+}
+
+void ChartWheelWidget::setTickDensity(TickDensity density) {
+    tickDensity_ = density;
+    update();
+}
+
 void ChartWheelWidget::setFontScale(double scale) {
     fontScale_ = std::clamp(scale, 0.8, 1.4);
     update();
@@ -217,6 +255,26 @@ bool ChartWheelWidget::showTicks() const {
 
 bool ChartWheelWidget::showDegrees() const {
     return showDegrees_;
+}
+
+bool ChartWheelWidget::showAspectSymbols() const {
+    return showAspectSymbols_;
+}
+
+bool ChartWheelWidget::showAsteroids() const {
+    return showAsteroids_;
+}
+
+bool ChartWheelWidget::includeAsteroidAspects() const {
+    return includeAsteroidAspects_;
+}
+
+QStringList ChartWheelWidget::visibleAsteroids() const {
+    return visibleAsteroids_;
+}
+
+ChartWheelWidget::TickDensity ChartWheelWidget::tickDensity() const {
+    return tickDensity_;
 }
 
 double ChartWheelWidget::zoom() const {
@@ -356,6 +414,13 @@ double ChartWheelWidget::distanceToSegment(const QPointF& point, const QLineF& l
     const QPointF proj = a + ab * t;
     const QPointF diff = point - proj;
     return std::hypot(diff.x(), diff.y());
+}
+
+bool ChartWheelWidget::isAsteroidVisible(const QString& name) const {
+    if (!isAsteroidBody(name)) {
+        return true;
+    }
+    return visibleAsteroidSet_.contains(name);
 }
 
 int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
@@ -549,10 +614,22 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     // Degree ticks.
     if (showTicks_) {
         painter.setPen(QPen(theme_.tick, 1.0));
-        for (int deg = 0; deg < 360; ++deg) {
+        int stepDeg = 1;
+        if (tickDensity_ == TickDensity::Medium) {
+            stepDeg = 2;
+        } else if (tickDensity_ == TickDensity::Minimal) {
+            stepDeg = 5;
+        }
+        for (int deg = 0; deg < 360; deg += stepDeg) {
             const double angle = angleForLongitude(deg);
             const bool major = (deg % 10 == 0);
-            const double inner = major ? (tickRing - 10.0) : (tickRing - 6.0);
+            const bool medium = (deg % 5 == 0);
+            double inner = tickRing - 6.0;
+            if (major) {
+                inner = tickRing - 10.0;
+            } else if (medium) {
+                inner = tickRing - 8.0;
+            }
             const QPointF p1 = pointOnCircle(center, tickRing, angle);
             const QPointF p2 = pointOnCircle(center, inner, angle);
             painter.drawLine(p1, p2);
@@ -794,6 +871,15 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         };
 
         if (overlay) {
+            auto skipAsteroidAspect = [&](const QString& aName, const QString& bName) {
+                if (isAsteroidBody(aName) && (!includeAsteroidAspects_ || !isAsteroidVisible(aName))) {
+                    return true;
+                }
+                if (isAsteroidBody(bName) && (!includeAsteroidAspects_ || !isAsteroidVisible(bName))) {
+                    return true;
+                }
+                return false;
+            };
             struct NamedPoint {
                 QString name;
                 double lon;
@@ -817,6 +903,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (overlayTransitNatalAspects_) {
                 for (const auto& t : transitPoints) {
                     for (const auto& n : natalPoints) {
+                        if (skipAsteroidAspect(t.name, n.name)) {
+                            continue;
+                        }
                         const double diff = angularDiff(t.lon, n.lon);
                         QString label;
                         double orb = 0.0;
@@ -840,6 +929,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     for (int j = i + 1; j < transitPoints.size(); ++j) {
                         const auto& a = transitPoints[i];
                         const auto& b = transitPoints[j];
+                        if (skipAsteroidAspect(a.name, b.name)) {
+                            continue;
+                        }
                         const double diff = angularDiff(a.lon, b.lon);
                         QString label;
                         double orb = 0.0;
@@ -878,6 +970,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                         if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
                             continue;
                         }
+                        if (skipAsteroidAspect(aName, bName)) {
+                            continue;
+                        }
                         QColor color(theme_.aspectLineNatalNatal);
                         if (cell.label == "Square" || cell.label == "Opposition") {
                             color = QColor("#a65b5b");
@@ -891,6 +986,15 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 }
             }
         } else {
+            auto skipAsteroidAspect = [&](const QString& aName, const QString& bName) {
+                if (isAsteroidBody(aName) && (!includeAsteroidAspects_ || !isAsteroidVisible(aName))) {
+                    return true;
+                }
+                if (isAsteroidBody(bName) && (!includeAsteroidAspects_ || !isAsteroidVisible(bName))) {
+                    return true;
+                }
+                return false;
+            };
             QMap<QString, double> bodyMap;
             for (const auto& pos : chart_.bodies) {
                 bodyMap.insert(pos.name, pos.longitude);
@@ -909,6 +1013,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     const QString& aName = chart_.aspects.bodyOrder[i];
                     const QString& bName = chart_.aspects.bodyOrder[j];
                     if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
+                        continue;
+                    }
+                    if (skipAsteroidAspect(aName, bName)) {
                         continue;
                     }
                     QColor color(theme_.aspectLineNeutral);
@@ -948,9 +1055,12 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawLine(info.line);
             painter.restore();
 
-            if (!info.symbol.isEmpty()) {
+            const bool showSymbol = !info.symbol.isEmpty() && (showAspectSymbols_ || isHover);
+            if (showSymbol) {
                 painter.save();
-                const double symbolOpacity = hasHover && !isHover ? 0.35 : 0.85;
+                const double symbolOpacity = showAspectSymbols_
+                    ? (hasHover && !isHover ? 0.35 : 0.85)
+                    : (isHover ? 0.95 : 0.0);
                 painter.setOpacity(symbolOpacity);
                 painter.setBrush(theme_.aspectSymbolBg);
                 painter.setPen(Qt::NoPen);
@@ -1020,6 +1130,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         QVector<BodyDraw> drawList;
         drawList.reserve(bodies.size());
         for (const auto& pos : bodies) {
+            if (isAsteroidBody(pos.name) && (!showAsteroids_ || !isAsteroidVisible(pos.name))) {
+                continue;
+            }
             drawList.push_back({pos.name, pos.longitude, pos.retrograde});
         }
         std::sort(drawList.begin(), drawList.end(), [](const BodyDraw& a, const BodyDraw& b) {
@@ -1137,6 +1250,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (name == "Neptune") return QChar(0x2646);
             if (name == "Pluto") return QChar(0x2647);
             if (name == "Chiron") return QChar(0x26B7);
+            if (name == "Ceres") return QChar(0x26B3);
+            if (name == "Pallas") return QChar(0x26B4);
+            if (name == "Juno") return QChar(0x26B5);
+            if (name == "Vesta") return QChar(0x26B6);
             if (name == "North Node") return QChar(0x260A); // Ascending Node
             if (name == "South Node") return QChar(0x260B); // Descending Node
             if (name == "Lilith") return QChar(0x26B8);     // Black Moon Lilith

@@ -6,6 +6,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mmc:Q_OBJECT
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QString
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QVector
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q17memory.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q20functional.h
@@ -712,6 +713,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QComboBox
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QDateEdit
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QDialog
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QDialogButtonBox
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QDockWidget
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QDoubleSpinBox
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QFrame
@@ -722,6 +724,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QInputDialog
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QLabel
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QLineEdit
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QListWidget
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QMainWindow
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QMenu
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QMenuBar
@@ -732,6 +735,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QSpinBox
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QSplitter
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QStackedWidget
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QStatusBar
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QTabBar
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QTabWidget
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/QTableWidget
@@ -763,6 +767,8 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qlayout.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qlayoutitem.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qlineedit.h
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qlistview.h
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qlistwidget.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qmainwindow.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qmenu.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qmenubar.h
@@ -776,6 +782,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qspinbox.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qsplitter.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstackedwidget.h
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstatusbar.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstyle.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstyleoption.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtWidgets/qtabbar.h
@@ -1081,6 +1088,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
  mmc:Q_OBJECT
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QString
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QVector
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q17memory.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q20functional.h
@@ -1506,7 +1514,9 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src
 C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h
  mmc:Q_OBJECT
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QSet
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QString
+ mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/QVector
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q17memory.h
  mdp:C:/Qt/6.10.1/mingw_64/include/QtCore/q20functional.h

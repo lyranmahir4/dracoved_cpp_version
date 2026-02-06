@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QPen>
 #include <QColor>
+#include <QSet>
 
 #include "../core/chart_types.h"
 
@@ -50,6 +51,11 @@ public:
         TransitOnly,
         Overlay,
     };
+    enum class TickDensity {
+        Full,
+        Medium,
+        Minimal,
+    };
 
     explicit ChartWheelWidget(QWidget* parent = nullptr);
 
@@ -66,11 +72,21 @@ public:
     void setShowAspects(bool value);
     void setShowTicks(bool value);
     void setShowDegrees(bool value);
+    void setShowAspectSymbols(bool value);
+    void setShowAsteroids(bool value);
+    void setIncludeAsteroidAspects(bool value);
+    void setVisibleAsteroids(const QStringList& names);
+    void setTickDensity(TickDensity density);
     void setFontScale(double scale);
     void setTheme(const ChartWheelTheme& theme);
     bool showAspects() const;
     bool showTicks() const;
     bool showDegrees() const;
+    bool showAspectSymbols() const;
+    bool showAsteroids() const;
+    bool includeAsteroidAspects() const;
+    QStringList visibleAsteroids() const;
+    TickDensity tickDensity() const;
     double zoom() const;
     double fontScale() const;
     Mode mode() const;
@@ -110,6 +126,7 @@ private:
     double distanceToSegment(const QPointF& point, const QLineF& line) const;
     int hitTestAspect(const QPointF& point) const;
     void updateCursor();
+    bool isAsteroidVisible(const QString& name) const;
 
     NatalChart chart_;
     NatalChart overlayChart_;
@@ -121,6 +138,12 @@ private:
     bool showAspects_ = true;
     bool showTicks_ = true;
     bool showDegrees_ = true;
+    bool showAspectSymbols_ = true;
+    bool showAsteroids_ = false;
+    bool includeAsteroidAspects_ = false;
+    QStringList visibleAsteroids_;
+    QSet<QString> visibleAsteroidSet_;
+    TickDensity tickDensity_ = TickDensity::Full;
     double zoom_ = 1.0;
     double fontScale_ = 1.0;
     double aspectDisplayMaxOrb_ = 0.0;

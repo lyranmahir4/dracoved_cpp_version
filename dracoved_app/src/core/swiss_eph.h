@@ -75,6 +75,11 @@ constexpr int SE_MEAN_NODE = 10;
 constexpr int SE_TRUE_NODE = 11;
 constexpr int SE_MEAN_APOG = 21; // Lilith (Black Moon)
 constexpr int SE_CHIRON = 15;
+constexpr int SE_PHOLUS = 16;
+constexpr int SE_CERES = 17;
+constexpr int SE_PALLAS = 18;
+constexpr int SE_JUNO = 19;
+constexpr int SE_VESTA = 20;
 
 // Eclipse type flags (from Swiss Ephemeris: swephexp.h)
 constexpr int SE_ECL_TOTAL = 4;

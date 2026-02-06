@@ -14,18 +14,18 @@ QStringList zodiacSigns() {
 
 QStringList zodiacSignGlyphs() {
     return {
-        QString::fromUtf8(u8"♈"),
-        QString::fromUtf8(u8"♉"),
-        QString::fromUtf8(u8"♊"),
-        QString::fromUtf8(u8"♋"),
-        QString::fromUtf8(u8"♌"),
-        QString::fromUtf8(u8"♍"),
-        QString::fromUtf8(u8"♎"),
-        QString::fromUtf8(u8"♏"),
-        QString::fromUtf8(u8"♐"),
-        QString::fromUtf8(u8"♑"),
-        QString::fromUtf8(u8"♒"),
-        QString::fromUtf8(u8"♓"),
+        QString(QChar(0x2648)),
+        QString(QChar(0x2649)),
+        QString(QChar(0x264A)),
+        QString(QChar(0x264B)),
+        QString(QChar(0x264C)),
+        QString(QChar(0x264D)),
+        QString(QChar(0x264E)),
+        QString(QChar(0x264F)),
+        QString(QChar(0x2650)),
+        QString(QChar(0x2651)),
+        QString(QChar(0x2652)),
+        QString(QChar(0x2653)),
     };
 }
 
@@ -62,11 +62,11 @@ QString formatDegInSign(double longitude) {
     if (std::isnan(longitude)) {
         return "N/A";
     }
-    const double deg_val = degInSign(longitude);
-    int whole_deg = static_cast<int>(deg_val);
-    double minutes_full = (deg_val - whole_deg) * 60.0;
-    int minutes = static_cast<int>(minutes_full);
-    double seconds = (minutes_full - minutes) * 60.0;
+    const double degVal = degInSign(longitude);
+    int wholeDeg = static_cast<int>(degVal);
+    double minutesFull = (degVal - wholeDeg) * 60.0;
+    int minutes = static_cast<int>(minutesFull);
+    double seconds = (minutesFull - minutes) * 60.0;
 
     if (seconds >= 60.0) {
         seconds -= 60.0;
@@ -74,14 +74,14 @@ QString formatDegInSign(double longitude) {
     }
     if (minutes >= 60) {
         minutes -= 60;
-        whole_deg += 1;
+        wholeDeg += 1;
     }
-    if (whole_deg >= 30) {
-        whole_deg -= 30;
+    if (wholeDeg >= 30) {
+        wholeDeg -= 30;
     }
 
     return QString("%1 %2 %3' %4\"")
-        .arg(QString::number(whole_deg).rightJustified(2, '0'))
+        .arg(QString::number(wholeDeg).rightJustified(2, '0'))
         .arg(signName(signIndex(longitude)))
         .arg(QString::number(minutes).rightJustified(2, '0'))
         .arg(QString::number(seconds, 'f', 2).rightJustified(5, '0'));
@@ -91,11 +91,11 @@ QString formatDegOnly(double longitude) {
     if (std::isnan(longitude)) {
         return "N/A";
     }
-    const double deg_val = degInSign(longitude);
-    int whole_deg = static_cast<int>(deg_val);
-    double minutes_full = (deg_val - whole_deg) * 60.0;
-    int minutes = static_cast<int>(minutes_full);
-    double seconds = (minutes_full - minutes) * 60.0;
+    const double degVal = degInSign(longitude);
+    int wholeDeg = static_cast<int>(degVal);
+    double minutesFull = (degVal - wholeDeg) * 60.0;
+    int minutes = static_cast<int>(minutesFull);
+    double seconds = (minutesFull - minutes) * 60.0;
 
     if (seconds >= 60.0) {
         seconds -= 60.0;
@@ -103,14 +103,14 @@ QString formatDegOnly(double longitude) {
     }
     if (minutes >= 60) {
         minutes -= 60;
-        whole_deg += 1;
+        wholeDeg += 1;
     }
-    if (whole_deg >= 30) {
-        whole_deg -= 30;
+    if (wholeDeg >= 30) {
+        wholeDeg -= 30;
     }
 
     return QString("%1 %2' %3\"")
-        .arg(QString::number(whole_deg).rightJustified(2, '0'))
+        .arg(QString::number(wholeDeg).rightJustified(2, '0'))
         .arg(QString::number(minutes).rightJustified(2, '0'))
         .arg(QString::number(seconds, 'f', 2).rightJustified(5, '0'));
 }
@@ -125,15 +125,11 @@ QString elementForSign(const QString& sign) {
     return elements.value(sign, "-");
 }
 
-int elementIndexForSign(int signIndex) {
-    // Fire = 0 (Aries, Leo, Sagittarius: indices 0, 4, 8)
-    // Earth = 1 (Taurus, Virgo, Capricorn: indices 1, 5, 9)
-    // Air = 2 (Gemini, Libra, Aquarius: indices 2, 6, 10)
-    // Water = 3 (Cancer, Scorpio, Pisces: indices 3, 7, 11)
-    if (signIndex < 0 || signIndex >= 12) {
+int elementIndexForSign(int idx) {
+    if (idx < 0 || idx >= 12) {
         return 0;
     }
-    return signIndex % 4;
+    return idx % 4;
 }
 
 QString modeForSign(const QString& sign) {
@@ -214,8 +210,8 @@ QString dignityLabel(const QString& planet, const QString& sign) {
 QStringList tropicalBodyOrder() {
     return {
         "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
-        "Uranus", "Neptune", "Pluto", "Chiron", "North Node", "South Node",
-        "Lilith", "Part of Fortune", "Vertex",
+        "Uranus", "Neptune", "Pluto", "Chiron", "Ceres", "Pallas", "Juno", "Vesta", "Pholus",
+        "North Node", "South Node", "Lilith", "Part of Fortune", "Vertex",
         "Ascendant", "Midheaven", "Descendant", "IC",
     };
 }
@@ -223,7 +219,7 @@ QStringList tropicalBodyOrder() {
 QStringList tropicalBodyAbbrev() {
     return {
         "Su", "Mo", "Me", "Ve", "Ma", "Ju", "Sa",
-        "Ur", "Ne", "Pl", "Ch", "NN", "SN",
+        "Ur", "Ne", "Pl", "Ch", "Ce", "Pa", "Jn", "Vs", "Ph", "NN", "SN",
         "Li", "PF", "Vx",
         "AS", "MC", "DS", "IC",
     };
@@ -231,22 +227,27 @@ QStringList tropicalBodyAbbrev() {
 
 QStringList tropicalBodyGlyphs() {
     return {
-        QString::fromUtf8(u8"☉"),
-        QString::fromUtf8(u8"☾"),
-        QString::fromUtf8(u8"☿"),
-        QString::fromUtf8(u8"♀"),
-        QString::fromUtf8(u8"♂"),
-        QString::fromUtf8(u8"♃"),
-        QString::fromUtf8(u8"♄"),
-        QString::fromUtf8(u8"♅"),
-        QString::fromUtf8(u8"♆"),
-        QString::fromUtf8(u8"♇"),
-        QString::fromUtf8(u8"⚷"),
-        QString::fromUtf8(u8"☊"),
-        QString::fromUtf8(u8"☋"),
-        QString::fromUtf8(u8"⚸"), // Lilith
-        QString::fromUtf8(u8"⊗"), // Part of Fortune
-        "Vx",                     // Vertex
+        QString(QChar(0x2609)), // Sun
+        QString(QChar(0x263E)), // Moon
+        QString(QChar(0x263F)), // Mercury
+        QString(QChar(0x2640)), // Venus
+        QString(QChar(0x2642)), // Mars
+        QString(QChar(0x2643)), // Jupiter
+        QString(QChar(0x2644)), // Saturn
+        QString(QChar(0x26E2)), // Uranus
+        QString(QChar(0x2646)), // Neptune
+        QString(QChar(0x2647)), // Pluto
+        QString(QChar(0x26B7)), // Chiron
+        QString(QChar(0x26B3)), // Ceres
+        QString(QChar(0x26B4)), // Pallas
+        QString(QChar(0x26B5)), // Juno
+        QString(QChar(0x26B6)), // Vesta
+        "Ph",                   // Pholus
+        QString(QChar(0x260A)), // North Node
+        QString(QChar(0x260B)), // South Node
+        QString(QChar(0x26B8)), // Lilith
+        QString(QChar(0x2297)), // Part of Fortune
+        "Vx",                   // Vertex
         "AC",
         "MC",
         "DC",
@@ -254,22 +255,36 @@ QStringList tropicalBodyGlyphs() {
     };
 }
 
+QStringList asteroidBodyOrder() {
+    return {"Chiron", "Ceres", "Pallas", "Juno", "Vesta", "Pholus"};
+}
+
+bool isAsteroidBody(const QString& name) {
+    static const QStringList kAsteroids = asteroidBodyOrder();
+    return kAsteroids.contains(name);
+}
+
 QString bodyGlyph(const QString& name) {
-    if (name == "Sun") return QString::fromUtf8(u8"☉");
-    if (name == "Moon") return QString::fromUtf8(u8"☾");
-    if (name == "Mercury") return QString::fromUtf8(u8"☿");
-    if (name == "Venus") return QString::fromUtf8(u8"♀");
-    if (name == "Mars") return QString::fromUtf8(u8"♂");
-    if (name == "Jupiter") return QString::fromUtf8(u8"♃");
-    if (name == "Saturn") return QString::fromUtf8(u8"♄");
-    if (name == "Uranus") return QString::fromUtf8(u8"♅");
-    if (name == "Neptune") return QString::fromUtf8(u8"♆");
-    if (name == "Pluto") return QString::fromUtf8(u8"♇");
-    if (name == "Chiron") return QString::fromUtf8(u8"⚷");
-    if (name == "North Node") return QString::fromUtf8(u8"☊");
-    if (name == "South Node") return QString::fromUtf8(u8"☋");
-    if (name == "Lilith") return QString::fromUtf8(u8"⚸");
-    if (name == "Part of Fortune") return QString::fromUtf8(u8"⊗");
+    if (name == "Sun") return QString(QChar(0x2609));
+    if (name == "Moon") return QString(QChar(0x263E));
+    if (name == "Mercury") return QString(QChar(0x263F));
+    if (name == "Venus") return QString(QChar(0x2640));
+    if (name == "Mars") return QString(QChar(0x2642));
+    if (name == "Jupiter") return QString(QChar(0x2643));
+    if (name == "Saturn") return QString(QChar(0x2644));
+    if (name == "Uranus") return QString(QChar(0x26E2));
+    if (name == "Neptune") return QString(QChar(0x2646));
+    if (name == "Pluto") return QString(QChar(0x2647));
+    if (name == "Chiron") return QString(QChar(0x26B7));
+    if (name == "Ceres") return QString(QChar(0x26B3));
+    if (name == "Pallas") return QString(QChar(0x26B4));
+    if (name == "Juno") return QString(QChar(0x26B5));
+    if (name == "Vesta") return QString(QChar(0x26B6));
+    if (name == "Pholus") return "Ph";
+    if (name == "North Node") return QString(QChar(0x260A));
+    if (name == "South Node") return QString(QChar(0x260B));
+    if (name == "Lilith") return QString(QChar(0x26B8));
+    if (name == "Part of Fortune") return QString(QChar(0x2297));
     if (name == "Vertex") return "Vx";
     if (name == "Ascendant") return "AC";
     if (name == "Midheaven") return "MC";

@@ -2,6 +2,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QVector \
   C:/Qt/6.10.1/mingw_64/include/QtCore/q17memory.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/q20functional.h \

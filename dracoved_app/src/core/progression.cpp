@@ -232,12 +232,18 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         {"Neptune", SE_NEPTUNE},
         {"Pluto", SE_PLUTO},
         {"Chiron", SE_CHIRON},
+        {"Ceres", SE_CERES},
+        {"Pallas", SE_PALLAS},
+        {"Juno", SE_JUNO},
+        {"Vesta", SE_VESTA},
+        {"Pholus", SE_PHOLUS},
         {"North Node", SE_MEAN_NODE},
         {"Lilith", SE_MEAN_APOG},
     };
 
     QVector<BodyPosition> positions;
-    positions.reserve(16);
+    positions.reserve(24);
+    QStringList warnings;
 
     int ascSignIdx = signIndex(angles.asc);
     double sunLon = 0.0;
@@ -247,6 +253,10 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         double lon = 0.0;
         QString calcErr;
         if (!swe_->calcUt(jdProg, body.sweId, 0, &lon, &calcErr)) {
+            if (isAsteroidBody(body.name)) {
+                warnings.push_back(QString("Skipped %1: %2").arg(body.name, calcErr));
+                continue;
+            }
             if (error) {
                 *error = QString("Failed to compute %1: %2").arg(body.name).arg(calcErr);
             }
@@ -439,6 +449,7 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     out->angles = angles;
     out->bodies = positions;
     out->cusps = cuspRows;
+    out->warnings = warnings;
     out->isDayChart = isDay;
     out->partOfFortune = pof;
     out->hasPartOfFortune = true;

@@ -22,5 +22,7 @@ QStringList tropicalBodyOrder();
 QStringList tropicalBodyAbbrev();
 QStringList tropicalBodyGlyphs();
 QString bodyGlyph(const QString& name);
+QStringList asteroidBodyOrder();
+bool isAsteroidBody(const QString& name);
 
 }  // namespace dracoved
