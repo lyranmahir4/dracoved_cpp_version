@@ -118,6 +118,16 @@ private:
         Qt::PenStyle style = Qt::SolidLine;
     };
 
+    struct PlacedBody {
+        QString name;
+        double trueLon;
+        double displayLon;
+        double displayRadius;
+        int    radialLayer;      // 0=base, +1=outward, -1=inward
+        bool   retrograde;
+        bool   needsLeaderLine;  // true when radially displaced
+    };
+
     double angleForLongitude(double lon) const;
     QPointF pointOnCircle(const QPointF& center, double radius, double angleDeg) const;
     QVector<double> buildHouseCusps() const;
@@ -127,6 +137,13 @@ private:
     int hitTestAspect(const QPointF& point) const;
     void updateCursor();
     bool isAsteroidVisible(const QString& name) const;
+    QVector<PlacedBody> computePlanetPlacements(
+        const QVector<BodyPosition>& bodies,
+        double baseRadius,
+        double minRadius,
+        double maxRadius,
+        double glyphSize,
+        const QPointF& center) const;
 
     NatalChart chart_;
     NatalChart overlayChart_;

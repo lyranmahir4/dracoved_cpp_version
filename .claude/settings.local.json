@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s \"C:\\\\Users\\\\Mahir\\\\.claude-worktrees\\\\DracoVed_cpp_version\\\\adoring-shockley\")",
+      "Bash(dir:*)",
+      "Bash(cmake --build:*)",
+      "Bash(where:*)",
+      "Bash(\"C:/Qt/Tools/CMake_64/bin/cmake.exe\" --build dracoved_app/build)",
+      "Bash(set \"PATH=C:\\\\Qt\\\\Tools\\\\CMake_64\\\\bin;C:\\\\Qt\\\\Tools\\\\Ninja;C:\\\\Qt\\\\6.10.1\\\\mingw_64\\\\bin;C:\\\\Qt\\\\Tools\\\\mingw1310_64\\\\bin;%PATH%\")",
+      "Bash(export PATH:*)",
+      "Bash(windeployqt.exe:*)",
+      "Bash(export PATH=\"/c/Qt/Tools/CMake_64/bin:/c/Qt/Tools/Ninja:/c/Qt/6.10.1/mingw_64/bin:/c/Qt/Tools/mingw1310_64/bin:$PATH\")"
+    ]
+  }
+}
