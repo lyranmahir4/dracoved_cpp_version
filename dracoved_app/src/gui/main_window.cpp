@@ -509,6 +509,11 @@ void MainWindow::setupDockLayout() {
     profileToolbarEditButton_->setText("Edit");
     profileToolbarDeleteButton_ = new QToolButton(profileToolbarFrame_);
     profileToolbarDeleteButton_->setText("Delete");
+    profileToolbarLoadButton_->setCursor(Qt::PointingHandCursor);
+    profileToolbarSaveButton_->setCursor(Qt::PointingHandCursor);
+    profileToolbarSaveAsButton_->setCursor(Qt::PointingHandCursor);
+    profileToolbarEditButton_->setCursor(Qt::PointingHandCursor);
+    profileToolbarDeleteButton_->setCursor(Qt::PointingHandCursor);
     profileToolbarStateLabel_ = new QLabel(profileToolbarFrame_);
     profileToolbarStateLabel_->setObjectName("profileQuickState");
     profileToolbarLayout->addWidget(profileLabel);
@@ -2094,10 +2099,16 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
             "QPushButton:hover { border: 1px solid #b14040; }"
             "QPushButton:pressed { background-color: #15181b; }"
             "QToolButton { background-color: #1b1f22; border: 1px solid #2a2d30; padding: 2px 6px; border-radius: 3px; }"
+            "QToolButton:hover { border: 1px solid #b14040; background-color: #22272b; }"
+            "QToolButton:pressed { background-color: #171b1e; }"
             "QDockWidget { background-color: #0f1112; }"
             "QDockWidget::title { background-color: #121416; border: 1px solid #202326; padding: 4px 8px; }"
             "QFrame#profileQuickBar { background-color: #121416; border: 1px solid #202326; border-radius: 6px; }"
             "QLabel#profileQuickState { color: #a0a0a0; border: none; }"
+            "QFrame#profileQuickBar QToolButton { padding: 3px 10px; border-radius: 4px; }"
+            "QFrame#profileQuickBar QToolButton:hover { background-color: #242a2f; border: 1px solid #c45858; }"
+            "QFrame#profileQuickBar QToolButton:pressed { background-color: #1a1f23; }"
+            "QFrame#profileQuickBar QToolButton:disabled { color: #5a5f63; border-color: #2a2d30; }"
             "QFrame#dataPanel, QFrame#aspectsPanel, QWidget#chartPlaceholder {"
             "  background-color: #0f1112; border: 1px solid #202326; border-radius: 6px;"
             "}"
@@ -2144,10 +2155,16 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
         "QPushButton:hover { border: 1px solid #b14040; }"
         "QPushButton:pressed { background-color: #e8e8e8; }"
         "QToolButton { background-color: #f3f3f3; border: 1px solid #c9c9c9; padding: 2px 6px; border-radius: 3px; }"
+        "QToolButton:hover { border: 1px solid #b14040; background-color: #ececec; }"
+        "QToolButton:pressed { background-color: #e2e2e2; }"
         "QDockWidget { background-color: #fafafa; }"
         "QDockWidget::title { background-color: #f1f1f1; border: 1px solid #d6d6d6; padding: 4px 8px; }"
         "QFrame#profileQuickBar { background-color: #f8f8f8; border: 1px solid #d6d6d6; border-radius: 6px; }"
         "QLabel#profileQuickState { color: #666666; border: none; }"
+        "QFrame#profileQuickBar QToolButton { padding: 3px 10px; border-radius: 4px; }"
+        "QFrame#profileQuickBar QToolButton:hover { background-color: #e9e9e9; border: 1px solid #b14040; }"
+        "QFrame#profileQuickBar QToolButton:pressed { background-color: #dfdfdf; }"
+        "QFrame#profileQuickBar QToolButton:disabled { color: #8a8a8a; border-color: #d0d0d0; }"
         "QFrame#dataPanel, QFrame#aspectsPanel, QWidget#chartPlaceholder {"
         "  background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 6px;"
         "}"
@@ -4373,7 +4390,6 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
 
     currentProfileName_ = normalized;
     refreshProfileToolbar();
-    setStatusMessage(QString("Profile \"%1\" saved.").arg(normalized));
     return true;
 }
 
@@ -4440,7 +4456,6 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
     currentProfileName_ = normalized;
     defaultHouseSystem_ = input.houseSystem;
     refreshProfileToolbar();
-    setStatusMessage(QString("Loaded profile \"%1\".").arg(normalized));
     return true;
 }
 
@@ -4488,11 +4503,9 @@ void MainWindow::refreshProfileToolbar() {
     }
     if (profileToolbarStateLabel_) {
         if (!currentProfileName_.trimmed().isEmpty()) {
-            profileToolbarStateLabel_->setText(QString("Loaded: %1").arg(currentProfileName_));
-        } else if (hasCurrentChart_) {
-            profileToolbarStateLabel_->setText("Current chart not saved as profile");
+            profileToolbarStateLabel_->setText(currentProfileName_);
         } else {
-            profileToolbarStateLabel_->setText("No chart loaded");
+            profileToolbarStateLabel_->clear();
         }
     }
 }
@@ -10424,15 +10437,13 @@ void MainWindow::refreshTransitsTab() {
     if (activeTab_ != AppTab::Transits) {
         return;
     }
-    if (transitSubTab_ != TransitSubTab::Overview) {
-        return;
-    }
+    const bool inOverview = (transitSubTab_ == TransitSubTab::Overview);
     if (!hasCurrentChart_ && transitMode_ == TransitMode::NatalOverlay) {
-        if (rightTopTable_) {
+        if (inOverview && rightTopTable_) {
             setupTable(rightTopTable_, {"Info"}, 1);
             rightTopTable_->setItem(0, 0, makeCell("Load a natal chart to use transits."));
         }
-        if (rightBottomTable_) {
+        if (inOverview && rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("Load a natal chart to use transits."));
         }
@@ -10445,17 +10456,21 @@ void MainWindow::refreshTransitsTab() {
         return;
     }
     if (!hasCurrentChart_ && transitMode_ == TransitMode::TransitOnly) {
-        if (rightTopTable_) {
+        if (inOverview && rightTopTable_) {
             setupTable(rightTopTable_, {"Info"}, 1);
             rightTopTable_->setItem(0, 0, makeCell("Enter transit inputs and click Calculate."));
         }
-        if (rightBottomTable_) {
+        if (inOverview && rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("Ingress countdown will appear after calculation."));
         }
         if (aspectsTable_) {
             setupTable(aspectsTable_, {}, 0);
         }
+        if (chartWheel_) {
+            chartWheel_->clearChart();
+        }
+        return;
     }
 
     auto populateOverlayAspects = [&](const NatalChart& transitChart) {
@@ -10473,41 +10488,55 @@ void MainWindow::refreshTransitsTab() {
         }
     };
 
-    if (transitPending_) {
-        updateTransitTargetLabels();
-        if (!hasTransitChart_) {
-            if (rightTopTable_) {
-                setupTable(rightTopTable_, {"Info"}, 1);
-                rightTopTable_->setItem(0, 0, makeCell("Pending changes. Click Calculate Transits."));
-            }
-            if (rightBottomTable_) {
-                setupTable(rightBottomTable_, {"Info"}, 1);
-                rightBottomTable_->setItem(0, 0, makeCell("Pending changes. Click Calculate Transits."));
-            }
-            if (aspectsTable_) {
-                setupTable(aspectsTable_, {}, 0);
-            }
-            return;
-        }
+    auto applyTransitView = [&](const NatalChart& transitChart, const QDateTime& local, const QString& tzLabel) {
         if (transitMode_ == TransitMode::NatalOverlay) {
             if (chartWheel_) {
                 chartWheel_->setShowAspects(true);
                 chartWheel_->setOverlayLabel("Transit");
-                chartWheel_->setOverlayCharts(currentChart_, currentTransitChart_, transitHouseSystem_, aspectOrbs_);
+                chartWheel_->setOverlayCharts(currentChart_, transitChart, transitHouseSystem_, aspectOrbs_);
                 chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
                 chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
             }
-            populateOverlayAspects(currentTransitChart_);
-            populateTransitList(currentTransitChart_, true);
+            populateOverlayAspects(transitChart);
+            if (inOverview) {
+                populateTransitList(transitChart, true);
+            }
         } else {
             if (chartWheel_) {
-                chartWheel_->setTransitChart(currentTransitChart_, transitHouseSystem_);
+                chartWheel_->setTransitChart(transitChart, transitHouseSystem_);
                 chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
             }
-            populateAspects(currentTransitChart_);
-            populateTransitList(currentTransitChart_, false);
+            populateAspects(transitChart);
+            if (inOverview) {
+                populateTransitList(transitChart, false);
+            }
         }
-        populateIngressCountdown(currentTransitChart_, transitInputFor(transitSelectedLocal(), transitTimezoneLabel()));
+        if (inOverview) {
+            populateIngressCountdown(transitChart, transitInputFor(local, tzLabel));
+        }
+    };
+
+    if (transitPending_) {
+        updateTransitTargetLabels();
+        if (!hasTransitChart_) {
+            if (inOverview && rightTopTable_) {
+                setupTable(rightTopTable_, {"Info"}, 1);
+                rightTopTable_->setItem(0, 0, makeCell("Pending changes. Click Calculate Transits."));
+            }
+            if (inOverview && rightBottomTable_) {
+                setupTable(rightBottomTable_, {"Info"}, 1);
+                rightBottomTable_->setItem(0, 0, makeCell("Pending changes. Click Calculate Transits."));
+            }
+            if (inOverview && aspectsTable_) {
+                setupTable(aspectsTable_, {}, 0);
+            }
+            if (chartWheel_ && hasCurrentChart_ && transitMode_ == TransitMode::NatalOverlay) {
+                chartWheel_->setChart(currentChart_, currentInput_.houseSystem);
+                chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+            }
+            return;
+        }
+        applyTransitView(currentTransitChart_, transitSelectedLocal(), transitTimezoneLabel());
         return;
     }
 
@@ -10521,26 +10550,7 @@ void MainWindow::refreshTransitsTab() {
     }
     currentTransitChart_ = transitChart;
     hasTransitChart_ = true;
-
-    if (transitMode_ == TransitMode::NatalOverlay) {
-        if (chartWheel_) {
-            chartWheel_->setShowAspects(true);
-            chartWheel_->setOverlayLabel("Transit");
-            chartWheel_->setOverlayCharts(currentChart_, transitChart, transitHouseSystem_, aspectOrbs_);
-            chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
-            chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
-        }
-        populateOverlayAspects(transitChart);
-        populateTransitList(transitChart, true);
-    } else {
-        if (chartWheel_) {
-            chartWheel_->setTransitChart(transitChart, transitHouseSystem_);
-            chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
-        }
-        populateAspects(transitChart);
-        populateTransitList(transitChart, false);
-    }
-    populateIngressCountdown(transitChart, transitInputFor(local, tzLabel));
+    applyTransitView(transitChart, local, tzLabel);
     updateTransitTargetLabels();
 }
 
@@ -10639,7 +10649,6 @@ void MainWindow::handleDeleteProfile() {
         currentProfileName_.clear();
     }
     refreshProfileToolbar();
-    setStatusMessage(QString("Deleted profile \"%1\".").arg(profileName));
 }
 
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows) {
