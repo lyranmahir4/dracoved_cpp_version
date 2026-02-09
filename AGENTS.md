@@ -12,13 +12,23 @@
 ## Build, Run, and Packaging Commands
 Use Windows CMD (as in `README.md`). Update Qt paths for your local machine.
 
-- Configure (one-time):
+- One-time configure (only if `dracoved_app/build` is missing):
+  `set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"`
   `cmake -S DracoVed_cpp_version\dracoved_app -B DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64`
-- Build:
+
+- Required after code changes: build updated executable in `dracoved_app/build`:
+  `set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"`
   `cmake --build DracoVed_cpp_version\dracoved_app\build`
-- Package:
-  run `windeployqt` and copy runtime dependencies/data exactly as documented in `README.md`.
-- Run packaged app:
+
+- Required after build: package fresh runtime files into `dracoved_app/dist`:
+  `set "QT_BIN=C:\Qt\6.10.1\mingw_64\bin"`
+  `mkdir DracoVed_cpp_version\dracoved_app\dist 2>NUL`
+  `copy /Y DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+  `"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+  `copy /Y DracoVed_cpp_version\swedll64.dll DracoVed_cpp_version\dracoved_app\dist\swedll64.dll`
+  `xcopy /E /I /Y DracoVed_cpp_version\ephe DracoVed_cpp_version\dracoved_app\dist\ephe`
+
+- Run the app from `dist` (preferred runtime path):
   `DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
 
 ## Coding Style & Naming Conventions
