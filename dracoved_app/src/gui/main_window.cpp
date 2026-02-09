@@ -490,6 +490,37 @@ void MainWindow::setupDockLayout() {
     mainTabBar_->setMovable(false);
     mainTabBar_->setCurrentIndex(0);
 
+    profileToolbarFrame_ = new QFrame(central);
+    profileToolbarFrame_->setObjectName("profileQuickBar");
+    auto* profileToolbarLayout = new QHBoxLayout(profileToolbarFrame_);
+    profileToolbarLayout->setContentsMargins(8, 6, 8, 6);
+    profileToolbarLayout->setSpacing(6);
+    auto* profileLabel = new QLabel("Chart Profile", profileToolbarFrame_);
+    profileToolbarCombo_ = new QComboBox(profileToolbarFrame_);
+    profileToolbarCombo_->setMinimumWidth(240);
+    profileToolbarCombo_->setToolTip("Select a saved chart profile.");
+    profileToolbarLoadButton_ = new QToolButton(profileToolbarFrame_);
+    profileToolbarLoadButton_->setText("Load");
+    profileToolbarSaveButton_ = new QToolButton(profileToolbarFrame_);
+    profileToolbarSaveButton_->setText("Save");
+    profileToolbarSaveAsButton_ = new QToolButton(profileToolbarFrame_);
+    profileToolbarSaveAsButton_->setText("Save As");
+    profileToolbarEditButton_ = new QToolButton(profileToolbarFrame_);
+    profileToolbarEditButton_->setText("Edit");
+    profileToolbarDeleteButton_ = new QToolButton(profileToolbarFrame_);
+    profileToolbarDeleteButton_->setText("Delete");
+    profileToolbarStateLabel_ = new QLabel(profileToolbarFrame_);
+    profileToolbarStateLabel_->setObjectName("profileQuickState");
+    profileToolbarLayout->addWidget(profileLabel);
+    profileToolbarLayout->addWidget(profileToolbarCombo_, 1);
+    profileToolbarLayout->addWidget(profileToolbarLoadButton_);
+    profileToolbarLayout->addWidget(profileToolbarSaveButton_);
+    profileToolbarLayout->addWidget(profileToolbarSaveAsButton_);
+    profileToolbarLayout->addWidget(profileToolbarEditButton_);
+    profileToolbarLayout->addWidget(profileToolbarDeleteButton_);
+    profileToolbarLayout->addSpacing(8);
+    profileToolbarLayout->addWidget(profileToolbarStateLabel_);
+
     auto* chartPanel = new QFrame(central);
     chartPanel->setObjectName("chartPlaceholder");
     auto* chartLayout = new QVBoxLayout(chartPanel);
@@ -545,6 +576,7 @@ void MainWindow::setupDockLayout() {
 
     chartLayout->addWidget(centerStack_, 1);
 
+    centralLayout->addWidget(profileToolbarFrame_);
     centralLayout->addWidget(mainTabBar_);
     centralLayout->addWidget(chartPanel, 1);
 
@@ -1901,6 +1933,7 @@ void MainWindow::setupDockLayout() {
     resizeDocks({dataDock_, rightTopDock_}, {420, 300}, Qt::Horizontal);
 
     defaultDockState_ = saveState();
+    refreshProfileToolbar();
 
     updateTransitLocationAvailability();
     updateTransitTimezoneStatus();
@@ -2063,6 +2096,8 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
             "QToolButton { background-color: #1b1f22; border: 1px solid #2a2d30; padding: 2px 6px; border-radius: 3px; }"
             "QDockWidget { background-color: #0f1112; }"
             "QDockWidget::title { background-color: #121416; border: 1px solid #202326; padding: 4px 8px; }"
+            "QFrame#profileQuickBar { background-color: #121416; border: 1px solid #202326; border-radius: 6px; }"
+            "QLabel#profileQuickState { color: #a0a0a0; border: none; }"
             "QFrame#dataPanel, QFrame#aspectsPanel, QWidget#chartPlaceholder {"
             "  background-color: #0f1112; border: 1px solid #202326; border-radius: 6px;"
             "}"
@@ -2111,6 +2146,8 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
         "QToolButton { background-color: #f3f3f3; border: 1px solid #c9c9c9; padding: 2px 6px; border-radius: 3px; }"
         "QDockWidget { background-color: #fafafa; }"
         "QDockWidget::title { background-color: #f1f1f1; border: 1px solid #d6d6d6; padding: 4px 8px; }"
+        "QFrame#profileQuickBar { background-color: #f8f8f8; border: 1px solid #d6d6d6; border-radius: 6px; }"
+        "QLabel#profileQuickState { color: #666666; border: none; }"
         "QFrame#dataPanel, QFrame#aspectsPanel, QWidget#chartPlaceholder {"
         "  background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 6px;"
         "}"
@@ -2484,6 +2521,74 @@ void MainWindow::clearAspectHover() {
 void MainWindow::setupConnections() {
     if (mainTabBar_) {
         connect(mainTabBar_, &QTabBar::currentChanged, this, &MainWindow::handleMainTabChanged);
+    }
+    if (profileToolbarLoadButton_) {
+        connect(profileToolbarLoadButton_, &QToolButton::clicked, this, [this]() {
+            if (profileToolbarCombo_) {
+                const QString selected = profileToolbarCombo_->currentData().toString().trimmed();
+                if (!selected.isEmpty()) {
+                    loadProfileByName(selected);
+                    return;
+                }
+            }
+            handleLoadProfile();
+        });
+    }
+    if (profileToolbarSaveButton_) {
+        connect(profileToolbarSaveButton_, &QToolButton::clicked, this, [this]() {
+            if (!currentProfileName_.trimmed().isEmpty()) {
+                saveProfileByName(currentProfileName_, false);
+            } else {
+                handleSaveProfile();
+            }
+        });
+    }
+    if (profileToolbarSaveAsButton_) {
+        connect(profileToolbarSaveAsButton_, &QToolButton::clicked, this, &MainWindow::handleSaveProfile);
+    }
+    if (profileToolbarEditButton_) {
+        connect(profileToolbarEditButton_, &QToolButton::clicked, this, &MainWindow::handleEditChart);
+    }
+    if (profileToolbarDeleteButton_) {
+        connect(profileToolbarDeleteButton_, &QToolButton::clicked, this, [this]() {
+            if (profileToolbarCombo_) {
+                const QString selected = profileToolbarCombo_->currentData().toString().trimmed();
+                if (!selected.isEmpty()) {
+                    const QString filePath = profileFilePath(selected);
+                    if (!filePath.isEmpty() && QFileInfo::exists(filePath)) {
+                        const auto result = QMessageBox::question(
+                            this,
+                            "Delete profile",
+                            QString("Delete profile \"%1\"?").arg(selected),
+                            QMessageBox::Yes | QMessageBox::No);
+                        if (result != QMessageBox::Yes) {
+                            return;
+                        }
+                        if (!QFile::remove(filePath)) {
+                            setStatusMessage("Unable to delete profile.");
+                            return;
+                        }
+                        if (currentProfileName_ == selected) {
+                            currentProfileName_.clear();
+                        }
+                        refreshProfileToolbar();
+                        return;
+                    }
+                }
+            }
+            handleDeleteProfile();
+        });
+    }
+    if (profileToolbarCombo_) {
+        connect(profileToolbarCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            const QString selected = profileToolbarCombo_->currentData().toString().trimmed();
+            if (profileToolbarLoadButton_) {
+                profileToolbarLoadButton_->setEnabled(!selected.isEmpty());
+            }
+            if (profileToolbarDeleteButton_) {
+                profileToolbarDeleteButton_->setEnabled(!selected.isEmpty());
+            }
+        });
     }
     if (transitSubTabBar_) {
         connect(transitSubTabBar_, &QTabBar::currentChanged, this, &MainWindow::handleTransitSubTabChanged);
@@ -4215,6 +4320,183 @@ QStringList MainWindow::listProfiles() const {
     return names;
 }
 
+bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwrite) {
+    if (!hasCurrentChart_) {
+        setStatusMessage("Load or create a chart before saving a profile.");
+        return false;
+    }
+
+    QString normalized = profileName.trimmed();
+    if (normalized.isEmpty()) {
+        setStatusMessage("Profile name cannot be empty.");
+        return false;
+    }
+    const QString safeName = sanitizeProfileName(normalized);
+    if (safeName.isEmpty()) {
+        setStatusMessage("Profile name contains only invalid characters.");
+        return false;
+    }
+    normalized = safeName;
+    const QString filePath = profileFilePath(normalized);
+
+    if (promptOverwrite && QFileInfo::exists(filePath) && normalized != currentProfileName_) {
+        const auto overwrite = QMessageBox::question(
+            this,
+            "Overwrite profile",
+            QString("Overwrite existing profile \"%1\"?").arg(normalized),
+            QMessageBox::Yes | QMessageBox::No);
+        if (overwrite != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    QJsonObject obj;
+    obj["profile_name"] = normalized;
+    obj["name"] = currentInput_.name;
+    obj["date"] = currentInput_.date.toString(Qt::ISODate);
+    obj["time"] = currentInput_.time.toString("HH:mm:ss");
+    obj["timezone"] = currentInput_.timezone;
+    obj["location"] = currentLocation_;
+    obj["latitude"] = currentInput_.latitude;
+    obj["longitude"] = currentInput_.longitude;
+    obj["house_system"] = (currentInput_.houseSystem == HouseSystem::Placidus) ? "Placidus" : "Whole Sign";
+    obj["saved_at_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    obj["version"] = 1;
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        setStatusMessage(QString("Unable to save profile: %1").arg(file.errorString()));
+        return false;
+    }
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    file.close();
+
+    currentProfileName_ = normalized;
+    refreshProfileToolbar();
+    setStatusMessage(QString("Profile \"%1\" saved.").arg(normalized));
+    return true;
+}
+
+bool MainWindow::loadProfileByName(const QString& profileName) {
+    QString normalized = profileName.trimmed();
+    if (normalized.isEmpty()) {
+        setStatusMessage("Select a profile to load.");
+        return false;
+    }
+
+    const QString filePath = profileFilePath(normalized);
+    if (filePath.isEmpty() || !QFileInfo::exists(filePath)) {
+        setStatusMessage("Profile file not found.");
+        return false;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        setStatusMessage(QString("Unable to load profile: %1").arg(file.errorString()));
+        return false;
+    }
+    const QByteArray data = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        setStatusMessage("Profile file is not valid JSON.");
+        return false;
+    }
+    const QJsonObject obj = doc.object();
+
+    NatalInput input;
+    input.name = obj.value("name").toString();
+    input.date = QDate::fromString(obj.value("date").toString(), Qt::ISODate);
+    input.time = QTime::fromString(obj.value("time").toString(), "HH:mm:ss");
+    if (!input.time.isValid()) {
+        input.time = QTime::fromString(obj.value("time").toString(), "HH:mm");
+    }
+    input.timezone = obj.value("timezone").toString();
+    if (!input.date.isValid()) {
+        setStatusMessage("Profile date is invalid.");
+        return false;
+    }
+    if (!input.time.isValid()) {
+        setStatusMessage("Profile time is invalid.");
+        return false;
+    }
+    if (input.timezone.trimmed().isEmpty()) {
+        input.timezone = "UTC";
+    }
+    input.latitude = obj.value("latitude").toDouble();
+    input.longitude = obj.value("longitude").toDouble();
+    const QString houseSystem = obj.value("house_system").toString();
+    input.houseSystem = houseSystem.contains("Placidus", Qt::CaseInsensitive)
+        ? HouseSystem::Placidus
+        : HouseSystem::WholeSign;
+
+    const QString location = obj.value("location").toString();
+    if (!computeChart(input, location)) {
+        return false;
+    }
+
+    currentProfileName_ = normalized;
+    defaultHouseSystem_ = input.houseSystem;
+    refreshProfileToolbar();
+    setStatusMessage(QString("Loaded profile \"%1\".").arg(normalized));
+    return true;
+}
+
+void MainWindow::refreshProfileToolbar() {
+    if (!profileToolbarCombo_) {
+        return;
+    }
+
+    const QString previousSelection = profileToolbarCombo_->currentData().toString().trimmed();
+    const QStringList profiles = listProfiles();
+    {
+        const QSignalBlocker blocker(profileToolbarCombo_);
+        profileToolbarCombo_->clear();
+        profileToolbarCombo_->addItem("Select profile...", QString());
+        for (const auto& name : profiles) {
+            profileToolbarCombo_->addItem(name, name);
+        }
+
+        QString preferred = currentProfileName_.trimmed();
+        if (preferred.isEmpty()) {
+            preferred = previousSelection;
+        }
+        int index = preferred.isEmpty() ? 0 : profileToolbarCombo_->findData(preferred);
+        if (index < 0) {
+            index = 0;
+        }
+        profileToolbarCombo_->setCurrentIndex(index);
+    }
+
+    const QString selected = profileToolbarCombo_->currentData().toString().trimmed();
+    if (profileToolbarLoadButton_) {
+        profileToolbarLoadButton_->setEnabled(!selected.isEmpty());
+    }
+    if (profileToolbarDeleteButton_) {
+        profileToolbarDeleteButton_->setEnabled(!selected.isEmpty());
+    }
+    if (profileToolbarSaveButton_) {
+        profileToolbarSaveButton_->setEnabled(hasCurrentChart_);
+    }
+    if (profileToolbarSaveAsButton_) {
+        profileToolbarSaveAsButton_->setEnabled(hasCurrentChart_);
+    }
+    if (profileToolbarEditButton_) {
+        profileToolbarEditButton_->setEnabled(hasCurrentChart_);
+    }
+    if (profileToolbarStateLabel_) {
+        if (!currentProfileName_.trimmed().isEmpty()) {
+            profileToolbarStateLabel_->setText(QString("Loaded: %1").arg(currentProfileName_));
+        } else if (hasCurrentChart_) {
+            profileToolbarStateLabel_->setText("Current chart not saved as profile");
+        } else {
+            profileToolbarStateLabel_->setText("No chart loaded");
+        }
+    }
+}
+
 
 
 void MainWindow::openChartSetupDialog(bool newChart) {
@@ -4233,6 +4515,7 @@ void MainWindow::openChartSetupDialog(bool newChart) {
     if (computeChart(input, location)) {
         if (newChart) {
             currentProfileName_.clear();
+            refreshProfileToolbar();
         }
     }
 }
@@ -4323,6 +4606,7 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     } else {
         refreshNatalTransitsPanels();
     }
+    refreshProfileToolbar();
     return true;
 }
 
@@ -7031,9 +7315,16 @@ void MainWindow::showTransitSearchResults() {
     });
 
     setupTable(rightTopTable_, {"Date/Time", "Planet", "Event", "Sign/House", "Aspect+Orb"}, transitSearchResults_.size());
+    if (auto* header = rightTopTable_->horizontalHeader()) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(4, QHeaderView::Stretch);
+    }
     for (int i = 0; i < transitSearchResults_.size(); ++i) {
         const auto& res = transitSearchResults_[i];
-        rightTopTable_->setItem(i, 0, makeCell(res.timeLocal.toString("yyyy-MM-dd HH:mm")));
+        rightTopTable_->setItem(i, 0, makeCell(res.timeLocal.toString("MMMM d yyyy, h:mm AP")));
         rightTopTable_->setItem(i, 1, makeCell(res.planet));
         rightTopTable_->setItem(i, 2, makeCell(res.event));
         rightTopTable_->setItem(i, 3, makeCell(res.signHouse.isEmpty() ? "-" : res.signHouse));
@@ -10274,57 +10565,13 @@ void MainWindow::handleSaveProfile() {
     if (!ok) {
         return;
     }
-    profileName = profileName.trimmed();
-    if (profileName.isEmpty()) {
-        setStatusMessage("Profile name cannot be empty.");
-        return;
-    }
-    const QString safeName = sanitizeProfileName(profileName);
-    if (safeName.isEmpty()) {
-        setStatusMessage("Profile name contains only invalid characters.");
-        return;
-    }
-    profileName = safeName;
-    const QString filePath = profileFilePath(profileName);
-
-    if (QFileInfo::exists(filePath) && profileName != currentProfileName_) {
-        const auto overwrite = QMessageBox::question(
-            this,
-            "Overwrite profile",
-            QString("Overwrite existing profile \"%1\"?").arg(profileName),
-            QMessageBox::Yes | QMessageBox::No);
-        if (overwrite != QMessageBox::Yes) {
-            return;
-        }
-    }
-
-    QJsonObject obj;
-    obj["profile_name"] = profileName;
-    obj["name"] = currentInput_.name;
-    obj["date"] = currentInput_.date.toString(Qt::ISODate);
-    obj["time"] = currentInput_.time.toString("HH:mm:ss");
-    obj["timezone"] = currentInput_.timezone;
-    obj["location"] = currentLocation_;
-    obj["latitude"] = currentInput_.latitude;
-    obj["longitude"] = currentInput_.longitude;
-    obj["house_system"] = (currentInput_.houseSystem == HouseSystem::Placidus) ? "Placidus" : "Whole Sign";
-    obj["saved_at_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    obj["version"] = 1;
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        setStatusMessage(QString("Unable to save profile: %1").arg(file.errorString()));
-        return;
-    }
-    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-    file.close();
-
-    currentProfileName_ = profileName;
+    saveProfileByName(profileName, true);
 }
 
 void MainWindow::handleLoadProfile() {
     const QStringList profiles = listProfiles();
     if (profiles.isEmpty()) {
+        refreshProfileToolbar();
         setStatusMessage("No profiles found.");
         return;
     }
@@ -10341,71 +10588,13 @@ void MainWindow::handleLoadProfile() {
     if (!ok) {
         return;
     }
-    profileName = profileName.trimmed();
-    if (profileName.isEmpty()) {
-        setStatusMessage("Select a profile to load.");
-        return;
-    }
-
-    const QString filePath = profileFilePath(profileName);
-    if (filePath.isEmpty() || !QFileInfo::exists(filePath)) {
-        setStatusMessage("Profile file not found.");
-        return;
-    }
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        setStatusMessage(QString("Unable to load profile: %1").arg(file.errorString()));
-        return;
-    }
-    const QByteArray data = file.readAll();
-    file.close();
-
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        setStatusMessage("Profile file is not valid JSON.");
-        return;
-    }
-    const QJsonObject obj = doc.object();
-
-    NatalInput input;
-    input.name = obj.value("name").toString();
-    input.date = QDate::fromString(obj.value("date").toString(), Qt::ISODate);
-    input.time = QTime::fromString(obj.value("time").toString(), "HH:mm:ss");
-    if (!input.time.isValid()) {
-        input.time = QTime::fromString(obj.value("time").toString(), "HH:mm");
-    }
-    input.timezone = obj.value("timezone").toString();
-    if (!input.date.isValid()) {
-        setStatusMessage("Profile date is invalid.");
-        return;
-    }
-    if (!input.time.isValid()) {
-        setStatusMessage("Profile time is invalid.");
-        return;
-    }
-    if (input.timezone.trimmed().isEmpty()) {
-        input.timezone = "UTC";
-    }
-    input.latitude = obj.value("latitude").toDouble();
-    input.longitude = obj.value("longitude").toDouble();
-    const QString houseSystem = obj.value("house_system").toString();
-    input.houseSystem = houseSystem.contains("Placidus", Qt::CaseInsensitive)
-        ? HouseSystem::Placidus
-        : HouseSystem::WholeSign;
-
-    const QString location = obj.value("location").toString();
-
-    if (computeChart(input, location)) {
-        currentProfileName_ = profileName;
-        defaultHouseSystem_ = input.houseSystem;
-    }
+    loadProfileByName(profileName);
 }
 
 void MainWindow::handleDeleteProfile() {
     const QStringList profiles = listProfiles();
     if (profiles.isEmpty()) {
+        refreshProfileToolbar();
         setStatusMessage("No profiles found.");
         return;
     }
@@ -10449,6 +10638,8 @@ void MainWindow::handleDeleteProfile() {
     if (currentProfileName_ == profileName) {
         currentProfileName_.clear();
     }
+    refreshProfileToolbar();
+    setStatusMessage(QString("Deleted profile \"%1\".").arg(profileName));
 }
 
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows) {
