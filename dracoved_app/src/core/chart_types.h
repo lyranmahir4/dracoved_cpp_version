@@ -12,6 +12,35 @@ enum class HouseSystem {
     Placidus,
 };
 
+enum class Gender {
+    Unspecified,
+    Male,
+    Female,
+};
+
+inline QString genderToString(Gender gender) {
+    switch (gender) {
+        case Gender::Male:
+            return "Male";
+        case Gender::Female:
+            return "Female";
+        case Gender::Unspecified:
+        default:
+            return "Unspecified";
+    }
+}
+
+inline Gender genderFromString(const QString& text) {
+    const QString normalized = text.trimmed();
+    if (normalized.compare("Male", Qt::CaseInsensitive) == 0) {
+        return Gender::Male;
+    }
+    if (normalized.compare("Female", Qt::CaseInsensitive) == 0) {
+        return Gender::Female;
+    }
+    return Gender::Unspecified;
+}
+
 struct AspectOrbs {
     double conjunction = 10.0;
     double sextile = 10.0;
@@ -29,6 +58,7 @@ struct NatalInput {
     QDate date;
     QTime time;
     QString timezone;
+    Gender gender = Gender::Unspecified;
     double latitude = 0.0;
     double longitude = 0.0;
     HouseSystem houseSystem = HouseSystem::WholeSign;

@@ -139,7 +139,7 @@ static bool isAngleName(const QString& name) {
 }
 
 static bool isDerivedPointName(const QString& name) {
-    return name == "Part of Fortune" || name == "Vertex";
+    return name == "Vertex" || isArabicLotName(name);
 }
 
 static bool isBenefic(const QString& name) {
@@ -174,6 +174,9 @@ static double bodyWeightFor(const QString& name) {
     }
     if (isNodeName(name)) {
         return 0.4;
+    }
+    if (isArabicLotName(name)) {
+        return 0.45;
     }
     return 0.6;
 }
@@ -389,6 +392,106 @@ static QString formatDegreeDms(double deg) {
         .arg(QString::number(whole).rightJustified(2, '0'))
         .arg(QString::number(minutes).rightJustified(2, '0'))
         .arg(QString::number(seconds, 'f', 0).rightJustified(2, '0'));
+}
+
+struct NamedLongitude {
+    QString label;
+    double lon = 0.0;
+};
+
+static QVector<NamedLongitude> collectAngleAndLotRows(const NatalChart& chart) {
+    QVector<NamedLongitude> rows = {
+        {"Ascendant", chart.angles.asc},
+        {"Midheaven", chart.angles.mc},
+        {"Descendant", chart.angles.desc},
+        {"IC", chart.angles.ic},
+        {"Vertex", chart.angles.vertex},
+    };
+
+    QMap<QString, double> bodyMap;
+    for (const auto& body : chart.bodies) {
+        bodyMap.insert(body.name, body.longitude);
+    }
+    for (const auto& lotName : arabicLotOrder()) {
+        if (bodyMap.contains(lotName)) {
+            rows.push_back({lotName, bodyMap.value(lotName)});
+        } else if (lotName == "Part of Fortune" && chart.hasPartOfFortune) {
+            rows.push_back({lotName, chart.partOfFortune});
+        }
+    }
+    return rows;
+}
+
+static int completedYearsBetween(const QDate& birthDate, const QDate& referenceDate) {
+    if (!birthDate.isValid() || !referenceDate.isValid()) {
+        return 0;
+    }
+    int years = referenceDate.year() - birthDate.year();
+    if (referenceDate < birthDate.addYears(years)) {
+        --years;
+    }
+    return std::max(0, years);
+}
+
+static QString traditionalRulerForSign(int signIdx) {
+    static const QStringList rulers = {
+        "Mars",     // Aries
+        "Venus",    // Taurus
+        "Mercury",  // Gemini
+        "Moon",     // Cancer
+        "Sun",      // Leo
+        "Mercury",  // Virgo
+        "Venus",    // Libra
+        "Mars",     // Scorpio
+        "Jupiter",  // Sagittarius
+        "Saturn",   // Capricorn
+        "Saturn",   // Aquarius
+        "Jupiter",  // Pisces
+    };
+    if (signIdx < 0 || signIdx >= rulers.size()) {
+        return QString();
+    }
+    return rulers[signIdx];
+}
+
+static int signDistance(int fromSign, int toSign) {
+    return (toSign - fromSign + 12) % 12;
+}
+
+static bool isSquareOrOppSign(int fromSign, int toSign) {
+    const int distance = signDistance(fromSign, toSign);
+    return distance == 3 || distance == 6 || distance == 9;
+}
+
+static bool isConjOrTrineSign(int fromSign, int toSign) {
+    const int distance = signDistance(fromSign, toSign);
+    return distance == 0 || distance == 4 || distance == 8;
+}
+
+static bool hardAspectToLongitude(double aLon, double bLon, double orbDeg, QString* outAspect, double* outOrb) {
+    struct HardAspectDef {
+        const char* label;
+        double exact;
+    };
+    static const HardAspectDef defs[] = {
+        {"Conjunction", 0.0},
+        {"Square", 90.0},
+        {"Opposition", 180.0},
+    };
+    const double diff = angularDiffAbs(aLon, bLon);
+    for (const auto& def : defs) {
+        const double orb = std::fabs(diff - def.exact);
+        if (orb <= orbDeg) {
+            if (outAspect) {
+                *outAspect = def.label;
+            }
+            if (outOrb) {
+                *outOrb = orb;
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -931,6 +1034,7 @@ void MainWindow::setupDockLayout() {
     transitSubTabBar_->addTab("Calendar");
     transitSubTabBar_->addTab("Conjunctions");
     transitSubTabBar_->addTab("Best Days");
+    transitSubTabBar_->addTab("Profections");
     transitSubTabBar_->addTab("Lunations");
     transitSubTabBar_->setExpanding(false);
     transitSubTabBar_->setDrawBase(false);
@@ -1535,6 +1639,53 @@ void MainWindow::setupDockLayout() {
     scanLayout->addWidget(scanResultsGroup);
     scanLayout->addStretch();
 
+    transitProfectionPanel_ = new QWidget(transitPanelStack_);
+    auto* profectionLayout = new QVBoxLayout(transitProfectionPanel_);
+    profectionLayout->setContentsMargins(0, 0, 0, 0);
+    profectionLayout->setSpacing(8);
+
+    auto* profectionReferenceGroup = new QGroupBox("Reference", transitProfectionPanel_);
+    auto* profectionReferenceLayout = new QGridLayout(profectionReferenceGroup);
+    profectionReferenceLayout->setHorizontalSpacing(8);
+    profectionReferenceLayout->setVerticalSpacing(6);
+    profectionReferenceLayout->setColumnStretch(1, 1);
+    profectionReferenceLabel_ = new QLabel("Reference: -", profectionReferenceGroup);
+    profectionReferenceLabel_->setObjectName("hintLabel");
+    profectionAgeSpin_ = new QSpinBox(profectionReferenceGroup);
+    profectionAgeSpin_->setRange(0, 130);
+    profectionAgeSpin_->setValue(0);
+    profectionUseTransitAgeButton_ = new QPushButton("Use Transit Age", profectionReferenceGroup);
+    profectionReferenceLayout->addWidget(profectionReferenceLabel_, 0, 0, 1, 3);
+    profectionReferenceLayout->addWidget(new QLabel("Age (years)", profectionReferenceGroup), 1, 0);
+    profectionReferenceLayout->addWidget(profectionAgeSpin_, 1, 1);
+    profectionReferenceLayout->addWidget(profectionUseTransitAgeButton_, 1, 2);
+
+    auto* profectionRunGroup = new QGroupBox("Run", transitProfectionPanel_);
+    auto* profectionRunLayout = new QHBoxLayout(profectionRunGroup);
+    profectionRunButton_ = new QPushButton("Analyze Profections", profectionRunGroup);
+    profectionStatusLabel_ = new QLabel("Ready", profectionRunGroup);
+    profectionStatusLabel_->setObjectName("hintLabel");
+    profectionRunLayout->addWidget(profectionRunButton_);
+    profectionRunLayout->addStretch();
+    profectionRunLayout->addWidget(profectionStatusLabel_);
+
+    auto* profectionRulesGroup = new QGroupBox("Rhetorius Rules", transitProfectionPanel_);
+    auto* profectionRulesLayout = new QVBoxLayout(profectionRulesGroup);
+    auto* profectionRulesLabel = new QLabel(
+        "Annual sign = start sign + (age mod 12). "
+        "Lord condition: angular/11th is active, 6/8/12 is difficult. "
+        "Transit triggers: Mars/Saturn by conjunction-square-opposition pressure; "
+        "Jupiter/Venus by conjunction-trine support.",
+        profectionRulesGroup);
+    profectionRulesLabel->setWordWrap(true);
+    profectionRulesLabel->setObjectName("hintLabel");
+    profectionRulesLayout->addWidget(profectionRulesLabel);
+
+    profectionLayout->addWidget(profectionReferenceGroup);
+    profectionLayout->addWidget(profectionRunGroup);
+    profectionLayout->addWidget(profectionRulesGroup);
+    profectionLayout->addStretch();
+
     transitLunationPanel_ = new QWidget(transitPanelStack_);
     auto* lunationLayout = new QVBoxLayout(transitLunationPanel_);
     lunationLayout->setContentsMargins(0, 0, 0, 0);
@@ -1761,6 +1912,7 @@ void MainWindow::setupDockLayout() {
     transitPanelStack_->addWidget(transitCalendarPanel_);
     transitPanelStack_->addWidget(transitConjunctionPanel_);
     transitPanelStack_->addWidget(transitScanPanel);
+    transitPanelStack_->addWidget(transitProfectionPanel_);
     transitPanelStack_->addWidget(transitLunationPanel_);
 
     transitLayout->addWidget(transitPanelStack_);
@@ -3317,6 +3469,27 @@ void MainWindow::setupConnections() {
     if (scanTopCountSpin_) {
         connect(scanTopCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::updateTransitScanResultsTable);
     }
+    if (profectionUseTransitAgeButton_) {
+        connect(profectionUseTransitAgeButton_, &QPushButton::clicked, this, [this]() {
+            syncTransitProfectionAgeFromTransitDate();
+            if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Profections) {
+                refreshTransitProfectionTab();
+            }
+        });
+    }
+    if (profectionRunButton_) {
+        connect(profectionRunButton_, &QPushButton::clicked, this, &MainWindow::handleTransitProfectionRun);
+    }
+    if (profectionAgeSpin_) {
+        connect(profectionAgeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
+            if (profectionStatusLabel_) {
+                profectionStatusLabel_->setText("Ready");
+            }
+            if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Profections) {
+                refreshTransitProfectionTab();
+            }
+        });
+    }
     if (lunationRunButton_) {
         connect(lunationRunButton_, &QPushButton::clicked, this, &MainWindow::handleLunationSearchRun);
     }
@@ -3512,6 +3685,8 @@ void MainWindow::setupConnections() {
                 handleTransitConjunctionResultActivated(row, column);
             } else if (transitSubTab_ == TransitSubTab::Scan) {
                 handleTransitScanResultActivated(row, column);
+            } else if (transitSubTab_ == TransitSubTab::Profections) {
+                refreshTransitProfectionTab();
             } else if (transitSubTab_ == TransitSubTab::Lunations) {
                 handleLunationResultActivated(row, column);
             }
@@ -4373,12 +4548,13 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
     obj["date"] = currentInput_.date.toString(Qt::ISODate);
     obj["time"] = currentInput_.time.toString("HH:mm:ss");
     obj["timezone"] = currentInput_.timezone;
+    obj["gender"] = genderToString(currentInput_.gender);
     obj["location"] = currentLocation_;
     obj["latitude"] = currentInput_.latitude;
     obj["longitude"] = currentInput_.longitude;
     obj["house_system"] = (currentInput_.houseSystem == HouseSystem::Placidus) ? "Placidus" : "Whole Sign";
     obj["saved_at_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    obj["version"] = 1;
+    obj["version"] = 2;
 
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -4441,6 +4617,7 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
     if (input.timezone.trimmed().isEmpty()) {
         input.timezone = "UTC";
     }
+    input.gender = genderFromString(obj.value("gender").toString());
     input.latitude = obj.value("latitude").toDouble();
     input.longitude = obj.value("longitude").toDouble();
     const QString houseSystem = obj.value("house_system").toString();
@@ -4937,6 +5114,7 @@ void MainWindow::handleTransitResetTime() {
 }
 
 void MainWindow::handleTransitSubTabChanged(int index) {
+    const TransitSubTab previousSubTab = transitSubTab_;
     if (index == 1) {
         transitSubTab_ = TransitSubTab::Search;
     } else if (index == 2) {
@@ -4946,6 +5124,8 @@ void MainWindow::handleTransitSubTabChanged(int index) {
     } else if (index == 4) {
         transitSubTab_ = TransitSubTab::Scan;
     } else if (index == 5) {
+        transitSubTab_ = TransitSubTab::Profections;
+    } else if (index == 6) {
         transitSubTab_ = TransitSubTab::Lunations;
     } else {
         transitSubTab_ = TransitSubTab::Overview;
@@ -4968,14 +5148,20 @@ void MainWindow::handleTransitSubTabChanged(int index) {
             case TransitSubTab::Scan:
                 stackIndex = 4;
                 break;
-            case TransitSubTab::Lunations:
+            case TransitSubTab::Profections:
                 stackIndex = 5;
+                break;
+            case TransitSubTab::Lunations:
+                stackIndex = 6;
                 break;
         }
         transitPanelStack_->setCurrentIndex(stackIndex);
     }
     if (transitSubTab_ == TransitSubTab::Calendar && transitCalendarEvents_.isEmpty() && !calendarRunning_) {
         handleTransitCalendarRun();
+    }
+    if (transitSubTab_ == TransitSubTab::Profections && previousSubTab != TransitSubTab::Profections) {
+        syncTransitProfectionAgeFromTransitDate();
     }
     updateTransitSearchTargets();
     updateTransitSearchVisibility();
@@ -5469,6 +5655,10 @@ void MainWindow::handleTransitConjunctionResultActivated(int row, int column) {
     showTransitConjunctionDetails(event);
 }
 
+void MainWindow::handleTransitProfectionRun() {
+    refreshTransitProfectionTab();
+}
+
 void MainWindow::handleLunationSearchRun() {
     runLunationSearch();
 }
@@ -5935,6 +6125,7 @@ QString MainWindow::buildNatalReportText() const {
     lines << "Summary:";
     addRow({"Field", "Value"});
     addRow({"Name", input.name.isEmpty() ? "-" : input.name});
+    addRow({"Gender", genderToString(input.gender)});
     addRow({"Location", currentLocation_.isEmpty() ? "-" : currentLocation_});
     addRow({localTimeLabel, chart.localDateTime.toString("yyyy-MM-dd HH:mm:ss")});
     addRow({utcTimeLabel, chart.utcDateTime.toString("yyyy-MM-dd HH:mm:ss")});
@@ -5950,19 +6141,8 @@ QString MainWindow::buildNatalReportText() const {
     lines << "";
     lines << "Angles:";
     addRow({"Angle", "Deg in Sign", "Sign"});
-    struct AngleRow {
-        QString label;
-        double lon;
-    };
-    const AngleRow angles[] = {
-        {"Ascendant", chart.angles.asc},
-        {"Midheaven", chart.angles.mc},
-        {"Descendant", chart.angles.desc},
-        {"IC", chart.angles.ic},
-        {"Vertex", chart.angles.vertex},
-        {"Part of Fortune", chart.partOfFortune},
-    };
-    for (const auto& row : angles) {
+    const auto angleRows = collectAngleAndLotRows(chart);
+    for (const auto& row : angleRows) {
         addRow({row.label, formatDegOnly(row.lon), signName(signIndex(row.lon))});
     }
 
@@ -6392,6 +6572,7 @@ void MainWindow::updateTransitSearchVisibility() {
     const bool inCalendar = (transitSubTab_ == TransitSubTab::Calendar);
     const bool inConjunctions = (transitSubTab_ == TransitSubTab::Conjunctions);
     const bool inScan = (transitSubTab_ == TransitSubTab::Scan);
+    const bool inProfections = (transitSubTab_ == TransitSubTab::Profections);
     const bool inLunations = (transitSubTab_ == TransitSubTab::Lunations);
     if (rightTopDock_) {
         if (inSearch) {
@@ -6402,6 +6583,8 @@ void MainWindow::updateTransitSearchVisibility() {
             rightTopDock_->setWindowTitle("Conjunction Results");
         } else if (inScan) {
             rightTopDock_->setWindowTitle("Scan Results");
+        } else if (inProfections) {
+            rightTopDock_->setWindowTitle("Activated Points");
         } else if (inLunations) {
             rightTopDock_->setWindowTitle("Lunation Results");
         } else {
@@ -6417,6 +6600,8 @@ void MainWindow::updateTransitSearchVisibility() {
             rightBottomDock_->setWindowTitle("Conjunction Details");
         } else if (inScan) {
             rightBottomDock_->setWindowTitle("Scan Details");
+        } else if (inProfections) {
+            rightBottomDock_->setWindowTitle("Topical Analysis");
         } else if (inLunations) {
             rightBottomDock_->setWindowTitle("Lunation Details");
         } else {
@@ -6431,6 +6616,8 @@ void MainWindow::updateTransitSearchVisibility() {
         showTransitConjunctionResults();
     } else if (inScan) {
         refreshTransitScanTab();
+    } else if (inProfections) {
+        refreshTransitProfectionTab();
     } else if (inLunations) {
         showLunationResults();
     } else if (activeTab_ == AppTab::Transits) {
@@ -6868,6 +7055,408 @@ void MainWindow::updateLunationAnalysisAvailability() {
     if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations && !lunationRunning_) {
         lunationAutoApplied_ = false;
         showLunationResults();
+    }
+}
+
+void MainWindow::syncTransitProfectionAgeFromTransitDate() {
+    if (!profectionAgeSpin_ || !hasCurrentChart_) {
+        return;
+    }
+    const QDateTime referenceLocal = transitSelectedLocal();
+    if (!referenceLocal.isValid()) {
+        return;
+    }
+    const int ageYears = completedYearsBetween(currentChart_.localDateTime.date(), referenceLocal.date());
+    const QSignalBlocker blocker(profectionAgeSpin_);
+    profectionAgeSpin_->setValue(ageYears);
+}
+
+void MainWindow::refreshTransitProfectionTab() {
+    if (activeTab_ != AppTab::Transits || transitSubTab_ != TransitSubTab::Profections) {
+        return;
+    }
+    if (!rightTopTable_ || !rightBottomTable_) {
+        return;
+    }
+
+    const QDateTime referenceLocal = transitSelectedLocal();
+    const QString tzLabel = transitTimezoneLabel();
+    const QString referenceText = referenceLocal.isValid()
+        ? referenceLocal.toString("yyyy-MM-dd hh:mm:ss AP")
+        : QString("-");
+    if (profectionReferenceLabel_) {
+        profectionReferenceLabel_->setText(QString("Reference: %1 (%2)").arg(referenceText, tzLabel));
+    }
+
+    if (!hasCurrentChart_) {
+        if (profectionStatusLabel_) {
+            profectionStatusLabel_->setText("Load a natal chart first.");
+        }
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Load a natal chart to evaluate annual profections."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Topical activation appears here after a natal chart is loaded."));
+        return;
+    }
+    if (!referenceLocal.isValid()) {
+        if (profectionStatusLabel_) {
+            profectionStatusLabel_->setText("Invalid transit reference.");
+        }
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Set a valid transit date/time first."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Reference date/time is invalid."));
+        return;
+    }
+
+    const int derivedAge = completedYearsBetween(currentChart_.localDateTime.date(), referenceLocal.date());
+    if (profectionAgeSpin_ && profectionAgeSpin_->value() == 0 && derivedAge > 0) {
+        const QSignalBlocker blocker(profectionAgeSpin_);
+        profectionAgeSpin_->setValue(derivedAge);
+    }
+    const int ageYears = profectionAgeSpin_ ? profectionAgeSpin_->value() : derivedAge;
+    const int ageMod = ((ageYears % 12) + 12) % 12;
+
+    NatalChart transitChart;
+    QString transitErr;
+    if (!computeTransitChart(referenceLocal, tzLabel, &transitChart, &transitErr)) {
+        if (profectionStatusLabel_) {
+            profectionStatusLabel_->setText("Transit data unavailable.");
+        }
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Unable to compute transit triggers for this reference time."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell(transitErr.isEmpty() ? "Unknown transit calculation error." : transitErr));
+        return;
+    }
+
+    QMap<QString, BodyPosition> natalBodies;
+    for (const auto& body : currentChart_.bodies) {
+        natalBodies.insert(body.name, body);
+    }
+
+    double natalSunLon = 0.0;
+    const bool hasNatalSun = findBodyLongitude(currentChart_, "Sun", &natalSunLon);
+
+    struct StartPointDef {
+        QString label;
+        double lon = 0.0;
+        bool valid = false;
+    };
+
+    double fortuneLon = currentChart_.partOfFortune;
+    bool hasFortune = currentChart_.hasPartOfFortune;
+    if (findBodyLongitude(currentChart_, "Part of Fortune", &fortuneLon)) {
+        hasFortune = true;
+    }
+    double spiritLon = 0.0;
+    const bool hasSpirit = findBodyLongitude(currentChart_, "Lot of Spirit", &spiritLon);
+    double sunLon = 0.0;
+    const bool hasSun = findBodyLongitude(currentChart_, "Sun", &sunLon);
+    double moonLon = 0.0;
+    const bool hasMoon = findBodyLongitude(currentChart_, "Moon", &moonLon);
+
+    QVector<StartPointDef> startPoints = {
+        {"Ascendant", currentChart_.angles.asc, true},
+        {"Part of Fortune", fortuneLon, hasFortune},
+        {"Sun", sunLon, hasSun},
+        {"Moon", moonLon, hasMoon},
+        {"Lot of Spirit", spiritLon, hasSpirit},
+        {"Midheaven", currentChart_.angles.mc, true},
+    };
+
+    auto loadTransitPlanet = [&](const QString& planetName, double* outLon, int* outSign) {
+        double lon = 0.0;
+        if (!findBodyLongitude(transitChart, planetName, &lon)) {
+            return false;
+        }
+        if (outLon) {
+            *outLon = lon;
+        }
+        if (outSign) {
+            *outSign = signIndex(lon);
+        }
+        return true;
+    };
+
+    double marsLon = 0.0;
+    double saturnLon = 0.0;
+    double jupiterLon = 0.0;
+    double venusLon = 0.0;
+    int marsSign = -1;
+    int saturnSign = -1;
+    int jupiterSign = -1;
+    int venusSign = -1;
+    const bool hasTransitMars = loadTransitPlanet("Mars", &marsLon, &marsSign);
+    const bool hasTransitSaturn = loadTransitPlanet("Saturn", &saturnLon, &saturnSign);
+    const bool hasTransitJupiter = loadTransitPlanet("Jupiter", &jupiterLon, &jupiterSign);
+    const bool hasTransitVenus = loadTransitPlanet("Venus", &venusLon, &venusSign);
+
+    struct ActivationRow {
+        QString startLabel;
+        QString natalSign;
+        QString signOfYear;
+        int signOfYearIndex = -1;
+        QString lord;
+        int lordHouse = 0;
+        bool hasLord = false;
+        bool lordRetrograde = false;
+        bool lordCombust = false;
+        QString natalPromise;
+        QString transitTone;
+        QString triggerSummary;
+        QStringList triggerDetails;
+        bool hasMaleficInSign = false;
+        bool hasMaleficPressure = false;
+        bool hasBeneficSupport = false;
+        bool hasMaleficToLord = false;
+    };
+
+    QVector<ActivationRow> rows;
+    rows.reserve(startPoints.size());
+    for (const auto& point : startPoints) {
+        if (!point.valid) {
+            continue;
+        }
+        ActivationRow row;
+        row.startLabel = point.label;
+        const int natalSignIndex = signIndex(point.lon);
+        row.natalSign = signName(natalSignIndex);
+        row.signOfYearIndex = (natalSignIndex + ageMod) % 12;
+        row.signOfYear = signName(row.signOfYearIndex);
+        row.lord = traditionalRulerForSign(row.signOfYearIndex);
+
+        double natalLordLon = 0.0;
+        if (!row.lord.isEmpty() && natalBodies.contains(row.lord)) {
+            const BodyPosition lordBody = natalBodies.value(row.lord);
+            row.hasLord = true;
+            row.lordHouse = lordBody.house;
+            row.lordRetrograde = lordBody.retrograde;
+            natalLordLon = lordBody.longitude;
+            row.lordCombust = (row.lord != "Sun" && hasNatalSun && angularDiffAbs(natalLordLon, natalSunLon) <= 15.0);
+        }
+
+        if (!row.hasLord) {
+            row.natalPromise = "Lord unavailable";
+        } else {
+            if (row.lordHouse == 1 || row.lordHouse == 4 || row.lordHouse == 7 || row.lordHouse == 10 || row.lordHouse == 11) {
+                row.natalPromise = "Active/prominent";
+            } else if (row.lordHouse == 6 || row.lordHouse == 8 || row.lordHouse == 12) {
+                row.natalPromise = "Difficult/loss-prone";
+            } else {
+                row.natalPromise = "Mixed/moderate";
+            }
+            if (row.lordRetrograde) {
+                row.natalPromise += ", retrograde";
+            }
+            if (row.lordCombust) {
+                row.natalPromise += ", combust";
+            }
+        }
+
+        auto addMaleficSignTrigger = [&](const QString& name, bool planetValid, int planetSign) {
+            if (!planetValid) {
+                return;
+            }
+            if (planetSign == row.signOfYearIndex) {
+                row.hasMaleficInSign = true;
+                row.triggerDetails.push_back(QString("%1 in sign of year").arg(name));
+            } else if (isSquareOrOppSign(row.signOfYearIndex, planetSign)) {
+                row.hasMaleficPressure = true;
+                row.triggerDetails.push_back(QString("%1 square/opposition to sign of year").arg(name));
+            }
+        };
+        auto addBeneficSignTrigger = [&](const QString& name, bool planetValid, int planetSign) {
+            if (!planetValid) {
+                return;
+            }
+            if (isConjOrTrineSign(row.signOfYearIndex, planetSign)) {
+                row.hasBeneficSupport = true;
+                row.triggerDetails.push_back(QString("%1 conjunction/trine to sign of year").arg(name));
+            }
+        };
+        addMaleficSignTrigger("Mars", hasTransitMars, marsSign);
+        addMaleficSignTrigger("Saturn", hasTransitSaturn, saturnSign);
+        addBeneficSignTrigger("Jupiter", hasTransitJupiter, jupiterSign);
+        addBeneficSignTrigger("Venus", hasTransitVenus, venusSign);
+
+        if (row.hasLord) {
+            auto addMaleficLordHit = [&](const QString& name, bool planetValid, double transitLon) {
+                if (!planetValid) {
+                    return;
+                }
+                QString aspectLabel;
+                double orb = 0.0;
+                if (hardAspectToLongitude(transitLon, natalLordLon, 3.0, &aspectLabel, &orb)) {
+                    row.hasMaleficToLord = true;
+                    row.triggerDetails.push_back(
+                        QString("%1 %2 natal lord (%3° orb)")
+                            .arg(name)
+                            .arg(aspectLabel)
+                            .arg(QString::number(orb, 'f', 1)));
+                }
+            };
+            addMaleficLordHit("Mars", hasTransitMars, marsLon);
+            addMaleficLordHit("Saturn", hasTransitSaturn, saturnLon);
+        }
+
+        if (row.hasMaleficInSign || row.hasMaleficToLord) {
+            row.transitTone = "Critical";
+        } else if (row.hasMaleficPressure && row.hasBeneficSupport) {
+            row.transitTone = "Mixed";
+        } else if (row.hasMaleficPressure) {
+            row.transitTone = "Challenging";
+        } else if (row.hasBeneficSupport) {
+            row.transitTone = "Supportive";
+        } else {
+            row.transitTone = "Quiet";
+        }
+        row.triggerSummary = row.triggerDetails.isEmpty() ? "No major trigger" : row.triggerDetails.join("; ");
+        rows.push_back(row);
+    }
+
+    if (rows.isEmpty()) {
+        if (profectionStatusLabel_) {
+            profectionStatusLabel_->setText("No start points available.");
+        }
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Unable to resolve required points (Asc, Fortune, Sun, Moon, Spirit)."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Load/recompute the natal chart and try again."));
+        return;
+    }
+
+    setupTable(rightTopTable_, {"Start Point", "Natal Sign", "Sign of Year", "Lord", "Lord House", "Natal Promise", "Transit Tone", "Triggers"}, rows.size());
+    for (int rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
+        const auto& row = rows[rowIndex];
+        rightTopTable_->setItem(rowIndex, 0, makeCell(row.startLabel));
+        rightTopTable_->setItem(rowIndex, 1, makeCell(row.natalSign));
+        rightTopTable_->setItem(rowIndex, 2, makeCell(row.signOfYear));
+        rightTopTable_->setItem(rowIndex, 3, makeCell(row.lord.isEmpty() ? "-" : row.lord));
+        rightTopTable_->setItem(rowIndex, 4, makeCell(row.lordHouse > 0 ? QString::number(row.lordHouse) : "-", Qt::AlignCenter));
+        rightTopTable_->setItem(rowIndex, 5, makeCell(row.natalPromise));
+        auto* toneItem = makeCell(row.transitTone);
+        if (row.transitTone == "Supportive") {
+            toneItem->setForeground(QColor("#69c36d"));
+        } else if (row.transitTone == "Critical" || row.transitTone == "Challenging") {
+            toneItem->setForeground(QColor("#e05555"));
+        } else if (row.transitTone == "Mixed") {
+            toneItem->setForeground(QColor("#d4a24a"));
+        }
+        rightTopTable_->setItem(rowIndex, 6, toneItem);
+        auto* triggerItem = makeCell(row.triggerSummary);
+        triggerItem->setToolTip(row.triggerSummary);
+        rightTopTable_->setItem(rowIndex, 7, triggerItem);
+    }
+    rightTopTable_->resizeRowsToContents();
+
+    auto findRow = [&](const QString& label) -> const ActivationRow* {
+        for (const auto& row : rows) {
+            if (row.startLabel == label) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    auto formatTopicAssessment = [&](const ActivationRow* row, bool wealthRule) -> QString {
+        if (!row) {
+            return "Unavailable";
+        }
+        QString text = QString("%1 year in %2; lord %3")
+            .arg(row->startLabel)
+            .arg(row->signOfYear)
+            .arg(row->lord);
+        if (row->lordHouse > 0) {
+            text += QString(" in house %1").arg(row->lordHouse);
+        }
+        text += QString(" (%1). ").arg(row->natalPromise);
+        if (wealthRule) {
+            if (row->lordHouse == 2) {
+                text += "2nd-house emphasis suggests gain/asset focus. ";
+            } else if (row->lordHouse == 8) {
+                text += "8th-house emphasis suggests loss/debt/shared-resource pressure. ";
+            }
+        }
+        text += QString("Transit tone: %1.").arg(row->transitTone);
+        return text;
+    };
+
+    const ActivationRow* ascRow = findRow("Ascendant");
+    const ActivationRow* fortuneRow = findRow("Part of Fortune");
+    const ActivationRow* spiritRow = findRow("Lot of Spirit");
+    const ActivationRow* mcRow = findRow("Midheaven");
+    const ActivationRow* sunRow = findRow("Sun");
+    const ActivationRow* moonRow = findRow("Moon");
+
+    struct TopicRow {
+        QString topic;
+        QString assessment;
+        QString triggers;
+    };
+    QVector<TopicRow> topicRows;
+    topicRows.push_back({
+        "Reference",
+        QString("Age %1 (mod 12 = %2) at %3.")
+            .arg(ageYears)
+            .arg(ageMod)
+            .arg(referenceLocal.toString("yyyy-MM-dd hh:mm:ss AP")),
+        QString("Timezone: %1").arg(tzLabel),
+    });
+    topicRows.push_back({
+        "Health/Life (Asc)",
+        formatTopicAssessment(ascRow, false),
+        ascRow ? ascRow->triggerSummary : "Unavailable",
+    });
+    topicRows.push_back({
+        "Career/Rank (Spirit)",
+        formatTopicAssessment(spiritRow, false),
+        spiritRow ? spiritRow->triggerSummary : "Unavailable",
+    });
+    topicRows.push_back({
+        "Career/Rank (Midheaven)",
+        formatTopicAssessment(mcRow, false),
+        mcRow ? mcRow->triggerSummary : "Unavailable",
+    });
+    topicRows.push_back({
+        "Wealth/Body (Fortune)",
+        formatTopicAssessment(fortuneRow, true),
+        fortuneRow ? fortuneRow->triggerSummary : "Unavailable",
+    });
+    topicRows.push_back({
+        "Solar/Lunar Annuals",
+        QString("Sun annual: %1 | Moon annual: %2")
+            .arg(sunRow ? sunRow->signOfYear : QString("N/A"))
+            .arg(moonRow ? moonRow->signOfYear : QString("N/A")),
+        QString("Sun tone: %1 | Moon tone: %2")
+            .arg(sunRow ? sunRow->transitTone : QString("N/A"))
+            .arg(moonRow ? moonRow->transitTone : QString("N/A")),
+    });
+    topicRows.push_back({
+        "Method Notes",
+        "Combust threshold 15 degrees from natal Sun; malefic-to-lord hard aspect orb 3 degrees.",
+        "Rules: angular/11th active; 6/8/12 difficult; benefic conjunction-trine helps.",
+    });
+
+    setupTable(rightBottomTable_, {"Topic", "Assessment", "Triggers"}, topicRows.size());
+    for (int rowIndex = 0; rowIndex < topicRows.size(); ++rowIndex) {
+        const auto& topic = topicRows[rowIndex];
+        rightBottomTable_->setItem(rowIndex, 0, makeCell(topic.topic));
+        auto* assessmentItem = makeCell(topic.assessment);
+        assessmentItem->setToolTip(topic.assessment);
+        rightBottomTable_->setItem(rowIndex, 1, assessmentItem);
+        auto* triggerItem = makeCell(topic.triggers);
+        triggerItem->setToolTip(topic.triggers);
+        rightBottomTable_->setItem(rowIndex, 2, triggerItem);
+    }
+    rightBottomTable_->setWordWrap(true);
+    rightBottomTable_->resizeRowsToContents();
+
+    if (profectionStatusLabel_) {
+        profectionStatusLabel_->setText(
+            QString("Updated: age %1, %2")
+                .arg(ageYears)
+                .arg(referenceLocal.toString("yyyy-MM-dd")));
     }
 }
 
@@ -8900,6 +9489,9 @@ void MainWindow::updateChartLegend() {
 void MainWindow::markTransitPending() {
     transitPending_ = true;
     updateTransitTargetLabels();
+    if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Profections) {
+        refreshTransitProfectionTab();
+    }
 }
 
 void MainWindow::markSolarPending() {
@@ -8918,6 +9510,9 @@ void MainWindow::applyTransitCalculation() {
     lastTransitCalculated_ = QDateTime::currentDateTime();
     refreshTransitsTab();
     updateTransitTargetLabels();
+    if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Profections) {
+        refreshTransitProfectionTab();
+    }
 }
 
 void MainWindow::updateTransitTargetLabels() {
@@ -8932,6 +9527,9 @@ void MainWindow::updateTransitTargetLabels() {
     transitTargetLabel_->setText(QString("Transit target: %1 (%2)").arg(targetText, tzLabel));
     if (conjReferenceLabel_) {
         conjReferenceLabel_->setText(QString("Reference: %1 (%2)").arg(targetText, tzLabel));
+    }
+    if (profectionReferenceLabel_) {
+        profectionReferenceLabel_->setText(QString("Reference: %1 (%2)").arg(targetText, tzLabel));
     }
     if (transitPending_) {
         transitStatusLabel_->setText("Pending changes");
@@ -10714,10 +11312,12 @@ static int calcHouseForLongitude(double lon, const QVector<HouseCusp>& cusps, do
 
 void MainWindow::populateSummary(const NatalChart& chart, const NatalInput& input, const QString& location) {
     QStringList headers = {"Item", "Value"};
-    setupTable(summaryTable_, headers, 10);
+    setupTable(summaryTable_, headers, 11);
     int r = 0;
     summaryTable_->setItem(r, 0, makeCell("Name"));
     summaryTable_->setItem(r++, 1, makeCell(input.name.isEmpty() ? "-" : input.name));
+    summaryTable_->setItem(r, 0, makeCell("Gender"));
+    summaryTable_->setItem(r++, 1, makeCell(genderToString(input.gender)));
     summaryTable_->setItem(r, 0, makeCell("Location"));
     summaryTable_->setItem(r++, 1, makeCell(location.isEmpty() ? "-" : location));
     summaryTable_->setItem(r, 0, makeCell("Birth time (Local)"));
@@ -10740,20 +11340,9 @@ void MainWindow::populateSummary(const NatalChart& chart, const NatalInput& inpu
 
 void MainWindow::populateAngles(const NatalChart& chart) {
     QStringList headers = {"Angle", "Deg in Sign", "Sign"};
-    setupTable(anglesTable_, headers, 6);
-    struct AngleRow {
-        QString label;
-        double lon;
-    };
-    const AngleRow rows[] = {
-        {"Ascendant", chart.angles.asc},
-        {"Midheaven", chart.angles.mc},
-        {"Descendant", chart.angles.desc},
-        {"IC", chart.angles.ic},
-        {"Vertex", chart.angles.vertex},
-        {"Part of Fortune", chart.partOfFortune},
-    };
-    for (int i = 0; i < 6; ++i) {
+    const auto rows = collectAngleAndLotRows(chart);
+    setupTable(anglesTable_, headers, static_cast<int>(rows.size()));
+    for (int i = 0; i < rows.size(); ++i) {
         const auto& row = rows[i];
         anglesTable_->setItem(i, 0, makeCell(row.label));
         anglesTable_->setItem(i, 1, makeCell(formatDegOnly(row.lon), Qt::AlignRight | Qt::AlignVCenter));

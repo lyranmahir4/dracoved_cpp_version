@@ -27,7 +27,7 @@ bool isAngleName(const QString& name) {
 }
 
 bool isDerivedPointName(const QString& name) {
-    return name == "Part of Fortune" || name == "Vertex";
+    return name == "Vertex" || isArabicLotName(name);
 }
 
 bool isBenefic(const QString& name) {
@@ -62,6 +62,9 @@ double bodyWeightFor(const QString& name) {
     }
     if (isNodeName(name)) {
         return 0.4;
+    }
+    if (isArabicLotName(name)) {
+        return 0.45;
     }
     return 0.6;
 }
@@ -320,4 +323,3 @@ int calcHouseForLongitude(double lon, const QVector<HouseCusp>& cusps, double as
 }
 
 }  // namespace dracoved::transitcalc
-

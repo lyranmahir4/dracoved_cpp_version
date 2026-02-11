@@ -211,7 +211,9 @@ QStringList tropicalBodyOrder() {
     return {
         "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
         "Uranus", "Neptune", "Pluto", "Chiron", "Ceres", "Pallas", "Juno", "Vesta", "Pholus",
-        "North Node", "South Node", "Lilith", "Part of Fortune", "Vertex",
+        "North Node", "South Node", "Lilith",
+        "Part of Fortune", "Lot of Spirit", "Lot of Action", "Lot of Brothers", "Lot of Father", "Lot of Marriage",
+        "Lot of Necessity", "Lot of Eros", "Lot of Victory", "Lot of Nemesis", "Vertex",
         "Ascendant", "Midheaven", "Descendant", "IC",
     };
 }
@@ -220,7 +222,7 @@ QStringList tropicalBodyAbbrev() {
     return {
         "Su", "Mo", "Me", "Ve", "Ma", "Ju", "Sa",
         "Ur", "Ne", "Pl", "Ch", "Ce", "Pa", "Jn", "Vs", "Ph", "NN", "SN",
-        "Li", "PF", "Vx",
+        "Li", "PF", "LSp", "LAc", "LBr", "LFa", "LMg", "LNe", "LEr", "LVi", "LNm", "Vx",
         "AS", "MC", "DS", "IC",
     };
 }
@@ -247,12 +249,41 @@ QStringList tropicalBodyGlyphs() {
         QString(QChar(0x260B)), // South Node
         QString(QChar(0x26B8)), // Lilith
         QString(QChar(0x2297)), // Part of Fortune
+        "LSp",                  // Lot of Spirit
+        "LAc",                  // Lot of Action
+        "LBr",                  // Lot of Brothers
+        "LFa",                  // Lot of Father
+        "LMg",                  // Lot of Marriage
+        "LNe",                  // Lot of Necessity
+        "LEr",                  // Lot of Eros
+        "LVi",                  // Lot of Victory
+        "LNm",                  // Lot of Nemesis
         "Vx",                   // Vertex
         "AC",
         "MC",
         "DC",
         "IC",
     };
+}
+
+QStringList arabicLotOrder() {
+    return {
+        "Part of Fortune",
+        "Lot of Spirit",
+        "Lot of Action",
+        "Lot of Brothers",
+        "Lot of Father",
+        "Lot of Marriage",
+        "Lot of Necessity",
+        "Lot of Eros",
+        "Lot of Victory",
+        "Lot of Nemesis",
+    };
+}
+
+bool isArabicLotName(const QString& name) {
+    static const QStringList kLots = arabicLotOrder();
+    return kLots.contains(name);
 }
 
 QStringList asteroidBodyOrder() {
@@ -285,6 +316,15 @@ QString bodyGlyph(const QString& name) {
     if (name == "South Node") return QString(QChar(0x260B));
     if (name == "Lilith") return QString(QChar(0x26B8));
     if (name == "Part of Fortune") return QString(QChar(0x2297));
+    if (name == "Lot of Spirit") return "LSp";
+    if (name == "Lot of Action") return "LAc";
+    if (name == "Lot of Brothers") return "LBr";
+    if (name == "Lot of Father") return "LFa";
+    if (name == "Lot of Marriage") return "LMg";
+    if (name == "Lot of Necessity") return "LNe";
+    if (name == "Lot of Eros") return "LEr";
+    if (name == "Lot of Victory") return "LVi";
+    if (name == "Lot of Nemesis") return "LNm";
     if (name == "Vertex") return "Vx";
     if (name == "Ascendant") return "AC";
     if (name == "Midheaven") return "MC";

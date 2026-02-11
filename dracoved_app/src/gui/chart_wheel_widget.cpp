@@ -1510,10 +1510,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             const QPointF pos = pointOnCircle(center, item.displayRadius, displayAngle);
             const QString degLabel = formatDegShort(item.trueLon);
 
-            QString glyph;
-            if (item.name == "Vertex") {
-                glyph = "Vx";
-            } else {
+            QString glyph = bodyGlyph(item.name);
+            if (glyph.trimmed().isEmpty() || glyph == "?") {
                 QChar pChar = getPlanetChar(item.name);
                 glyph = pChar.isNull() ? item.name.left(2) : QString(pChar);
             }

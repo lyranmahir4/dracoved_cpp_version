@@ -167,6 +167,7 @@ private:
         Calendar,
         Conjunctions,
         Scan,
+        Profections,
         Lunations,
     };
     enum class ConjunctionFindMode {
@@ -282,6 +283,7 @@ private:
     void handleTransitConjunctionRun();
     void handleTransitConjunctionStop();
     void handleTransitConjunctionResultActivated(int row, int column);
+    void handleTransitProfectionRun();
     void handleLunationSearchRun();
     void handleLunationSearchStop();
     void handleLunationResultActivated(int row, int column);
@@ -318,6 +320,8 @@ private:
     bool computeProgressionChart(const QDateTime& localTime, const QString& tzLabel, NatalChart* out, QString* error);
     void updateTransitSearchVisibility();
     void refreshTransitScanTab();
+    void refreshTransitProfectionTab();
+    void syncTransitProfectionAgeFromTransitDate();
     void updateTransitScanResultsTable();
     void showTransitScanDetails(int index);
     void updateTransitSearchTargets();
@@ -402,6 +406,7 @@ private:
     QWidget* transitSearchPanel_ = nullptr;
     QWidget* transitCalendarPanel_ = nullptr;
     QWidget* transitConjunctionPanel_ = nullptr;
+    QWidget* transitProfectionPanel_ = nullptr;
     QWidget* aspectsPanel_ = nullptr;
     QRadioButton* transitOverlayRadio_ = nullptr;
     QRadioButton* transitOnlyRadio_ = nullptr;
@@ -521,6 +526,11 @@ private:
     QLabel* scanStatusLabel_ = nullptr;
     QComboBox* scanSortCombo_ = nullptr;
     QSpinBox* scanTopCountSpin_ = nullptr;
+    QLabel* profectionReferenceLabel_ = nullptr;
+    QSpinBox* profectionAgeSpin_ = nullptr;
+    QPushButton* profectionUseTransitAgeButton_ = nullptr;
+    QPushButton* profectionRunButton_ = nullptr;
+    QLabel* profectionStatusLabel_ = nullptr;
     QToolButton* chartSettingsButton_ = nullptr;
     QToolButton* zoomInButton_ = nullptr;
     QToolButton* zoomOutButton_ = nullptr;

@@ -195,6 +195,11 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
 
     double sunLon = 0.0;
     double moonLon = 0.0;
+    double mercuryLon = 0.0;
+    double venusLon = 0.0;
+    double marsLon = 0.0;
+    double jupiterLon = 0.0;
+    double saturnLon = 0.0;
 
     for (const auto& body : bodies) {
         double lon = 0.0;
@@ -241,6 +246,16 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
             sunLon = lon;
         } else if (pos.name == "Moon") {
             moonLon = lon;
+        } else if (pos.name == "Mercury") {
+            mercuryLon = lon;
+        } else if (pos.name == "Venus") {
+            venusLon = lon;
+        } else if (pos.name == "Mars") {
+            marsLon = lon;
+        } else if (pos.name == "Jupiter") {
+            jupiterLon = lon;
+        } else if (pos.name == "Saturn") {
+            saturnLon = lon;
         }
 
         positions.push_back(pos);
@@ -308,35 +323,58 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     }
     bool isDay = (sunHouse >= 7 && sunHouse <= 12);
 
-    double pof = 0.0;
-    if (isDay) {
-        pof = normalizeDegrees(angles.asc + moonLon - sunLon);
-    } else {
-        pof = normalizeDegrees(angles.asc + sunLon - moonLon);
-    }
-    
-    // Add Part of Fortune
-    {
-        int sidx = signIndex(pof);
-        QString sname = signName(sidx);
+    const auto lotFrom = [&](double aLon, double bLon) {
+        return normalizeDegrees(angles.asc + aLon - bLon);
+    };
+
+    const double pof = isDay ? lotFrom(moonLon, sunLon) : lotFrom(sunLon, moonLon);
+    const double spirit = isDay ? lotFrom(sunLon, moonLon) : lotFrom(moonLon, sunLon);
+    const double action = isDay ? lotFrom(marsLon, mercuryLon) : lotFrom(mercuryLon, marsLon);
+    const double brothers = isDay ? lotFrom(jupiterLon, saturnLon) : lotFrom(saturnLon, jupiterLon);
+    const double father = isDay ? lotFrom(saturnLon, sunLon) : lotFrom(sunLon, saturnLon);
+    const double marriageMale = lotFrom(venusLon, saturnLon);
+    const double marriageFemale = lotFrom(saturnLon, venusLon);
+    const double nemesis = isDay ? lotFrom(pof, saturnLon) : lotFrom(saturnLon, pof);
+    const double victory = isDay ? lotFrom(jupiterLon, spirit) : lotFrom(spirit, jupiterLon);
+    const double eros = isDay ? lotFrom(spirit, venusLon) : lotFrom(venusLon, spirit);
+    const double necessity = isDay ? lotFrom(pof, mercuryLon) : lotFrom(mercuryLon, pof);
+
+    auto addLotBody = [&](const QString& name, double lon) {
+        const int sidx = signIndex(lon);
+        const QString sname = signName(sidx);
         int house = 0;
         if (input.houseSystem == HouseSystem::Placidus) {
-            house = houseOfLongitude(pof, cusps);
+            house = houseOfLongitude(lon, cusps);
         } else {
             house = ((sidx - ascSignIdx + 12) % 12) + 1;
         }
-        BodyPosition pf;
-        pf.name = "Part of Fortune";
-        pf.longitude = pof;
-        pf.signIndex = sidx;
-        pf.signName = sname;
-        pf.degInSign = degInSign(pof);
-        pf.house = house;
-        pf.element = elementForSign(sname);
-        pf.mode = modeForSign(sname);
-        pf.dignity = "-";
-        positions.push_back(pf);
+        BodyPosition lot;
+        lot.name = name;
+        lot.longitude = lon;
+        lot.signIndex = sidx;
+        lot.signName = sname;
+        lot.degInSign = degInSign(lon);
+        lot.house = house;
+        lot.element = elementForSign(sname);
+        lot.mode = modeForSign(sname);
+        lot.dignity = "-";
+        positions.push_back(lot);
+    };
+
+    addLotBody("Part of Fortune", pof);
+    addLotBody("Lot of Spirit", spirit);
+    addLotBody("Lot of Action", action);
+    addLotBody("Lot of Brothers", brothers);
+    addLotBody("Lot of Father", father);
+    if (input.gender == Gender::Male) {
+        addLotBody("Lot of Marriage", marriageMale);
+    } else if (input.gender == Gender::Female) {
+        addLotBody("Lot of Marriage", marriageFemale);
     }
+    addLotBody("Lot of Necessity", necessity);
+    addLotBody("Lot of Eros", eros);
+    addLotBody("Lot of Victory", victory);
+    addLotBody("Lot of Nemesis", nemesis);
 
     // Build cusps for Placidus only.
     QVector<HouseCusp> cuspRows;

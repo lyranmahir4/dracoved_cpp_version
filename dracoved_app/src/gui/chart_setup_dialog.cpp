@@ -58,6 +58,7 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     timeEdit_ = new QTimeEdit(QTime::currentTime(), formWidget);
     timezoneEdit_ = new QLineEdit(defaultTimezoneLabel(), formWidget);
     locationEdit_ = new QLineEdit(formWidget);
+    genderCombo_ = new QComboBox(formWidget);
     latSpin_ = new QDoubleSpinBox(formWidget);
     lonSpin_ = new QDoubleSpinBox(formWidget);
     latSpin_->setRange(-90.0, 90.0);
@@ -70,6 +71,9 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     houseCombo_ = new QComboBox(formWidget);
     houseCombo_->addItem("Whole Sign");
     houseCombo_->addItem("Placidus");
+    genderCombo_->addItem("Unspecified", static_cast<int>(Gender::Unspecified));
+    genderCombo_->addItem("Male", static_cast<int>(Gender::Male));
+    genderCombo_->addItem("Female", static_cast<int>(Gender::Female));
 
     geocodeButton_ = new QPushButton("Geocode", formWidget);
     auto* hintLabel = new QLabel("Geocoding uses Nominatim (OpenStreetMap).", formWidget);
@@ -94,10 +98,15 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     grid->addWidget(houseCombo_, row, 3);
 
     row++;
-    grid->addWidget(new QLabel("Latitude:", formWidget), row, 0);
-    grid->addWidget(latSpin_, row, 1);
-    grid->addWidget(new QLabel("Longitude:", formWidget), row, 2);
-    grid->addWidget(lonSpin_, row, 3);
+    grid->addWidget(new QLabel("Gender:", formWidget), row, 0);
+    grid->addWidget(genderCombo_, row, 1);
+    grid->addWidget(new QLabel("Latitude:", formWidget), row, 2);
+    grid->addWidget(latSpin_, row, 3);
+
+    row++;
+    grid->addWidget(new QLabel("Longitude:", formWidget), row, 0);
+    grid->addWidget(lonSpin_, row, 1);
+    grid->setColumnStretch(1, 1);
 
     row++;
     grid->addWidget(geocodeButton_, row, 0);
@@ -148,6 +157,9 @@ void ChartSetupDialog::applyDefaults() {
     if (locationEdit_) {
         locationEdit_->clear();
     }
+    if (genderCombo_) {
+        genderCombo_->setCurrentIndex(0);
+    }
     if (latSpin_) {
         latSpin_->setValue(0.0);
     }
@@ -174,6 +186,10 @@ void ChartSetupDialog::setInput(const dracoved::NatalInput& input, const QString
     if (locationEdit_) {
         locationEdit_->setText(locationName);
     }
+    if (genderCombo_) {
+        const int idx = genderCombo_->findData(static_cast<int>(input.gender));
+        genderCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
     if (latSpin_) {
         latSpin_->setValue(input.latitude);
     }
@@ -189,6 +205,9 @@ dracoved::NatalInput ChartSetupDialog::input() const {
     input.date = dateEdit_ ? dateEdit_->date() : QDate::currentDate();
     input.time = timeEdit_ ? timeEdit_->time() : QTime::currentTime();
     input.timezone = timezoneEdit_ ? timezoneEdit_->text().trimmed() : defaultTimezoneLabel();
+    input.gender = genderCombo_
+        ? static_cast<Gender>(genderCombo_->currentData().toInt())
+        : Gender::Unspecified;
     input.latitude = latSpin_ ? latSpin_->value() : 0.0;
     input.longitude = lonSpin_ ? lonSpin_->value() : 0.0;
     input.houseSystem = (houseCombo_ && houseCombo_->currentText().contains("Placidus", Qt::CaseInsensitive))

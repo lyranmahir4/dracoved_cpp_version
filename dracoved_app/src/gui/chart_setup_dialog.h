@@ -36,6 +36,7 @@ private:
     QTimeEdit* timeEdit_ = nullptr;
     QLineEdit* timezoneEdit_ = nullptr;
     QLineEdit* locationEdit_ = nullptr;
+    QComboBox* genderCombo_ = nullptr;
     QDoubleSpinBox* latSpin_ = nullptr;
     QDoubleSpinBox* lonSpin_ = nullptr;
     QComboBox* houseCombo_ = nullptr;
