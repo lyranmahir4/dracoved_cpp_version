@@ -58,6 +58,7 @@
 #include <QTabBar>
 #include <QTime>
 #include <QTimeEdit>
+#include <QTimer>
 #include <QDateEdit>
 #include <QSettings>
 #include <QTabWidget>
@@ -88,6 +89,7 @@
 namespace dracoved {
 
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows);
+static void setupDetailTable(QTableWidget* table, const QStringList& headers, int rows);
 static QTableWidgetItem* makeCell(const QString& text, Qt::Alignment align = Qt::AlignLeft | Qt::AlignVCenter);
 static int calcHouseForLongitude(double lon, const QVector<HouseCusp>& cusps, double asc, HouseSystem system);
 static double angularDiff(double a, double b);
@@ -363,6 +365,65 @@ static void updateTransitPlanetComboLabel(QComboBox* combo) {
     updateCheckableComboLabel(combo);
 }
 
+static QVector<BodyPosition> orderedBodiesForDetails(const NatalChart& chart) {
+    QMap<QString, BodyPosition> bodyMap;
+    for (const auto& body : chart.bodies) {
+        bodyMap.insert(body.name, body);
+    }
+
+    QVector<BodyPosition> orderedBodies;
+    orderedBodies.reserve(bodyMap.size());
+    for (const auto& name : tropicalBodyOrder()) {
+        if (!bodyMap.contains(name)) {
+            continue;
+        }
+        orderedBodies.push_back(bodyMap.value(name));
+        bodyMap.remove(name);
+    }
+    for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
+        orderedBodies.push_back(it.value());
+    }
+    return orderedBodies;
+}
+
+static void appendBodyPlacementsMarkdown(QStringList* lines, const NatalChart& chart) {
+    if (!lines) {
+        return;
+    }
+    lines->push_back("| Body | Degree | Sign | House | Motion |");
+    lines->push_back("| --- | --- | --- | --- | --- |");
+
+    const QVector<BodyPosition> orderedBodies = orderedBodiesForDetails(chart);
+    for (const auto& body : orderedBodies) {
+        lines->push_back(QString("| %1 | %2 | %3 | %4 | %5 |")
+            .arg(body.name)
+            .arg(formatDegOnly(body.longitude))
+            .arg(signName(signIndex(body.longitude)))
+            .arg(body.house > 0 ? QString::number(body.house) : "-")
+            .arg(body.retrograde ? "R" : "D"));
+    }
+}
+
+static void appendFixedStarsMarkdown(QStringList* lines, const NatalChart& chart) {
+    if (!lines || chart.fixedStars.isEmpty()) {
+        return;
+    }
+    QVector<FixedStarPosition> stars = chart.fixedStars;
+    std::sort(stars.begin(), stars.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
+        return a.longitude < b.longitude;
+    });
+    lines->push_back("");
+    lines->push_back("| Fixed Star | Degree | Sign | House |");
+    lines->push_back("| --- | --- | --- | --- |");
+    for (const auto& star : stars) {
+        lines->push_back(QString("| %1 | %2 | %3 | %4 |")
+            .arg(star.name)
+            .arg(formatDegOnly(star.longitude))
+            .arg(signName(signIndex(star.longitude)))
+            .arg(star.house > 0 ? QString::number(star.house) : "-"));
+    }
+}
+
 static QString formatDegreeDms(double deg) {
     if (std::isnan(deg)) {
         return "N/A";
@@ -538,6 +599,14 @@ MainWindow::MainWindow(QWidget* parent)
 #endif
     setupUi();
     setupConnections();
+    calendarRecomputeTimer_ = new QTimer(this);
+    calendarRecomputeTimer_->setSingleShot(true);
+    calendarRecomputeTimer_->setInterval(250);
+    connect(calendarRecomputeTimer_, &QTimer::timeout, this, [this]() {
+        if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+            handleTransitCalendarRun();
+        }
+    });
     loadUiState();
 
     ephePath_ = findEphePath();
@@ -548,7 +617,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     QString err;
     if (!swe_.load(sweSearchPaths(), &err)) {
-        setStatusMessage(err);
+        setCriticalMessage(err);
     }
 
     if (mainTabBar_) {
@@ -3315,7 +3384,9 @@ void MainWindow::setupConnections() {
                 }
                 updateCheckableComboLabel(calendarPlanetCombo_);
                 showTransitCalendarResults();
-                if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+                if (calendarRecomputeTimer_) {
+                    calendarRecomputeTimer_->start();
+                } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
                     handleTransitCalendarRun();
                 }
             });
@@ -3357,7 +3428,11 @@ void MainWindow::setupConnections() {
     }
     if (calendarIncludeHousesCheck_) {
         connect(calendarIncludeHousesCheck_, &QCheckBox::toggled, this, [this](bool) {
-            handleTransitCalendarRun();
+            if (calendarRecomputeTimer_) {
+                calendarRecomputeTimer_->start();
+            } else {
+                handleTransitCalendarRun();
+            }
         });
     }
     if (calendarRefreshButton_) {
@@ -3373,14 +3448,14 @@ void MainWindow::setupConnections() {
         connect(conjModePrevRadio_, &QRadioButton::toggled, this, &MainWindow::updateConjunctionModeAvailability);
     }
     if (conjUseOrbCheck_) {
-        connect(conjUseOrbCheck_, &QCheckBox::toggled, this, [this](bool checked) {
-            if (conjOrbSpin_) {
-                conjOrbSpin_->setEnabled(checked);
-            }
+        connect(conjUseOrbCheck_, &QCheckBox::toggled, this, [this](bool) {
+            updateConjunctionModeAvailability();
         });
-        if (conjOrbSpin_) {
-            conjOrbSpin_->setEnabled(conjUseOrbCheck_->isChecked());
-        }
+    }
+    if (conjCountSpin_) {
+        connect(conjCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
+            updateConjunctionModeAvailability();
+        });
     }
     if (conjRunButton_) {
         connect(conjRunButton_, &QPushButton::clicked, this, &MainWindow::handleTransitConjunctionRun);
@@ -3418,6 +3493,7 @@ void MainWindow::setupConnections() {
                     }
                 }
                 updateCheckableComboLabel(conjPlanetCombo_);
+                updateConjunctionModeAvailability();
             });
             if (auto* view = conjPlanetCombo_->view()) {
                 connect(view, &QAbstractItemView::pressed, this, [model](const QModelIndex& index) {
@@ -3668,6 +3744,12 @@ void MainWindow::setupConnections() {
         connect(rightBottomCopyButton_, &QPushButton::clicked, this, [this]() {
             if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Search) {
                 handleCopyTransitSearchDetails();
+            } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
+                handleCopyTransitCalendarDetails();
+            } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Conjunctions) {
+                handleCopyTransitConjunctionDetails();
+            } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Scan) {
+                handleCopyTransitScanDetails();
             } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations) {
                 handleCopyLunationDetails();
             }
@@ -3764,7 +3846,24 @@ void MainWindow::setLayoutLocked(bool locked) {
 }
 
 void MainWindow::setStatusMessage(const QString& text) {
-    QMessageBox::warning(this, "DracoVed", text);
+    const QString message = text.trimmed();
+    if (message.isEmpty()) {
+        return;
+    }
+    if (statusBar()) {
+        statusBar()->showMessage(message, 10000);
+    }
+}
+
+void MainWindow::setCriticalMessage(const QString& text) {
+    const QString message = text.trimmed();
+    if (message.isEmpty()) {
+        return;
+    }
+    if (statusBar()) {
+        statusBar()->showMessage(message, 15000);
+    }
+    QMessageBox::critical(this, "DracoVed", message);
 }
 
 
@@ -3797,6 +3896,8 @@ void MainWindow::loadUiState() {
     aspectDisplayMaxOrb_ = settings.value("chart/overlay_aspects/max_orb", 0.0).toDouble();
     showAsteroids_ = settings.value("chart/show_asteroids", false).toBool();
     includeAsteroidAspects_ = settings.value("chart/include_asteroid_aspects", false).toBool();
+    showLots_ = settings.value("chart/show_lots", true).toBool();
+    showDerivedPoints_ = settings.value("chart/show_derived_points", true).toBool();
     showFixedStars_ = settings.value("chart/show_fixed_stars", false).toBool();
     if (settings.contains("chart/visible_asteroids")) {
         visibleAsteroids_ = settings.value("chart/visible_asteroids").toStringList();
@@ -3865,6 +3966,8 @@ void MainWindow::loadUiState() {
         chartWheel_->setShowAsteroids(showAsteroids_);
         chartWheel_->setIncludeAsteroidAspects(includeAsteroidAspects_);
         chartWheel_->setVisibleAsteroids(visibleAsteroids_);
+        chartWheel_->setShowLots(showLots_);
+        chartWheel_->setShowDerivedPoints(showDerivedPoints_);
         chartWheel_->setShowFixedStars(showFixedStars_);
         chartWheel_->setVisibleFixedStars(visibleFixedStars_);
         chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
@@ -4011,6 +4114,8 @@ void MainWindow::saveUiState() {
         settings.setValue("chart/show_asteroids", chartWheel_->showAsteroids());
         settings.setValue("chart/include_asteroid_aspects", chartWheel_->includeAsteroidAspects());
         settings.setValue("chart/visible_asteroids", chartWheel_->visibleAsteroids());
+        settings.setValue("chart/show_lots", chartWheel_->showLots());
+        settings.setValue("chart/show_derived_points", chartWheel_->showDerivedPoints());
         settings.setValue("chart/show_fixed_stars", chartWheel_->showFixedStars());
         settings.setValue("chart/visible_fixed_stars", chartWheel_->visibleFixedStars());
         settings.setValue("chart/tick_density", static_cast<int>(chartWheel_->tickDensity()));
@@ -4339,6 +4444,14 @@ void MainWindow::showChartSettingsMenu() {
     toggleAsteroids->setChecked(chartWheel_->showAsteroids());
     QAction* selectAsteroids = menu.addAction("Select visible asteroids...");
 
+    QAction* toggleLots = menu.addAction("Show Arabic lots");
+    toggleLots->setCheckable(true);
+    toggleLots->setChecked(chartWheel_->showLots());
+
+    QAction* toggleDerivedPoints = menu.addAction("Show derived points");
+    toggleDerivedPoints->setCheckable(true);
+    toggleDerivedPoints->setChecked(chartWheel_->showDerivedPoints());
+
     QAction* toggleFixedStars = menu.addAction("Show fixed stars");
     toggleFixedStars->setCheckable(true);
     toggleFixedStars->setChecked(chartWheel_->showFixedStars());
@@ -4450,6 +4563,16 @@ void MainWindow::showChartSettingsMenu() {
     } else if (action == selectAsteroids) {
         markChartReadabilityCustom();
         showAsteroidSelectionDialog();
+    } else if (action == toggleLots) {
+        markChartReadabilityCustom();
+        showLots_ = toggleLots->isChecked();
+        chartWheel_->setShowLots(showLots_);
+        chartWheel_->update();
+    } else if (action == toggleDerivedPoints) {
+        markChartReadabilityCustom();
+        showDerivedPoints_ = toggleDerivedPoints->isChecked();
+        chartWheel_->setShowDerivedPoints(showDerivedPoints_);
+        chartWheel_->update();
     } else if (action == toggleFixedStars) {
         markChartReadabilityCustom();
         showFixedStars_ = toggleFixedStars->isChecked();
@@ -4859,7 +4982,7 @@ void MainWindow::openChartSetupDialog(bool newChart) {
 
 bool MainWindow::computeChart(const NatalInput& input, const QString& location) {
     if (ephePath_.isEmpty()) {
-        setStatusMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
+        setCriticalMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
         return false;
     }
 
@@ -4898,7 +5021,7 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     NatalChart chart;
     QString err;
     if (!engine_.compute(effectiveInput, &chart, &err)) {
-        setStatusMessage(err);
+        setCriticalMessage(err);
         return false;
     }
     if (!chart.warnings.isEmpty() && statusBar()) {
@@ -5466,6 +5589,7 @@ void MainWindow::handleTransitCalendarRun() {
 
     transitCalendarEvents_.clear();
     transitCalendarDisplayOrder_.clear();
+    hasTransitCalendarSelection_ = false;
     calendarRestartPending_ = false;
     calendarRunning_ = true;
     if (calendarStatusLabel_) {
@@ -5474,6 +5598,7 @@ void MainWindow::handleTransitCalendarRun() {
     if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar) {
         showTransitCalendarResults();
     }
+    updateLunationCopyButtonState();
 
     auto* worker = new CalendarWorker(params);
     calendarWorker_ = worker;
@@ -5552,12 +5677,16 @@ void MainWindow::handleTransitCalendarResultActivated(int row, int column) {
     NatalChart chart;
     QString err;
     if (!computeTransitChartAt(localTime, tzLabel, &chart, &err)) {
+        hasTransitCalendarSelection_ = false;
+        updateLunationCopyButtonState();
         setStatusMessage(err);
         return;
     }
 
     currentTransitChart_ = chart;
     hasTransitChart_ = true;
+    hasTransitCalendarSelection_ = true;
+    lastTransitCalendarSelection_ = event;
     transitPending_ = false;
     lastTransitCalculated_ = QDateTime::currentDateTime();
     updateTransitTargetLabels();
@@ -5575,6 +5704,7 @@ void MainWindow::handleTransitCalendarResultActivated(int row, int column) {
         chartWheel_->setHighlight(event.planet, true, event.event, QColor("#f0c24b"));
     }
     showTransitCalendarDetails(event);
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::handleTransitConjunctionRun() {
@@ -5684,7 +5814,8 @@ void MainWindow::handleTransitConjunctionRun() {
     params.dllSearchPaths = sweSearchPaths();
     params.planetNames = planets;
     params.minCount = minCount;
-    params.useOrb = (conjUseOrbCheck_ && conjUseOrbCheck_->isChecked());
+    const bool exactPairMode = (minCount == 2 && planets.size() == 2);
+    params.useOrb = !exactPairMode && (conjUseOrbCheck_ && conjUseOrbCheck_->isChecked());
     params.orbDeg = params.useOrb && conjOrbSpin_ ? conjOrbSpin_->value() : 0.0;
     params.bucketByHouse = bucketByHouse;
     params.houseSystem = transitHouseSystem_;
@@ -5698,6 +5829,7 @@ void MainWindow::handleTransitConjunctionRun() {
 
     transitConjunctionResults_.clear();
     transitConjunctionDisplayOrder_.clear();
+    hasTransitConjunctionSelection_ = false;
     conjRestartPending_ = false;
     conjAutoApplied_ = false;
     conjRunning_ = true;
@@ -5713,6 +5845,7 @@ void MainWindow::handleTransitConjunctionRun() {
     if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Conjunctions) {
         showTransitConjunctionResults();
     }
+    updateLunationCopyButtonState();
 
     auto* worker = new ConjunctionWorker(params);
     conjWorker_ = worker;
@@ -5810,6 +5943,8 @@ void MainWindow::handleTransitConjunctionResultActivated(int row, int column) {
 
     currentTransitChart_ = chart;
     hasTransitChart_ = true;
+    hasTransitConjunctionSelection_ = true;
+    lastTransitConjunctionSelection_ = event;
     transitPending_ = false;
     lastTransitCalculated_ = QDateTime::currentDateTime();
     updateTransitTargetLabels();
@@ -5895,10 +6030,6 @@ void MainWindow::handleTransitScanStart() {
         setStatusMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
         return;
     }
-    if (!hasCurrentChart_) {
-        setStatusMessage("Load a natal chart to use the natal timezone for lunations.");
-        return;
-    }
     if (transitScanRunning_) {
         return;
     }
@@ -5979,6 +6110,10 @@ void MainWindow::handleTransitScanStart() {
     }
     transitScanResults_.clear();
     transitScanDisplayOrder_.clear();
+    hasTransitScanSelection_ = false;
+    lastTransitScanSelectionLocal_ = QDateTime();
+    lastTransitScanSelectionTzLabel_.clear();
+    updateLunationCopyButtonState();
 
     auto* worker = new TransitScanWorker(config);
     scanWorker_ = worker;
@@ -6023,7 +6158,64 @@ void MainWindow::handleTransitScanResultActivated(int row, int column) {
     if (row < 0 || row >= transitScanDisplayOrder_.size()) {
         return;
     }
-    showTransitScanDetails(transitScanDisplayOrder_[row]);
+    const int resultIndex = transitScanDisplayOrder_[row];
+    if (resultIndex < 0 || resultIndex >= transitScanResults_.size()) {
+        return;
+    }
+
+    QString tzLabel = currentInput_.timezone.trimmed();
+    if (tzLabel.isEmpty()) {
+        tzLabel = "UTC";
+    }
+    QTimeZone tz;
+    QString normLabel;
+    QString tzErr;
+    if (!parseTimezoneInput(tzLabel, &tz, &normLabel, &tzErr)) {
+        setStatusMessage(tzErr);
+        return;
+    }
+
+    const QTime scanTime = scanTimeEdit_ ? scanTimeEdit_->time() : QTime(12, 0, 0);
+    const QDateTime localTime(transitScanResults_[resultIndex].date, scanTime, tz);
+    if (!localTime.isValid()) {
+        setStatusMessage("Invalid scan result time.");
+        return;
+    }
+
+    NatalChart chart;
+    QString err;
+    if (!computeTransitChartAt(localTime, normLabel, &chart, &err)) {
+        hasTransitScanSelection_ = false;
+        updateLunationCopyButtonState();
+        setStatusMessage(err);
+        return;
+    }
+
+    currentTransitChart_ = chart;
+    hasTransitChart_ = true;
+    hasTransitScanSelection_ = true;
+    lastTransitScanSelection_ = transitScanResults_[resultIndex];
+    lastTransitScanSelectionLocal_ = localTime;
+    lastTransitScanSelectionTzLabel_ = normLabel;
+    transitPending_ = false;
+    lastTransitCalculated_ = QDateTime::currentDateTime();
+    updateTransitTargetLabels();
+
+    if (chartWheel_) {
+        if (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_) {
+            chartWheel_->setShowAspects(true);
+            chartWheel_->setOverlayLabel("Transit");
+            chartWheel_->setOverlayCharts(currentChart_, chart, transitHouseSystem_, aspectOrbs_);
+            chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
+        } else {
+            chartWheel_->setTransitChart(chart, transitHouseSystem_);
+        }
+        chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+        chartWheel_->clearHighlight();
+    }
+
+    showTransitScanDetails(resultIndex);
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::handleTransitScanFinished() {
@@ -6111,6 +6303,42 @@ void MainWindow::handleCopyTransitSearchDetails() {
     setStatusMessage("Transit placements copied to clipboard.");
 }
 
+void MainWindow::handleCopyTransitCalendarDetails() {
+    const QString text = buildTransitCalendarDetailsClipboardText();
+    if (text.isEmpty()) {
+        setStatusMessage("Select a calendar result first.");
+        return;
+    }
+    if (auto* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+    setStatusMessage("Calendar event placements copied to clipboard.");
+}
+
+void MainWindow::handleCopyTransitConjunctionDetails() {
+    const QString text = buildTransitConjunctionDetailsClipboardText();
+    if (text.isEmpty()) {
+        setStatusMessage("Select a conjunction result first.");
+        return;
+    }
+    if (auto* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+    setStatusMessage("Conjunction placements copied to clipboard.");
+}
+
+void MainWindow::handleCopyTransitScanDetails() {
+    const QString text = buildTransitScanDetailsClipboardText();
+    if (text.isEmpty()) {
+        setStatusMessage("Select a scan result first.");
+        return;
+    }
+    if (auto* clipboard = QApplication::clipboard()) {
+        clipboard->setText(text);
+    }
+    setStatusMessage("Scan result report copied to clipboard.");
+}
+
 void MainWindow::handleCopyLunationDetails() {
     const QString text = buildLunationDetailsClipboardText();
     if (text.isEmpty()) {
@@ -6148,6 +6376,27 @@ void MainWindow::updateLunationCopyButtonState() {
         rightBottomCopyButton_->setText("Copy Placements (Markdown)");
         rightBottomCopyButton_->setVisible(true);
         rightBottomCopyButton_->setEnabled(hasTransitSearchSelection_ && hasTransitChart_);
+        return;
+    }
+    const bool inCalendar = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Calendar);
+    if (inCalendar) {
+        rightBottomCopyButton_->setText("Copy Calendar Placements");
+        rightBottomCopyButton_->setVisible(true);
+        rightBottomCopyButton_->setEnabled(hasTransitCalendarSelection_ && hasTransitChart_);
+        return;
+    }
+    const bool inConjunctions = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Conjunctions);
+    if (inConjunctions) {
+        rightBottomCopyButton_->setText("Copy Conjunction Placements");
+        rightBottomCopyButton_->setVisible(true);
+        rightBottomCopyButton_->setEnabled(hasTransitConjunctionSelection_ && hasTransitChart_);
+        return;
+    }
+    const bool inScan = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Scan);
+    if (inScan) {
+        rightBottomCopyButton_->setText("Copy Scan Report");
+        rightBottomCopyButton_->setVisible(true);
+        rightBottomCopyButton_->setEnabled(hasTransitScanSelection_ && hasTransitChart_);
         return;
     }
     const bool inLunations = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations);
@@ -6221,6 +6470,129 @@ QString MainWindow::buildTransitSearchDetailsClipboardText() const {
                 .arg(star.house > 0 ? QString::number(star.house) : "-");
         }
     }
+    return lines.join("\n");
+}
+
+QString MainWindow::buildTransitCalendarDetailsClipboardText() const {
+    if (!hasTransitCalendarSelection_ || !hasTransitChart_) {
+        return QString();
+    }
+    const TransitCalendarEvent& result = lastTransitCalendarSelection_;
+    const NatalChart& chart = currentTransitChart_;
+    const QTimeZone displayTz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
+    const QDateTime localTime = result.timeUtc.toTimeZone(displayTz);
+    const QString tzLabel = result.tzLabel.isEmpty() ? QString("UTC") : result.tzLabel;
+
+    QStringList lines;
+    lines << "Transit Calendar Event Placements";
+    lines << QString("Local Time: %1").arg(localTime.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("UTC Time: %1").arg(result.timeUtc.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("Timezone: %1").arg(tzLabel);
+    lines << QString("Planet: %1").arg(result.planet);
+    lines << QString("Event: %1").arg(result.event);
+    lines << QString("Sign/House: %1").arg(result.signHouse.isEmpty() ? "-" : result.signHouse);
+    lines << QString("Longitude: %1").arg(formatDegInSign(result.longitude));
+    lines << "";
+    appendBodyPlacementsMarkdown(&lines, chart);
+    appendFixedStarsMarkdown(&lines, chart);
+    return lines.join("\n");
+}
+
+QString MainWindow::buildTransitConjunctionDetailsClipboardText() const {
+    if (!hasTransitConjunctionSelection_ || !hasTransitChart_) {
+        return QString();
+    }
+    const TransitConjunctionWindow& result = lastTransitConjunctionSelection_;
+    const NatalChart& chart = currentTransitChart_;
+    const QTimeZone displayTz = conjTz_.isValid() ? conjTz_ : QTimeZone::utc();
+    const QDateTime localStart = result.startUtc.toTimeZone(displayTz);
+    const QDateTime localEnd = result.endUtc.toTimeZone(displayTz);
+
+    QStringList lines;
+    lines << "Transit Conjunction Result Placements";
+    lines << QString("Local Start: %1").arg(localStart.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("Local End: %1").arg(localEnd.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("UTC Start: %1").arg(result.startUtc.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("UTC End: %1").arg(result.endUtc.toString("yyyy-MM-dd HH:mm:ss"));
+    lines << QString("Timezone: %1").arg(result.tzLabel.isEmpty() ? "UTC" : result.tzLabel);
+    lines << QString("Sign/House: %1").arg(result.bucketLabel);
+    lines << QString("Count: %1").arg(result.clusterCount);
+    lines << QString("Planets: %1").arg((result.orbClusterAtStart.isEmpty()
+        ? result.planetsInBucketAtStart
+        : result.orbClusterAtStart).join(", "));
+    lines << QString("Span: %1").arg(QString::number(result.clusterSpanDeg, 'f', 2));
+    lines << "";
+    lines << "| Body | Degree | Sign | House | Motion |";
+    lines << "| --- | --- | --- | --- | --- |";
+
+    QMap<QString, BodyPosition> bodyMap;
+    for (const auto& body : chart.bodies) {
+        bodyMap.insert(body.name, body);
+    }
+    auto appendBody = [&](const BodyPosition& body) {
+        const QString degree = formatDegOnly(body.longitude);
+        const QString sign = signName(signIndex(body.longitude));
+        const QString house = body.house > 0 ? QString::number(body.house) : "-";
+        const QString motion = body.retrograde ? "R" : "D";
+        lines << QString("| %1 | %2 | %3 | %4 | %5 |")
+            .arg(body.name, degree, sign, house, motion);
+    };
+    for (const auto& name : tropicalBodyOrder()) {
+        if (!bodyMap.contains(name)) {
+            continue;
+        }
+        appendBody(bodyMap.value(name));
+        bodyMap.remove(name);
+    }
+    for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
+        appendBody(it.value());
+    }
+
+    if (!chart.fixedStars.isEmpty()) {
+        QVector<FixedStarPosition> stars = chart.fixedStars;
+        std::sort(stars.begin(), stars.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
+            return a.longitude < b.longitude;
+        });
+        lines << "";
+        lines << "| Fixed Star | Degree | Sign | House |";
+        lines << "| --- | --- | --- | --- |";
+        for (const auto& star : stars) {
+            lines << QString("| %1 | %2 | %3 | %4 |")
+                .arg(star.name)
+                .arg(formatDegOnly(star.longitude))
+                .arg(signName(signIndex(star.longitude)))
+                .arg(star.house > 0 ? QString::number(star.house) : "-");
+        }
+    }
+    return lines.join("\n");
+}
+
+QString MainWindow::buildTransitScanDetailsClipboardText() const {
+    if (!hasTransitScanSelection_ || !hasTransitChart_) {
+        return QString();
+    }
+    const DayScanResult& result = lastTransitScanSelection_;
+    const NatalChart& chart = currentTransitChart_;
+    const QString tzLabel = lastTransitScanSelectionTzLabel_.isEmpty() ? QString("UTC") : lastTransitScanSelectionTzLabel_;
+    const QString localLabel = lastTransitScanSelectionLocal_.isValid()
+        ? lastTransitScanSelectionLocal_.toString("yyyy-MM-dd HH:mm:ss")
+        : QString("-");
+    const QString aspectsText = result.topAspects.isEmpty() ? "No strong aspects" : result.topAspects.join(" | ");
+
+    QStringList lines;
+    lines << "Transit Scan Day Placements";
+    lines << QString("Date: %1").arg(result.date.toString("yyyy-MM-dd"));
+    lines << QString("Local Time: %1").arg(localLabel);
+    lines << QString("Timezone: %1").arg(tzLabel);
+    lines << QString("Net Score: %1").arg(QString::number(result.net, 'f', 2));
+    lines << QString("Support Score: %1").arg(QString::number(result.support, 'f', 2));
+    lines << QString("Challenge Score: %1").arg(QString::number(result.challenge, 'f', 2));
+    lines << QString("Solar Return Bias: %1").arg(QString::number(result.solarBias, 'f', 2));
+    lines << QString("Aspect Count: %1").arg(result.aspectCount);
+    lines << QString("Top Aspects: %1").arg(aspectsText);
+    lines << "";
+    appendBodyPlacementsMarkdown(&lines, chart);
+    appendFixedStarsMarkdown(&lines, chart);
     return lines.join("\n");
 }
 
@@ -7220,6 +7592,27 @@ void MainWindow::updateConjunctionModeAvailability() {
             : QString("-");
         conjReferenceLabel_->setText(QString("Reference: %1 (%2)").arg(targetText, tzLabel));
     }
+
+    const int selectedPlanets = selectedCheckableItems(conjPlanetCombo_).size();
+    const bool exactPairMode = (conjCountSpin_ && conjCountSpin_->value() == 2 && selectedPlanets == 2);
+    if (conjUseOrbCheck_) {
+        if (exactPairMode && conjUseOrbCheck_->isChecked()) {
+            const QSignalBlocker blocker(conjUseOrbCheck_);
+            conjUseOrbCheck_->setChecked(false);
+        }
+        conjUseOrbCheck_->setEnabled(!exactPairMode);
+        conjUseOrbCheck_->setText(exactPairMode ? "Use orb span (disabled in exact pair mode)" : "Use orb span");
+        conjUseOrbCheck_->setToolTip(exactPairMode
+            ? "Exact two-planet conjunction mode always uses a 0 degree span."
+            : "Expand conjunction windows by allowing an orb span.");
+    }
+    if (conjOrbSpin_) {
+        const bool useOrb = !exactPairMode && conjUseOrbCheck_ && conjUseOrbCheck_->isChecked();
+        conjOrbSpin_->setEnabled(useOrb);
+        conjOrbSpin_->setToolTip(exactPairMode
+            ? "Exact two-planet conjunction mode ignores orb span."
+            : QString());
+    }
 }
 
 void MainWindow::updateLunationAnalysisAvailability() {
@@ -7722,22 +8115,51 @@ void MainWindow::refreshTransitScanTab() {
         return;
     }
     if (transitScanRunning_) {
+        hasTransitScanSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell("Scanning..."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("Scan in progress."));
+        updateLunationCopyButtonState();
         return;
     }
     if (transitScanResults_.isEmpty()) {
+        hasTransitScanSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell("Run a scan to see best/worst days."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("No scan results yet."));
+        updateLunationCopyButtonState();
         return;
     }
     updateTransitScanResultsTable();
     if (!transitScanDisplayOrder_.isEmpty()) {
-        showTransitScanDetails(transitScanDisplayOrder_.front());
+        int targetRow = 0;
+        if (hasTransitScanSelection_) {
+            for (int row = 0; row < transitScanDisplayOrder_.size(); ++row) {
+                const int idx = transitScanDisplayOrder_[row];
+                if (idx < 0 || idx >= transitScanResults_.size()) {
+                    continue;
+                }
+                if (transitScanResults_[idx].date == lastTransitScanSelection_.date) {
+                    targetRow = row;
+                    break;
+                }
+            }
+        }
+        const int targetIndex = transitScanDisplayOrder_[targetRow];
+        const bool hasMatchingSelection = hasTransitScanSelection_
+            && targetIndex >= 0
+            && targetIndex < transitScanResults_.size()
+            && lastTransitScanSelection_.date == transitScanResults_[targetIndex].date;
+        if (!hasMatchingSelection || !hasTransitChart_) {
+            handleTransitScanResultActivated(targetRow, 0);
+        } else {
+            showTransitScanDetails(targetIndex);
+        }
+        if (rightTopTable_) {
+            rightTopTable_->selectRow(targetRow);
+        }
     }
 }
 
@@ -7746,8 +8168,10 @@ void MainWindow::updateTransitScanResultsTable() {
         return;
     }
     if (transitScanResults_.isEmpty()) {
+        hasTransitScanSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell("No scan results yet."));
+        updateLunationCopyButtonState();
         return;
     }
     QVector<int> indices;
@@ -7794,44 +8218,35 @@ void MainWindow::showTransitScanDetails(int index) {
         return;
     }
     const auto& result = transitScanResults_[index];
-    const QString aspectsText = result.topAspects.isEmpty()
-        ? "No strong aspects"
-        : result.topAspects.join(" | ");
-    struct MonthStat {
-        int count = 0;
-        double netSum = 0.0;
-    };
-    MonthStat months[12];
-    for (const auto& item : transitScanResults_) {
-        const int month = item.date.month();
-        if (month < 1 || month > 12) {
-            continue;
-        }
-        months[month - 1].count += 1;
-        months[month - 1].netSum += item.net;
+    const bool matchesSelectedMoment = hasTransitScanSelection_
+        && lastTransitScanSelection_.date == result.date;
+    if (!hasTransitChart_ || !matchesSelectedMoment) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Select a scan result to load transit placements."));
+        updateLunationCopyButtonState();
+        return;
     }
-    QVector<int> monthOrder;
-    monthOrder.reserve(12);
-    for (int m = 1; m <= 12; ++m) {
-        monthOrder.push_back(m);
-    }
-    std::sort(monthOrder.begin(), monthOrder.end(), [&](int a, int b) {
-        const auto& ma = months[a - 1];
-        const auto& mb = months[b - 1];
-        const double avgA = ma.count > 0 ? ma.netSum / ma.count : -1e9;
-        const double avgB = mb.count > 0 ? mb.netSum / mb.count : -1e9;
-        if (avgA == avgB) {
-            return a < b;
-        }
-        return avgA > avgB;
-    });
 
-    const int detailRows = 7;
-    const int monthRows = 1 + 12;
-    setupTable(rightBottomTable_, {"Item", "Value"}, detailRows + monthRows);
+    const QVector<BodyPosition> orderedBodies = orderedBodiesForDetails(currentTransitChart_);
+    const QString aspectsText = result.topAspects.isEmpty() ? "No strong aspects" : result.topAspects.join(" | ");
+    const QString localTimeText = lastTransitScanSelectionLocal_.isValid()
+        ? lastTransitScanSelectionLocal_.toString("yyyy-MM-dd HH:mm:ss")
+        : QString("-");
+    const QString tzLabel = lastTransitScanSelectionTzLabel_.isEmpty() ? QString("UTC") : lastTransitScanSelectionTzLabel_;
+    const int summaryRows = 9;
+    setupDetailTable(rightBottomTable_, {"Item", "Value"}, summaryRows + 1 + orderedBodies.size());
+    if (auto* header = rightBottomTable_->horizontalHeader()) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
+
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Date"));
     rightBottomTable_->setItem(row++, 1, makeCell(result.date.toString("yyyy-MM-dd")));
+    rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
+    rightBottomTable_->setItem(row++, 1, makeCell(localTimeText));
+    rightBottomTable_->setItem(row, 0, makeCell("Timezone"));
+    rightBottomTable_->setItem(row++, 1, makeCell(tzLabel));
     rightBottomTable_->setItem(row, 0, makeCell("Net Score"));
     rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.net, 'f', 2)));
     rightBottomTable_->setItem(row, 0, makeCell("Support Score"));
@@ -7847,21 +8262,19 @@ void MainWindow::showTransitScanDetails(int index) {
     aspectsCell->setToolTip(aspectsText);
     rightBottomTable_->setItem(row++, 1, aspectsCell);
 
-    rightBottomTable_->setItem(row, 0, makeCell("Month Rankings"));
-    rightBottomTable_->setItem(row++, 1, makeCell("Best → Worst (avg net)"));
-
-    for (int i = 0; i < monthOrder.size(); ++i) {
-        const int month = monthOrder[i];
-        const auto& stat = months[month - 1];
-        const double avgNet = stat.count > 0 ? stat.netSum / stat.count : 0.0;
-        const QString monthName = QDate(2000, month, 1).toString("MMMM");
-        const QString value = QString("%1 — %2 (%3 days)")
-            .arg(monthName)
-            .arg(QString::number(avgNet, 'f', 2))
-            .arg(stat.count);
-        rightBottomTable_->setItem(row, 0, makeCell(QString("#%1").arg(i + 1)));
+    rightBottomTable_->setItem(row, 0, makeCell("Placements"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 bodies").arg(orderedBodies.size())));
+    for (const auto& body : orderedBodies) {
+        const QString value = QString("%1 %2 | House %3 | %4")
+            .arg(formatDegOnly(body.longitude))
+            .arg(signName(signIndex(body.longitude)))
+            .arg(body.house > 0 ? QString::number(body.house) : "-")
+            .arg(body.retrograde ? "R" : "D");
+        rightBottomTable_->setItem(row, 0, makeCell(body.name));
         rightBottomTable_->setItem(row++, 1, makeCell(value));
     }
+    rightBottomTable_->resizeRowsToContents();
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::updateTransitSearchTargets() {
@@ -8235,6 +8648,7 @@ void MainWindow::showTransitCalendarResults() {
         return;
     }
     if (transitCalendarEvents_.isEmpty()) {
+        hasTransitCalendarSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell(calendarRunning_ ? "Computing calendar..." : "No calendar events yet."));
         if (rightBottomTable_) {
@@ -8242,6 +8656,7 @@ void MainWindow::showTransitCalendarResults() {
             rightBottomTable_->setItem(0, 0, makeCell("Select a calendar event to view details."));
         }
         transitCalendarDisplayOrder_.clear();
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8289,12 +8704,14 @@ void MainWindow::showTransitCalendarResults() {
     }
 
     if (transitCalendarDisplayOrder_.isEmpty()) {
+        hasTransitCalendarSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell("No events match the current month/planet/event filters."));
         if (rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("Adjust month, planet, or event filters to see results."));
         }
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8325,22 +8742,67 @@ void MainWindow::showTransitCalendarResults() {
     }
 
     if (!transitCalendarDisplayOrder_.isEmpty()) {
-        const int firstIndex = transitCalendarDisplayOrder_.front();
-        if (firstIndex >= 0 && firstIndex < transitCalendarEvents_.size()) {
-            showTransitCalendarDetails(transitCalendarEvents_[firstIndex]);
+        int targetRow = 0;
+        if (hasTransitCalendarSelection_) {
+            for (int row = 0; row < transitCalendarDisplayOrder_.size(); ++row) {
+                const int idx = transitCalendarDisplayOrder_[row];
+                if (idx < 0 || idx >= transitCalendarEvents_.size()) {
+                    continue;
+                }
+                const auto& event = transitCalendarEvents_[idx];
+                if (event.timeUtc == lastTransitCalendarSelection_.timeUtc
+                    && event.planet == lastTransitCalendarSelection_.planet
+                    && event.event == lastTransitCalendarSelection_.event) {
+                    targetRow = row;
+                    break;
+                }
+            }
+        }
+        const int targetIndex = transitCalendarDisplayOrder_[targetRow];
+        if (targetIndex >= 0 && targetIndex < transitCalendarEvents_.size()) {
+            const auto& targetEvent = transitCalendarEvents_[targetIndex];
+            const bool hasMatchingSelection = hasTransitCalendarSelection_
+                && lastTransitCalendarSelection_.timeUtc == targetEvent.timeUtc
+                && lastTransitCalendarSelection_.planet == targetEvent.planet
+                && lastTransitCalendarSelection_.event == targetEvent.event;
+            if (!calendarRunning_ && (!hasMatchingSelection || !hasTransitChart_)) {
+                handleTransitCalendarResultActivated(targetRow, 0);
+            } else {
+                showTransitCalendarDetails(targetEvent);
+            }
+            if (rightTopTable_) {
+                rightTopTable_->selectRow(targetRow);
+            }
         }
     }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::showTransitCalendarDetails(const TransitCalendarEvent& result) {
     if (!rightBottomTable_) {
         return;
     }
+    const bool matchesSelectedMoment = hasTransitCalendarSelection_
+        && lastTransitCalendarSelection_.timeUtc == result.timeUtc
+        && lastTransitCalendarSelection_.planet == result.planet
+        && lastTransitCalendarSelection_.event == result.event;
+    if (!hasTransitChart_ || !matchesSelectedMoment) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Select a calendar result to load transit placements."));
+        updateLunationCopyButtonState();
+        return;
+    }
+
     const QTimeZone displayTz = calendarTz_.isValid() ? calendarTz_ : QTimeZone::utc();
     const QDateTime localTime = result.timeUtc.toTimeZone(displayTz);
     const QString tzLabel = result.tzLabel.isEmpty() ? QString("UTC") : result.tzLabel;
-
-    setupTable(rightBottomTable_, {"Item", "Value"}, 7);
+    const QVector<BodyPosition> orderedBodies = orderedBodiesForDetails(currentTransitChart_);
+    const int summaryRows = 7;
+    setupDetailTable(rightBottomTable_, {"Item", "Value"}, summaryRows + 1 + orderedBodies.size());
+    if (auto* header = rightBottomTable_->horizontalHeader()) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
     rightBottomTable_->setItem(row++, 1, makeCell(localTime.toString("yyyy-MM-dd HH:mm:ss")));
@@ -8356,6 +8818,20 @@ void MainWindow::showTransitCalendarDetails(const TransitCalendarEvent& result) 
     rightBottomTable_->setItem(row++, 1, makeCell(result.signHouse.isEmpty() ? "-" : result.signHouse));
     rightBottomTable_->setItem(row, 0, makeCell("Longitude"));
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.longitude)));
+
+    rightBottomTable_->setItem(row, 0, makeCell("Placements"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 bodies").arg(orderedBodies.size())));
+    for (const auto& body : orderedBodies) {
+        const QString value = QString("%1 %2 | House %3 | %4")
+            .arg(formatDegOnly(body.longitude))
+            .arg(signName(signIndex(body.longitude)))
+            .arg(body.house > 0 ? QString::number(body.house) : "-")
+            .arg(body.retrograde ? "R" : "D");
+        rightBottomTable_->setItem(row, 0, makeCell(body.name));
+        rightBottomTable_->setItem(row++, 1, makeCell(value));
+    }
+    rightBottomTable_->resizeRowsToContents();
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::showTransitConjunctionResults() {
@@ -8370,6 +8846,8 @@ void MainWindow::showTransitConjunctionResults() {
             rightBottomTable_->setItem(0, 0, makeCell("Search in progress."));
         }
         transitConjunctionDisplayOrder_.clear();
+        hasTransitConjunctionSelection_ = false;
+        updateLunationCopyButtonState();
         return;
     }
     if (transitConjunctionResults_.isEmpty()) {
@@ -8380,6 +8858,8 @@ void MainWindow::showTransitConjunctionResults() {
             rightBottomTable_->setItem(0, 0, makeCell("No conjunction results yet."));
         }
         transitConjunctionDisplayOrder_.clear();
+        hasTransitConjunctionSelection_ = false;
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8426,6 +8906,8 @@ void MainWindow::showTransitConjunctionResults() {
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("Try a different range or lower N."));
         }
+        hasTransitConjunctionSelection_ = false;
+        updateLunationCopyButtonState();
         return;
     }
 
@@ -8479,54 +8961,84 @@ void MainWindow::showTransitConjunctionResults() {
             }
         }
     }
+    updateLunationCopyButtonState();
 }
 
 void MainWindow::showTransitConjunctionDetails(const TransitConjunctionWindow& result) {
     if (!rightBottomTable_) {
         return;
     }
+    const bool matchesSelectedMoment = hasTransitConjunctionSelection_
+        && lastTransitConjunctionSelection_.startUtc == result.startUtc
+        && lastTransitConjunctionSelection_.endUtc == result.endUtc
+        && lastTransitConjunctionSelection_.bucketLabel == result.bucketLabel
+        && lastTransitConjunctionSelection_.planetsInBucketAtStart == result.planetsInBucketAtStart
+        && lastTransitConjunctionSelection_.orbClusterAtStart == result.orbClusterAtStart;
+    if (!hasTransitChart_ || !matchesSelectedMoment) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Select a conjunction result to load transit placements."));
+        updateLunationCopyButtonState();
+        return;
+    }
+
+    QMap<QString, BodyPosition> bodyMap;
+    for (const auto& body : currentTransitChart_.bodies) {
+        bodyMap.insert(body.name, body);
+    }
+    QVector<BodyPosition> orderedBodies;
+    orderedBodies.reserve(bodyMap.size());
+    for (const auto& name : tropicalBodyOrder()) {
+        if (!bodyMap.contains(name)) {
+            continue;
+        }
+        orderedBodies.push_back(bodyMap.value(name));
+        bodyMap.remove(name);
+    }
+    for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
+        orderedBodies.push_back(it.value());
+    }
+
+    setupTable(rightBottomTable_, {"Body", "Degree", "Sign", "House", "Motion"}, orderedBodies.size());
+    if (auto* header = rightBottomTable_->horizontalHeader()) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(4, QHeaderView::Stretch);
+    }
+
     const QTimeZone displayTz = conjTz_.isValid() ? conjTz_ : QTimeZone::utc();
     const QDateTime localStart = result.startUtc.toTimeZone(displayTz);
     const QDateTime localEnd = result.endUtc.toTimeZone(displayTz);
     const QString tzLabel = result.tzLabel.isEmpty() ? QString("UTC") : result.tzLabel;
-    const QStringList bucketPlanets = result.planetsInBucketAtStart;
     const QStringList clusterPlanets = result.orbClusterAtStart.isEmpty()
         ? result.planetsInBucketAtStart
         : result.orbClusterAtStart;
-    const bool instantExact = (result.startUtc == result.endUtc);
-    const bool showCluster = (result.clusterCount != result.bucketCount) || result.clusterSpanDeg > 0.0 || instantExact;
+    const QString summary = QString("Local %1 - %2 | UTC %3 - %4 | %5 | %6 | %7 | Span %8 deg")
+        .arg(localStart.toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(localEnd.toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(result.startUtc.toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(result.endUtc.toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(tzLabel)
+        .arg(result.bucketLabel)
+        .arg(clusterPlanets.join(", "))
+        .arg(QString::number(result.clusterSpanDeg, 'f', 2));
+    rightBottomTable_->setToolTip(summary);
 
-    const int totalRows = showCluster ? 12 : 10;
-    setupTable(rightBottomTable_, {"Item", "Value"}, totalRows);
-    int row = 0;
-    rightBottomTable_->setItem(row, 0, makeCell("Local Start"));
-    rightBottomTable_->setItem(row++, 1, makeCell(localStart.toString("yyyy-MM-dd HH:mm:ss")));
-    rightBottomTable_->setItem(row, 0, makeCell("Local End"));
-    rightBottomTable_->setItem(row++, 1, makeCell(localEnd.toString("yyyy-MM-dd HH:mm:ss")));
-    rightBottomTable_->setItem(row, 0, makeCell("UTC Start"));
-    rightBottomTable_->setItem(row++, 1, makeCell(result.startUtc.toString("yyyy-MM-dd HH:mm:ss")));
-    rightBottomTable_->setItem(row, 0, makeCell("UTC End"));
-    rightBottomTable_->setItem(row++, 1, makeCell(result.endUtc.toString("yyyy-MM-dd HH:mm:ss")));
-    rightBottomTable_->setItem(row, 0, makeCell("Timezone"));
-    rightBottomTable_->setItem(row++, 1, makeCell(tzLabel));
-    rightBottomTable_->setItem(row, 0, makeCell("Sign/House"));
-    rightBottomTable_->setItem(row++, 1, makeCell(result.bucketLabel));
-    rightBottomTable_->setItem(row, 0, makeCell("Bucket Count"));
-    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.bucketCount)));
-    rightBottomTable_->setItem(row, 0, makeCell("Planets"));
-    rightBottomTable_->setItem(row++, 1, makeCell(bucketPlanets.join(", ")));
-    rightBottomTable_->setItem(row, 0, makeCell("Cluster Count"));
-    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.clusterCount)));
-    if (showCluster) {
-        rightBottomTable_->setItem(row, 0, makeCell("Cluster Span"));
-        rightBottomTable_->setItem(row++, 1, makeCell((result.clusterSpanDeg > 0.0 || instantExact)
-            ? QString::number(result.clusterSpanDeg, 'f', 2) + "°"
-            : "-"));
-        rightBottomTable_->setItem(row, 0, makeCell("Cluster Planets"));
-        rightBottomTable_->setItem(row++, 1, makeCell(clusterPlanets.join(", ")));
+    for (int row = 0; row < orderedBodies.size(); ++row) {
+        const auto& body = orderedBodies[row];
+        const QString degree = formatDegOnly(body.longitude);
+        const QString sign = signName(signIndex(body.longitude));
+        const QString house = body.house > 0 ? QString::number(body.house) : "-";
+        const QString motion = body.retrograde ? "R" : "D";
+        rightBottomTable_->setItem(row, 0, makeCell(body.name));
+        rightBottomTable_->setItem(row, 1, makeCell(degree, Qt::AlignRight | Qt::AlignVCenter));
+        rightBottomTable_->setItem(row, 2, makeCell(sign));
+        rightBottomTable_->setItem(row, 3, makeCell(house, Qt::AlignCenter));
+        rightBottomTable_->setItem(row, 4, makeCell(motion, Qt::AlignCenter));
     }
+    updateLunationCopyButtonState();
 }
-
 void MainWindow::showTransitSearchDetails(const TransitSearchResult& result) {
     if (!rightBottomTable_) {
         return;
@@ -11595,6 +12107,17 @@ static void setupTable(QTableWidget* table, const QStringList& headers, int rows
     table->verticalHeader()->setDefaultSectionSize(20);
 }
 
+static void setupDetailTable(QTableWidget* table, const QStringList& headers, int rows) {
+    if (!table) {
+        return;
+    }
+    setupTable(table, headers, rows);
+    table->setWordWrap(true);
+    if (auto* vertical = table->verticalHeader()) {
+        vertical->setSectionResizeMode(QHeaderView::ResizeToContents);
+    }
+}
+
 static QTableWidgetItem* makeCell(const QString& text, Qt::Alignment align) {
     auto* item = new QTableWidgetItem(text);
     item->setTextAlignment(align);
@@ -12498,94 +13021,131 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
         tzLabel = "UTC";
     }
 
-    for (const auto& bodyName : bodies) {
-        if (!bodyNow.contains(bodyName)) {
-            rows.push_back({bodyName, "-", "-", "-"});
-            continue;
-        }
-        const int currentSign = signIndex(bodyNow.value(bodyName));
-        QDateTime start = transitChart.localDateTime;
-        int stepMinutes = 360;
-        int maxDays = 60;
-        if (bodyName == "Moon") {
-            stepMinutes = 60;
-            maxDays = 7;
-        } else if (bodyName == "Mars") {
-            stepMinutes = 720;
-            maxDays = 120;
-        }
+    const QDateTime startLocal = transitChart.localDateTime.isValid()
+        ? transitChart.localDateTime
+        : QDateTime(transitInput.date, transitInput.time, tz);
+    const QDateTime startUtc = startLocal.toUTC();
+    const QString cacheKey = QString("%1|%2|%3|%4|%5")
+        .arg(startUtc.toString(Qt::ISODate))
+        .arg(tzLabel)
+        .arg(QString::number(transitInput.latitude, 'f', 6))
+        .arg(QString::number(transitInput.longitude, 'f', 6))
+        .arg(ephePath_);
+    static QString s_lastCacheKey;
+    static QVector<IngressRow> s_cachedRows;
 
-        QDateTime prev = start;
-        QDateTime next = start;
-        bool found = false;
-        for (int i = 0; i < (maxDays * 24 * 60) / stepMinutes; ++i) {
-            next = next.addSecs(stepMinutes * 60);
-            NatalChart temp;
-            if (!computeTransitChart(next, tzLabel, &temp, &err)) {
-                break;
+    if (s_lastCacheKey == cacheKey && !s_cachedRows.isEmpty()) {
+        rows = s_cachedRows;
+    } else {
+        auto bodyLongitudeAtUtc = [this](const QString& bodyName, const QDateTime& utc, double* outLon) -> bool {
+            if (!outLon) {
+                return false;
             }
+            const int bodyId = bodyIdForName(bodyName);
+            if (bodyId < 0) {
+                return false;
+            }
+            const QDateTime t = utc.toUTC();
+            if (!t.isValid()) {
+                return false;
+            }
+            const double hourDec = t.time().hour()
+                + t.time().minute() / 60.0
+                + t.time().second() / 3600.0
+                + t.time().msec() / 3600000.0;
+            const double jd = swe_.julianDay(t.date().year(), t.date().month(), t.date().day(), hourDec, SE_GREG_CAL);
+            QString calcErr;
             double lon = 0.0;
-            if (!findBodyLongitude(temp, bodyName, &lon)) {
-                break;
+            if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+                return false;
             }
-            if (signIndex(lon) != currentSign) {
-                found = true;
-                break;
-            }
-            prev = next;
-        }
+            *outLon = normalizeDegrees(lon);
+            return true;
+        };
 
-        if (!found) {
-            rows.push_back({bodyName, "-", "-", "-"});
-            continue;
-        }
+        for (const auto& bodyName : bodies) {
+            if (!bodyNow.contains(bodyName)) {
+                rows.push_back({bodyName, "-", "-", "-"});
+                continue;
+            }
+            const int currentSign = signIndex(bodyNow.value(bodyName));
+            int stepMinutes = 360;
+            int maxDays = 60;
+            if (bodyName == "Moon") {
+                stepMinutes = 60;
+                maxDays = 7;
+            } else if (bodyName == "Mars") {
+                stepMinutes = 720;
+                maxDays = 120;
+            }
 
-        QDateTime lo = prev;
-        QDateTime hi = next;
-        for (int i = 0; i < 10; ++i) {
-            const qint64 span = lo.secsTo(hi);
-            const QDateTime mid = lo.addSecs(span / 2);
-            NatalChart temp;
-            if (!computeTransitChart(mid, tzLabel, &temp, &err)) {
-                break;
+            QDateTime prevUtc = startUtc;
+            QDateTime nextUtc = startUtc;
+            bool found = false;
+            const int maxSteps = std::max(1, (maxDays * 24 * 60) / stepMinutes);
+            for (int i = 0; i < maxSteps; ++i) {
+                nextUtc = nextUtc.addSecs(stepMinutes * 60);
+                double lon = 0.0;
+                if (!bodyLongitudeAtUtc(bodyName, nextUtc, &lon)) {
+                    break;
+                }
+                if (signIndex(lon) != currentSign) {
+                    found = true;
+                    break;
+                }
+                prevUtc = nextUtc;
             }
-            double lon = 0.0;
-            if (!findBodyLongitude(temp, bodyName, &lon)) {
-                break;
+
+            if (!found) {
+                rows.push_back({bodyName, "-", "-", "-"});
+                continue;
             }
-            if (signIndex(lon) == currentSign) {
-                lo = mid;
+
+            QDateTime loUtc = prevUtc;
+            QDateTime hiUtc = nextUtc;
+            for (int i = 0; i < 14; ++i) {
+                const qint64 span = loUtc.secsTo(hiUtc);
+                if (span <= 1) {
+                    break;
+                }
+                const QDateTime midUtc = loUtc.addSecs(span / 2);
+                double lon = 0.0;
+                if (!bodyLongitudeAtUtc(bodyName, midUtc, &lon)) {
+                    break;
+                }
+                if (signIndex(lon) == currentSign) {
+                    loUtc = midUtc;
+                } else {
+                    hiUtc = midUtc;
+                }
+            }
+
+            double ingressLon = 0.0;
+            if (!bodyLongitudeAtUtc(bodyName, hiUtc, &ingressLon)) {
+                rows.push_back({bodyName, "-", "-", "-"});
+                continue;
+            }
+
+            const int nextSign = signIndex(ingressLon);
+            const QString nextSignName = signName(nextSign);
+            const qint64 seconds = startUtc.secsTo(hiUtc);
+            const int days = static_cast<int>(seconds / 86400);
+            const int hours = static_cast<int>((seconds % 86400) / 3600);
+            const int minutes = static_cast<int>((seconds % 3600) / 60);
+            QString countdown;
+            if (days > 0) {
+                countdown = QString("%1d %2h").arg(days).arg(hours);
+            } else if (hours > 0) {
+                countdown = QString("%1h %2m").arg(hours).arg(minutes);
             } else {
-                hi = mid;
+                countdown = QString("%1m").arg(minutes);
             }
+            const QString timeLabel = hiUtc.toTimeZone(tz).toString("yyyy-MM-dd HH:mm");
+            rows.push_back({bodyName, nextSignName, countdown, timeLabel});
         }
 
-        NatalChart ingressChart;
-        if (!computeTransitChart(hi, tzLabel, &ingressChart, &err)) {
-            rows.push_back({bodyName, "-", "-", "-"});
-            continue;
-        }
-        double lon = 0.0;
-        if (!findBodyLongitude(ingressChart, bodyName, &lon)) {
-            rows.push_back({bodyName, "-", "-", "-"});
-            continue;
-        }
-        const int nextSign = signIndex(lon);
-        const QString nextSignName = signName(nextSign);
-        const qint64 seconds = start.secsTo(hi);
-        const int days = static_cast<int>(seconds / 86400);
-        const int hours = static_cast<int>((seconds % 86400) / 3600);
-        const int minutes = static_cast<int>((seconds % 3600) / 60);
-        QString countdown;
-        if (days > 0) {
-            countdown = QString("%1d %2h").arg(days).arg(hours);
-        } else if (hours > 0) {
-            countdown = QString("%1h %2m").arg(hours).arg(minutes);
-        } else {
-            countdown = QString("%1m").arg(minutes);
-        }
-        const QString timeLabel = hi.toString("yyyy-MM-dd HH:mm");
-        rows.push_back({bodyName, nextSignName, countdown, timeLabel});
+        s_lastCacheKey = cacheKey;
+        s_cachedRows = rows;
     }
 
     setupTable(rightBottomTable_, {"Body", "Next Sign", "In", "Time"}, rows.size());
@@ -12599,4 +13159,7 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
 }
 
 }  // namespace dracoved
+
+
+
 

@@ -232,6 +232,16 @@ void ChartWheelWidget::setVisibleAsteroids(const QStringList& names) {
     update();
 }
 
+void ChartWheelWidget::setShowLots(bool value) {
+    showLots_ = value;
+    update();
+}
+
+void ChartWheelWidget::setShowDerivedPoints(bool value) {
+    showDerivedPoints_ = value;
+    update();
+}
+
 void ChartWheelWidget::setShowFixedStars(bool value) {
     showFixedStars_ = value;
     update();
@@ -297,6 +307,14 @@ bool ChartWheelWidget::includeAsteroidAspects() const {
 
 QStringList ChartWheelWidget::visibleAsteroids() const {
     return visibleAsteroids_;
+}
+
+bool ChartWheelWidget::showLots() const {
+    return showLots_;
+}
+
+bool ChartWheelWidget::showDerivedPoints() const {
+    return showDerivedPoints_;
 }
 
 bool ChartWheelWidget::showFixedStars() const {
@@ -606,6 +624,10 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
     drawList.reserve(bodies.size());
     for (const auto& pos : bodies) {
         if (isAsteroidBody(pos.name) && (!showAsteroids_ || !isAsteroidVisible(pos.name)))
+            continue;
+        if (isArabicLotName(pos.name) && !showLots_)
+            continue;
+        if (pos.name == "Vertex" && !showDerivedPoints_)
             continue;
         drawList.push_back({pos.name, pos.longitude, pos.retrograde});
     }
@@ -1248,14 +1270,20 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         };
 
         if (overlay) {
-            auto skipAsteroidAspect = [&](const QString& aName, const QString& bName) {
-                if (isAsteroidBody(aName) && (!includeAsteroidAspects_ || !isAsteroidVisible(aName))) {
+            auto isHiddenAspectBody = [&](const QString& name) {
+                if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
                     return true;
                 }
-                if (isAsteroidBody(bName) && (!includeAsteroidAspects_ || !isAsteroidVisible(bName))) {
+                if (isArabicLotName(name) && !showLots_) {
+                    return true;
+                }
+                if (name == "Vertex" && !showDerivedPoints_) {
                     return true;
                 }
                 return false;
+            };
+            auto skipHiddenAspect = [&](const QString& aName, const QString& bName) {
+                return isHiddenAspectBody(aName) || isHiddenAspectBody(bName);
             };
             struct NamedPoint {
                 QString name;
@@ -1280,7 +1308,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (overlayTransitNatalAspects_) {
                 for (const auto& t : transitPoints) {
                     for (const auto& n : natalPoints) {
-                        if (skipAsteroidAspect(t.name, n.name)) {
+                        if (skipHiddenAspect(t.name, n.name)) {
                             continue;
                         }
                         const double diff = angularDiff(t.lon, n.lon);
@@ -1306,7 +1334,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     for (int j = i + 1; j < transitPoints.size(); ++j) {
                         const auto& a = transitPoints[i];
                         const auto& b = transitPoints[j];
-                        if (skipAsteroidAspect(a.name, b.name)) {
+                        if (skipHiddenAspect(a.name, b.name)) {
                             continue;
                         }
                         const double diff = angularDiff(a.lon, b.lon);
@@ -1347,7 +1375,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                         if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
                             continue;
                         }
-                        if (skipAsteroidAspect(aName, bName)) {
+                        if (skipHiddenAspect(aName, bName)) {
                             continue;
                         }
                         QColor color(theme_.aspectLineNatalNatal);
@@ -1363,14 +1391,20 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 }
             }
         } else {
-            auto skipAsteroidAspect = [&](const QString& aName, const QString& bName) {
-                if (isAsteroidBody(aName) && (!includeAsteroidAspects_ || !isAsteroidVisible(aName))) {
+            auto isHiddenAspectBody = [&](const QString& name) {
+                if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
                     return true;
                 }
-                if (isAsteroidBody(bName) && (!includeAsteroidAspects_ || !isAsteroidVisible(bName))) {
+                if (isArabicLotName(name) && !showLots_) {
+                    return true;
+                }
+                if (name == "Vertex" && !showDerivedPoints_) {
                     return true;
                 }
                 return false;
+            };
+            auto skipHiddenAspect = [&](const QString& aName, const QString& bName) {
+                return isHiddenAspectBody(aName) || isHiddenAspectBody(bName);
             };
             QMap<QString, double> bodyMap;
             for (const auto& pos : chart_.bodies) {
@@ -1392,7 +1426,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
                         continue;
                     }
-                    if (skipAsteroidAspect(aName, bName)) {
+                    if (skipHiddenAspect(aName, bName)) {
                         continue;
                     }
                     QColor color(theme_.aspectLineNeutral);
@@ -1668,9 +1702,51 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 continue;
             }
             const double lon = normalizeDegrees(star.longitude);
-            const double angle = angleForLongitude(lon);
-            const QPointF pInner = pointOnCircle(center, markerRadius - 3.5 * fontScale_, angle);
-            const QPointF pOuter = pointOnCircle(center, markerRadius + 3.5 * fontScale_, angle);
+            const double baseAngle = angleForLongitude(lon);
+            static const QVector<double> angleOffsets = {0.0, 2.5, -2.5, 5.0, -5.0, 7.5, -7.5};
+            const QVector<double> radialOffsets = {
+                0.0,
+                4.0 * fontScale_,
+                -4.0 * fontScale_,
+                8.0 * fontScale_,
+            };
+
+            QRectF symbolRect;
+            double placedAngle = baseAngle;
+            bool placed = false;
+            for (double radialOffset : radialOffsets) {
+                for (double angleOffset : angleOffsets) {
+                    const double testAngle = baseAngle + angleOffset;
+                    const QPointF testPos = pointOnCircle(center, markerRadius + 8.5 * fontScale_ + radialOffset, testAngle);
+                    const QRectF testRect(
+                        testPos.x() - 6.0 * fontScale_,
+                        testPos.y() - 6.0 * fontScale_,
+                        12.0 * fontScale_,
+                        12.0 * fontScale_);
+                    bool hit = false;
+                    for (const auto& occ : occupiedRects) {
+                        if (testRect.intersects(occ)) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (!hit) {
+                        symbolRect = testRect;
+                        placedAngle = testAngle;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed) {
+                    break;
+                }
+            }
+            if (!placed) {
+                continue;
+            }
+
+            const QPointF pInner = pointOnCircle(center, markerRadius - 3.5 * fontScale_, placedAngle);
+            const QPointF pOuter = pointOnCircle(center, markerRadius + 3.5 * fontScale_, placedAngle);
 
             painter.save();
             QColor lineColor = color;
@@ -1679,9 +1755,6 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawLine(pInner, pOuter);
             painter.restore();
 
-            const QPointF symbolPos = pointOnCircle(center, markerRadius + 8.5 * fontScale_, angle);
-            const QRectF symbolRect(symbolPos.x() - 6.0 * fontScale_, symbolPos.y() - 6.0 * fontScale_,
-                                    12.0 * fontScale_, 12.0 * fontScale_);
             painter.save();
             painter.setFont(starFont);
             painter.setPen(color);
@@ -1691,7 +1764,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (showDegrees_) {
                 painter.save();
                 painter.setFont(starDegFont);
-                const QRectF textRect = placeRadialRect(angle, markerRadius + degreeOffset + 6.0 * fontScale_,
+                const QRectF textRect = placeRadialRect(placedAngle, markerRadius + degreeOffset + 6.0 * fontScale_,
                                                         degWidth, degHeight);
                 painter.setPen(color);
                 painter.drawText(textRect, Qt::AlignCenter, formatDegShort(lon));

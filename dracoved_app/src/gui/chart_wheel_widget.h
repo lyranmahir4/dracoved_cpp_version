@@ -76,6 +76,8 @@ public:
     void setShowAsteroids(bool value);
     void setIncludeAsteroidAspects(bool value);
     void setVisibleAsteroids(const QStringList& names);
+    void setShowLots(bool value);
+    void setShowDerivedPoints(bool value);
     void setShowFixedStars(bool value);
     void setVisibleFixedStars(const QStringList& names);
     void setTickDensity(TickDensity density);
@@ -88,6 +90,8 @@ public:
     bool showAsteroids() const;
     bool includeAsteroidAspects() const;
     QStringList visibleAsteroids() const;
+    bool showLots() const;
+    bool showDerivedPoints() const;
     bool showFixedStars() const;
     QStringList visibleFixedStars() const;
     TickDensity tickDensity() const;
@@ -165,6 +169,8 @@ private:
     bool includeAsteroidAspects_ = false;
     QStringList visibleAsteroids_;
     QSet<QString> visibleAsteroidSet_;
+    bool showLots_ = true;
+    bool showDerivedPoints_ = true;
     bool showFixedStars_ = false;
     QStringList visibleFixedStars_;
     QSet<QString> visibleFixedStarSet_;

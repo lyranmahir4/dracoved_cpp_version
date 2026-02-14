@@ -37,6 +37,7 @@ class QProgressBar;
 class QTextEdit;
 class QQuickWidget;
 class QGroupBox;
+class QTimer;
 namespace dracoved {
 
 struct ChartWheelTheme;
@@ -211,6 +212,7 @@ private:
     void resetDockLayout();
     void setLayoutLocked(bool locked);
     void setStatusMessage(const QString& text);
+    void setCriticalMessage(const QString& text);
     void applyTheme(ThemeMode mode);
     QString buildStyleSheet(ThemeMode mode) const;
     ChartWheelTheme buildChartTheme(ThemeMode mode) const;
@@ -295,6 +297,9 @@ private:
     void handleTransitScanFinished();
     void handleCopyAspects();
     void handleCopyTransitSearchDetails();
+    void handleCopyTransitCalendarDetails();
+    void handleCopyTransitConjunctionDetails();
+    void handleCopyTransitScanDetails();
     void handleCopyLunationDetails();
     void handleCopyReport();
     void markTransitPending();
@@ -345,6 +350,9 @@ private:
     void applyLunationResult(const LunationResult& result);
     void updateLunationCopyButtonState();
     QString buildTransitSearchDetailsClipboardText() const;
+    QString buildTransitCalendarDetailsClipboardText() const;
+    QString buildTransitConjunctionDetailsClipboardText() const;
+    QString buildTransitScanDetailsClipboardText() const;
     QString buildLunationDetailsClipboardText() const;
     void refreshNatalReport();
     QString buildNatalReportText() const;
@@ -662,6 +670,8 @@ private:
     bool showAsteroids_ = false;
     bool includeAsteroidAspects_ = false;
     QStringList visibleAsteroids_;
+    bool showLots_ = true;
+    bool showDerivedPoints_ = true;
     bool showFixedStars_ = false;
     QStringList visibleFixedStars_;
     ChartReadabilityPreset chartReadabilityPreset_ = ChartReadabilityPreset::Clean;
@@ -671,10 +681,18 @@ private:
     TransitSearchResult lastTransitSearchSelection_;
     QVector<TransitCalendarEvent> transitCalendarEvents_;
     QVector<int> transitCalendarDisplayOrder_;
+    bool hasTransitCalendarSelection_ = false;
+    TransitCalendarEvent lastTransitCalendarSelection_;
     QVector<TransitConjunctionWindow> transitConjunctionResults_;
     QVector<int> transitConjunctionDisplayOrder_;
+    bool hasTransitConjunctionSelection_ = false;
+    TransitConjunctionWindow lastTransitConjunctionSelection_;
     QVector<DayScanResult> transitScanResults_;
     QVector<int> transitScanDisplayOrder_;
+    bool hasTransitScanSelection_ = false;
+    DayScanResult lastTransitScanSelection_;
+    QDateTime lastTransitScanSelectionLocal_;
+    QString lastTransitScanSelectionTzLabel_;
     bool transitScanRunning_ = false;
     QThread* scanThread_ = nullptr;
     QObject* scanWorker_ = nullptr;
@@ -682,6 +700,7 @@ private:
     SearchWorker* searchWorker_ = nullptr;
     QThread* calendarThread_ = nullptr;
     QObject* calendarWorker_ = nullptr;
+    QTimer* calendarRecomputeTimer_ = nullptr;
     bool calendarRunning_ = false;
     bool calendarRestartPending_ = false;
     QTimeZone calendarTz_;
