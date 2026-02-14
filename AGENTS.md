@@ -31,6 +31,10 @@ Use Windows CMD (as in `README.md`). Update Qt paths for your local machine.
 - Run the app from `dist` (preferred runtime path):
   `DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
 
+- Policy: after any code change, both EXEs must be current:
+  - `dracoved_app/build/dracoved_app.exe`
+  - `dracoved_app/dist/dracoved_app.exe`
+
 ## Coding Style & Naming Conventions
 - Language/tooling baseline: C++20 with Qt 6 Widgets + Network.
 - Follow existing style in surrounding files; keep changes localized and minimal.
@@ -41,11 +45,27 @@ Use Windows CMD (as in `README.md`). Update Qt paths for your local machine.
 - Keep app code under the `dracoved` namespace where already used.
 - No formatter is configured; avoid unrelated formatting-only diffs.
 
+## Product UX/Data Rules
+- Use status bar/non-modal feedback for normal info/success flows.
+- Reserve modal popups for critical blocking failures.
+- In transit tabs, selected row should drive chart state and detail pane state.
+- Calendar and Scan detail panes should present Placements + Summary for selected moments.
+- Keep copy/report parity across Search, Calendar, Conjunction, Scan, and Lunation where selection exists.
+- For conjunctions: with exactly 2 planets selected and `N=2`, treat as exact pair mode (0 degree span) and disable orb controls in UI.
+- Keep Arabic Lots visible by default, but provide visibility controls for readability.
+- Keep fixed-star rendering legible under high density (collision-aware placement or suppression).
+
 ## Testing & Validation
 - No automated test framework is currently wired in.
 - Primary validation is a successful configure/build of `dracoved_app` and a quick manual run of the packaged executable.
 - For calculation-sensitive changes, verify at least:
-  natal chart generation, transits workflow, and solar return workflow.
+  - natal chart generation
+  - transits workflow (Search/Calendar/Conjunction/Scan/Lunation)
+  - solar return workflow
+- For transit UX changes, verify:
+  - row selection updates chart state
+  - bottom-right detail updates for selected moment
+  - copy output exists for active supported subtab
 - If you add tests/scripts, place them near the affected module and document how to run them.
 
 ## Commit & Pull Request Guidelines
