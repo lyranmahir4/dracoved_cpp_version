@@ -4,6 +4,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStringList>
+#include <QByteArray>
+
+#include <algorithm>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -30,6 +34,8 @@ void SwissEph::unload() {
     sweJulDay_ = nullptr;
     sweRevJul_ = nullptr;
     sweCalcUt_ = nullptr;
+    sweFixstarUt_ = nullptr;
+    sweFixstar2Ut_ = nullptr;
     sweHouses_ = nullptr;
     sweHousesArmc_ = nullptr;
     sweSolEclipseWhenGlob_ = nullptr;
@@ -46,13 +52,16 @@ bool SwissEph::bind(QString* error) {
     sweJulDay_ = reinterpret_cast<SweJulDay>(loadSym("swe_julday"));
     sweRevJul_ = reinterpret_cast<SweRevJul>(loadSym("swe_revjul"));
     sweCalcUt_ = reinterpret_cast<SweCalcUt>(loadSym("swe_calc_ut"));
+    sweFixstarUt_ = reinterpret_cast<SweFixstarUt>(loadSym("swe_fixstar_ut"));
+    sweFixstar2Ut_ = reinterpret_cast<SweFixstarUt>(loadSym("swe_fixstar2_ut"));
     sweHouses_ = reinterpret_cast<SweHouses>(loadSym("swe_houses"));
     sweHousesArmc_ = reinterpret_cast<SweHousesArmc>(loadSym("swe_houses_armc"));
     sweSolEclipseWhenGlob_ = reinterpret_cast<SweSolEclipseWhenGlob>(loadSym("swe_sol_eclipse_when_glob"));
     sweLunEclipseWhen_ = reinterpret_cast<SweLunEclipseWhen>(loadSym("swe_lun_eclipse_when"));
 
     if (!sweSetEphePath_ || !sweSetSidMode_ || !sweJulDay_ || !sweRevJul_
-        || !sweCalcUt_ || !sweHouses_ || !sweHousesArmc_ || !sweSolEclipseWhenGlob_ || !sweLunEclipseWhen_) {
+        || !sweCalcUt_ || (!sweFixstarUt_ && !sweFixstar2Ut_)
+        || !sweHouses_ || !sweHousesArmc_ || !sweSolEclipseWhenGlob_ || !sweLunEclipseWhen_) {
         if (error) {
             *error = "Failed to bind one or more Swiss Ephemeris symbols.";
         }
@@ -172,6 +181,47 @@ bool SwissEph::calcUt(double jdUt, int body, int flags, double* outLon, QString*
         return false;
     }
     *outLon = xx[0];
+    return true;
+}
+
+bool SwissEph::fixstarUt(const QString& starName, double jdUt, int flags,
+                         double* outLon, QString* outResolvedName, QString* error) const {
+    SweFixstarUt fixFn = sweFixstar2Ut_ ? sweFixstar2Ut_ : sweFixstarUt_;
+    if (!fixFn || !outLon) {
+        if (error) {
+            *error = "swe_fixstar_ut unavailable.";
+        }
+        return false;
+    }
+
+    QByteArray starUtf8 = starName.trimmed().toUtf8();
+    if (starUtf8.isEmpty()) {
+        if (error) {
+            *error = "Fixed star name is empty.";
+        }
+        return false;
+    }
+
+    char starBuf[256] = {0};
+    const int maxCopy = static_cast<int>(sizeof(starBuf)) - 1;
+    const int copyLen = std::min(maxCopy, static_cast<int>(starUtf8.size()));
+    std::memcpy(starBuf, starUtf8.constData(), static_cast<size_t>(copyLen));
+    starBuf[copyLen] = '\0';
+
+    double xx[6] = {0};
+    char serr[256] = {0};
+    const int ret = fixFn(starBuf, jdUt, flags, xx, serr);
+    if (ret < 0) {
+        if (error) {
+            *error = QString("swe_fixstar_ut failed: %1").arg(serr);
+        }
+        return false;
+    }
+
+    *outLon = xx[0];
+    if (outResolvedName) {
+        *outResolvedName = QString::fromUtf8(starBuf).trimmed();
+    }
     return true;
 }
 

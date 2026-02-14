@@ -5,6 +5,7 @@
 #include "transit_calc_service.h"
 #include "transit_workers.h"
 
+#include "../core/fixed_stars.h"
 #include "../core/formatting.h"
 #include <QAbstractItemView>
 #include <QAction>
@@ -694,6 +695,7 @@ void MainWindow::setupDockLayout() {
     summaryTable_ = new QTableWidget(tabs_);
     anglesTable_ = new QTableWidget(tabs_);
     planetsTable_ = new QTableWidget(tabs_);
+    fixedStarsTable_ = new QTableWidget(tabs_);
     housesTable_ = new QTableWidget(tabs_);
     aspectsTable_ = new QTableWidget(this);
     aspectsTable_->setMouseTracking(true);
@@ -705,6 +707,7 @@ void MainWindow::setupDockLayout() {
     tabs_->addTab(summaryTable_, "Summary");
     tabs_->addTab(anglesTable_, "Angles");
     tabs_->addTab(planetsTable_, "Planets");
+    tabs_->addTab(fixedStarsTable_, "Fixed Stars");
     tabs_->addTab(housesTable_, "Houses");
 
     reportPanel_ = new QWidget(tabs_);
@@ -1222,7 +1225,7 @@ void MainWindow::setupDockLayout() {
     searchFilterLayout->setVerticalSpacing(6);
     searchFilterLayout->setColumnStretch(1, 1);
     searchEventCombo_ = new QComboBox(searchFilterGroup);
-    searchEventCombo_->addItems({"Sign Ingress", "Sign Egress", "House Ingress", "House Egress", "Aspect to Natal", "Station"});
+    searchEventCombo_->addItems({"Sign Ingress", "Sign Egress", "House Ingress", "House Egress", "Aspect to Natal", "Degree Hit", "Station"});
     searchTransitPlanetCombo_ = new QComboBox(searchFilterGroup);
     searchTransitPlanetCombo_->setEditable(true);
     if (auto* edit = searchTransitPlanetCombo_->lineEdit()) {
@@ -1264,6 +1267,17 @@ void MainWindow::setupDockLayout() {
     for (int i = 0; i < 12; ++i) {
         searchSignCombo_->addItem(signName(i));
     }
+    searchDegreeLabel_ = new QLabel("Degree", searchFilterGroup);
+    searchDegreeSpin_ = new QDoubleSpinBox(searchFilterGroup);
+    searchDegreeSpin_->setRange(0.0, 29.9999);
+    searchDegreeSpin_->setDecimals(4);
+    searchDegreeSpin_->setSingleStep(0.1);
+    searchDegreeSpin_->setValue(13.0);
+    searchDegreeSignLabel_ = new QLabel("Sign", searchFilterGroup);
+    searchDegreeSignCombo_ = new QComboBox(searchFilterGroup);
+    for (int i = 0; i < 12; ++i) {
+        searchDegreeSignCombo_->addItem(signName(i));
+    }
     searchFilterLayout->addWidget(new QLabel("Event Type", searchFilterGroup), 0, 0);
     searchFilterLayout->addWidget(searchEventCombo_, 0, 1, 1, 2);
     searchFilterLayout->addWidget(new QLabel("Transit Planets", searchFilterGroup), 1, 0);
@@ -1278,6 +1292,10 @@ void MainWindow::setupDockLayout() {
     searchFilterLayout->addWidget(searchHouseCombo_, 4, 1);
     searchFilterLayout->addWidget(new QLabel("Sign", searchFilterGroup), 4, 2);
     searchFilterLayout->addWidget(searchSignCombo_, 4, 3);
+    searchFilterLayout->addWidget(searchDegreeLabel_, 5, 0);
+    searchFilterLayout->addWidget(searchDegreeSpin_, 5, 1);
+    searchFilterLayout->addWidget(searchDegreeSignLabel_, 5, 2);
+    searchFilterLayout->addWidget(searchDegreeSignCombo_, 5, 3);
 
     auto* searchRunGroup = new QGroupBox("Run Search", transitSearchPanel_);
     auto* searchRunLayout = new QHBoxLayout(searchRunGroup);
@@ -3779,10 +3797,16 @@ void MainWindow::loadUiState() {
     aspectDisplayMaxOrb_ = settings.value("chart/overlay_aspects/max_orb", 0.0).toDouble();
     showAsteroids_ = settings.value("chart/show_asteroids", false).toBool();
     includeAsteroidAspects_ = settings.value("chart/include_asteroid_aspects", false).toBool();
+    showFixedStars_ = settings.value("chart/show_fixed_stars", false).toBool();
     if (settings.contains("chart/visible_asteroids")) {
         visibleAsteroids_ = settings.value("chart/visible_asteroids").toStringList();
     } else {
         visibleAsteroids_ = asteroidBodyOrder();
+    }
+    if (settings.contains("chart/visible_fixed_stars")) {
+        visibleFixedStars_ = settings.value("chart/visible_fixed_stars").toStringList();
+    } else {
+        visibleFixedStars_ = defaultFixedStars();
     }
     QStringList cleanedAsteroids;
     for (const auto& name : visibleAsteroids_) {
@@ -3791,6 +3815,29 @@ void MainWindow::loadUiState() {
         }
     }
     visibleAsteroids_ = cleanedAsteroids;
+
+    QStringList cleanedFixedStars;
+    const QStringList fixedCatalog = fixedStarCatalog();
+    for (const auto& name : visibleFixedStars_) {
+        const QString trimmed = name.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        QString canonical;
+        for (const auto& catalogName : fixedCatalog) {
+            if (catalogName.compare(trimmed, Qt::CaseInsensitive) == 0) {
+                canonical = catalogName;
+                break;
+            }
+        }
+        if (canonical.isEmpty()) {
+            continue;
+        }
+        if (!cleanedFixedStars.contains(canonical)) {
+            cleanedFixedStars.push_back(canonical);
+        }
+    }
+    visibleFixedStars_ = cleanedFixedStars;
     if (!overlayAspectsTransitNatal_ && !overlayAspectsTransitTransit_ && !overlayAspectsNatalNatal_) {
         overlayAspectsTransitNatal_ = true;
     }
@@ -3818,6 +3865,8 @@ void MainWindow::loadUiState() {
         chartWheel_->setShowAsteroids(showAsteroids_);
         chartWheel_->setIncludeAsteroidAspects(includeAsteroidAspects_);
         chartWheel_->setVisibleAsteroids(visibleAsteroids_);
+        chartWheel_->setShowFixedStars(showFixedStars_);
+        chartWheel_->setVisibleFixedStars(visibleFixedStars_);
         chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
         chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
         if (chartReadabilityPreset_ != ChartReadabilityPreset::Custom) {
@@ -3962,6 +4011,8 @@ void MainWindow::saveUiState() {
         settings.setValue("chart/show_asteroids", chartWheel_->showAsteroids());
         settings.setValue("chart/include_asteroid_aspects", chartWheel_->includeAsteroidAspects());
         settings.setValue("chart/visible_asteroids", chartWheel_->visibleAsteroids());
+        settings.setValue("chart/show_fixed_stars", chartWheel_->showFixedStars());
+        settings.setValue("chart/visible_fixed_stars", chartWheel_->visibleFixedStars());
         settings.setValue("chart/tick_density", static_cast<int>(chartWheel_->tickDensity()));
         settings.setValue("chart/font_scale", chartWheel_->fontScale());
     }
@@ -4071,6 +4122,19 @@ bool MainWindow::isAsteroidVisible(const QString& name) const {
         return true;
     }
     return visibleAsteroids_.contains(name);
+}
+
+bool MainWindow::isFixedStarVisible(const QString& name) const {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    for (const auto& visible : visibleFixedStars_) {
+        if (visible.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MainWindow::showAsteroidSelectionDialog() {
@@ -4275,6 +4339,11 @@ void MainWindow::showChartSettingsMenu() {
     toggleAsteroids->setChecked(chartWheel_->showAsteroids());
     QAction* selectAsteroids = menu.addAction("Select visible asteroids...");
 
+    QAction* toggleFixedStars = menu.addAction("Show fixed stars");
+    toggleFixedStars->setCheckable(true);
+    toggleFixedStars->setChecked(chartWheel_->showFixedStars());
+    QAction* selectFixedStars = menu.addAction("Select visible fixed stars...");
+
     QAction* toggleAsteroidAspects = menu.addAction("Include asteroid aspects");
     toggleAsteroidAspects->setCheckable(true);
     toggleAsteroidAspects->setChecked(chartWheel_->includeAsteroidAspects());
@@ -4381,6 +4450,14 @@ void MainWindow::showChartSettingsMenu() {
     } else if (action == selectAsteroids) {
         markChartReadabilityCustom();
         showAsteroidSelectionDialog();
+    } else if (action == toggleFixedStars) {
+        markChartReadabilityCustom();
+        showFixedStars_ = toggleFixedStars->isChecked();
+        chartWheel_->setShowFixedStars(showFixedStars_);
+        chartWheel_->update();
+    } else if (action == selectFixedStars) {
+        markChartReadabilityCustom();
+        showFixedStarSelectionDialog();
     } else if (action == toggleAsteroidAspects) {
         markChartReadabilityCustom();
         includeAsteroidAspects_ = toggleAsteroidAspects->isChecked();
@@ -4553,6 +4630,11 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
     obj["latitude"] = currentInput_.latitude;
     obj["longitude"] = currentInput_.longitude;
     obj["house_system"] = (currentInput_.houseSystem == HouseSystem::Placidus) ? "Placidus" : "Whole Sign";
+    QJsonArray fixedStarsJson;
+    for (const auto& starName : currentInput_.fixedStars) {
+        fixedStarsJson.push_back(starName);
+    }
+    obj["fixed_stars"] = fixedStarsJson;
     obj["saved_at_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     obj["version"] = 2;
 
@@ -4624,6 +4706,13 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
     input.houseSystem = houseSystem.contains("Placidus", Qt::CaseInsensitive)
         ? HouseSystem::Placidus
         : HouseSystem::WholeSign;
+    const QJsonArray fixedStarsJson = obj.value("fixed_stars").toArray();
+    for (const auto& value : fixedStarsJson) {
+        const QString starName = value.toString().trimmed();
+        if (!starName.isEmpty()) {
+            input.fixedStars.push_back(starName);
+        }
+    }
 
     const QString location = obj.value("location").toString();
     if (!computeChart(input, location)) {
@@ -4687,6 +4776,64 @@ void MainWindow::refreshProfileToolbar() {
     }
 }
 
+void MainWindow::showFixedStarSelectionDialog() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Select Fixed Stars");
+    dialog.setModal(true);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(8);
+
+    auto* label = new QLabel("Select fixed stars to show on chart wheel:", &dialog);
+    layout->addWidget(label);
+
+    auto* list = new QListWidget(&dialog);
+    list->setSelectionMode(QAbstractItemView::NoSelection);
+    const QStringList catalog = fixedStarCatalog();
+    for (const auto& name : catalog) {
+        auto* item = new QListWidgetItem(name, list);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(isFixedStarVisible(name) ? Qt::Checked : Qt::Unchecked);
+    }
+    layout->addWidget(list);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    if (auto* applyButton = buttons->button(QDialogButtonBox::Ok)) {
+        applyButton->setText("Apply");
+    }
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QStringList selected;
+    for (int i = 0; i < list->count(); ++i) {
+        auto* item = list->item(i);
+        if (item && item->checkState() == Qt::Checked) {
+            selected.push_back(item->text());
+        }
+    }
+    visibleFixedStars_ = selected;
+    if (chartWheel_) {
+        chartWheel_->setVisibleFixedStars(visibleFixedStars_);
+    }
+    if (activeTab_ == AppTab::Progression) {
+        refreshProgressionView();
+    } else if (activeTab_ == AppTab::SolarReturn) {
+        refreshSolarReturnView();
+    } else if (activeTab_ == AppTab::Relocation) {
+        refreshRelocationView();
+    } else if (activeTab_ == AppTab::Transits) {
+        refreshTransitsTab();
+    } else if (hasCurrentChart_) {
+        populateFixedStars(currentChart_);
+    }
+}
+
 
 
 void MainWindow::openChartSetupDialog(bool newChart) {
@@ -4718,6 +4865,36 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
 
     NatalInput effectiveInput = input;
     effectiveInput.aspectOrbs = aspectOrbs_;
+    if (effectiveInput.fixedStars.isEmpty()) {
+        effectiveInput.fixedStars = fixedStarCatalog();
+    } else {
+        QStringList cleanedStars;
+        const QStringList catalog = fixedStarCatalog();
+        for (const auto& requested : effectiveInput.fixedStars) {
+            const QString trimmed = requested.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            QString canonical;
+            for (const auto& catalogName : catalog) {
+                if (catalogName.compare(trimmed, Qt::CaseInsensitive) == 0) {
+                    canonical = catalogName;
+                    break;
+                }
+            }
+            if (canonical.isEmpty()) {
+                continue;
+            }
+            if (!cleanedStars.contains(canonical)) {
+                cleanedStars.push_back(canonical);
+            }
+        }
+        if (!cleanedStars.isEmpty()) {
+            effectiveInput.fixedStars = cleanedStars;
+        } else {
+            effectiveInput.fixedStars = fixedStarCatalog();
+        }
+    }
     NatalChart chart;
     QString err;
     if (!engine_.compute(effectiveInput, &chart, &err)) {
@@ -4731,6 +4908,7 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     populateSummary(chart, effectiveInput, location);
     populateAngles(chart);
     populatePlanets(chart);
+    populateFixedStars(chart);
     populateHouses(chart, effectiveInput.houseSystem);
     populateAspects(chart);
     if (chartWheel_ && activeTab_ == AppTab::Natal) {
@@ -4937,6 +5115,7 @@ void MainWindow::handleMainTabChanged(int index) {
             populateSummary(currentChart_, currentInput_, currentLocation_);
             populateAngles(currentChart_);
             populatePlanets(currentChart_);
+            populateFixedStars(currentChart_);
             populateHouses(currentChart_, currentInput_.houseSystem);
             populateAspects(currentChart_);
         }
@@ -6025,6 +6204,23 @@ QString MainWindow::buildTransitSearchDetailsClipboardText() const {
     for (auto it = bodyMap.constBegin(); it != bodyMap.constEnd(); ++it) {
         appendBody(it.value());
     }
+
+    if (!chart.fixedStars.isEmpty()) {
+        QVector<FixedStarPosition> stars = chart.fixedStars;
+        std::sort(stars.begin(), stars.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
+            return a.longitude < b.longitude;
+        });
+        lines << "";
+        lines << "| Fixed Star | Degree | Sign | House |";
+        lines << "| --- | --- | --- | --- |";
+        for (const auto& star : stars) {
+            lines << QString("| %1 | %2 | %3 | %4 |")
+                .arg(star.name)
+                .arg(formatDegOnly(star.longitude))
+                .arg(signName(signIndex(star.longitude)))
+                .arg(star.house > 0 ? QString::number(star.house) : "-");
+        }
+    }
     return lines.join("\n");
 }
 
@@ -6046,6 +6242,27 @@ QString MainWindow::buildLunationDetailsClipboardText() const {
     lines << QString("Timezone: %1").arg(result.tzLabel);
     lines << QString("Sun: %1").arg(formatDegInSign(result.sunLon));
     lines << QString("Moon: %1").arg(formatDegInSign(result.moonLon));
+    if (!chart.fixedStars.isEmpty()) {
+        auto nearestStarLine = [&](double lon) -> QString {
+            const FixedStarPosition* bestStar = nullptr;
+            double bestOrb = 999.0;
+            for (const auto& star : chart.fixedStars) {
+                const double orb = angularDiffAbs(lon, star.longitude);
+                if (!bestStar || orb < bestOrb) {
+                    bestStar = &star;
+                    bestOrb = orb;
+                }
+            }
+            if (!bestStar) {
+                return "-";
+            }
+            return QString("%1 (orb %2 deg)")
+                .arg(bestStar->name)
+                .arg(QString::number(bestOrb, 'f', 2));
+        };
+        lines << QString("Sun nearest fixed star: %1").arg(nearestStarLine(result.sunLon));
+        lines << QString("Moon nearest fixed star: %1").arg(nearestStarLine(result.moonLon));
+    }
     lines << "";
     lines << "Moment Placements:";
 
@@ -6175,6 +6392,26 @@ QString MainWindow::buildNatalReportText() const {
             body.mode,
             body.dignity
         });
+    }
+
+    lines << "";
+    lines << "Fixed Stars:";
+    if (chart.fixedStars.isEmpty()) {
+        addRow({"Info", "No fixed star data."});
+    } else {
+        addRow({"Star", "Deg in Sign", "Sign", "House"});
+        QVector<FixedStarPosition> stars = chart.fixedStars;
+        std::sort(stars.begin(), stars.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
+            return a.longitude < b.longitude;
+        });
+        for (const auto& star : stars) {
+            addRow({
+                star.name,
+                formatDegOnly(star.longitude),
+                star.signName.isEmpty() ? signName(signIndex(star.longitude)) : star.signName,
+                star.house > 0 ? QString::number(star.house) : "-"
+            });
+        }
     }
 
     lines << "";
@@ -6635,6 +6872,7 @@ void MainWindow::updateTransitSearchVisibility() {
     const bool isSignEvent = eventType.contains("Sign", Qt::CaseInsensitive);
     const bool isHouseEvent = eventType.contains("House", Qt::CaseInsensitive);
     const bool isAspectEvent = eventType.contains("Aspect", Qt::CaseInsensitive);
+    const bool isDegreeEvent = eventType.contains("Degree", Qt::CaseInsensitive);
     const bool isStationEvent = eventType.contains("Station", Qt::CaseInsensitive);
     const bool canUseNatalTargets = (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_);
     const bool showNatalTarget = canUseNatalTargets && (isAspectEvent || isHouseEvent);
@@ -6652,7 +6890,7 @@ void MainWindow::updateTransitSearchVisibility() {
         searchAspectCombo_->setEnabled(isAspectEvent);
     }
     if (searchOrbSpin_) {
-        searchOrbSpin_->setEnabled(isAspectEvent);
+        searchOrbSpin_->setEnabled(isAspectEvent || isDegreeEvent);
     }
     if (searchRangeModeCombo_) {
         searchRangeModeCombo_->setEnabled(!findMode);
@@ -6671,12 +6909,28 @@ void MainWindow::updateTransitSearchVisibility() {
         searchTargetCombo_->setEnabled(showNatalTarget);
         searchTargetCombo_->setVisible(showNatalTarget);
     }
+    if (searchDegreeLabel_) {
+        searchDegreeLabel_->setVisible(isDegreeEvent);
+    }
+    if (searchDegreeSpin_) {
+        searchDegreeSpin_->setEnabled(isDegreeEvent);
+        searchDegreeSpin_->setVisible(isDegreeEvent);
+    }
+    if (searchDegreeSignLabel_) {
+        searchDegreeSignLabel_->setVisible(isDegreeEvent);
+    }
+    if (searchDegreeSignCombo_) {
+        searchDegreeSignCombo_->setEnabled(isDegreeEvent);
+        searchDegreeSignCombo_->setVisible(isDegreeEvent);
+    }
     if (isStationEvent) {
         if (searchSignCombo_) searchSignCombo_->setEnabled(false);
         if (searchHouseCombo_) searchHouseCombo_->setEnabled(false);
         if (searchAspectCombo_) searchAspectCombo_->setEnabled(false);
         if (searchOrbSpin_) searchOrbSpin_->setEnabled(false);
         if (searchTargetCombo_) searchTargetCombo_->setEnabled(false);
+        if (searchDegreeSpin_) searchDegreeSpin_->setEnabled(false);
+        if (searchDegreeSignCombo_) searchDegreeSignCombo_->setEnabled(false);
     }
 }
 
@@ -7616,8 +7870,8 @@ void MainWindow::updateTransitSearchTargets() {
     }
     const QString currentEvent = searchEventCombo_->currentText();
     const QStringList desiredEvents = (transitMode_ == TransitMode::TransitOnly)
-        ? QStringList({"Sign Ingress", "Sign Egress", "Station"})
-        : QStringList({"House Ingress", "House Egress", "Aspect to Natal"});
+        ? QStringList({"Sign Ingress", "Sign Egress", "Degree Hit", "Station"})
+        : QStringList({"House Ingress", "House Egress", "Aspect to Natal", "Degree Hit"});
     bool rebuild = (searchEventCombo_->count() != desiredEvents.size());
     if (!rebuild) {
         for (int i = 0; i < desiredEvents.size(); ++i) {
@@ -7662,6 +7916,11 @@ void MainWindow::updateTransitSearchTargets() {
             for (const auto& body : currentChart_.bodies) {
                 addTarget(body.name, body.longitude);
             }
+            if (isAspectEvent) {
+                for (const auto& star : currentChart_.fixedStars) {
+                    addTarget(star.name, star.longitude);
+                }
+            }
             addTarget("Ascendant", currentChart_.angles.asc);
             addTarget("Midheaven", currentChart_.angles.mc);
             addTarget("Descendant", currentChart_.angles.desc);
@@ -7703,6 +7962,8 @@ void MainWindow::runTransitSearch() {
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
     params.overlayMode = (transitMode_ == TransitMode::NatalOverlay);
+    const QString requestedEventType = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
+    const bool requestedDegreeEvent = requestedEventType.contains("Degree", Qt::CaseInsensitive);
     params.houseSystem = transitHouseSystem_;
     params.hasNatal = hasCurrentChart_;
     params.natalAsc = currentChart_.angles.asc;
@@ -7712,7 +7973,7 @@ void MainWindow::runTransitSearch() {
         params.natalCusps.push_back(normalizeDegrees(cusp.longitude));
     }
 
-    if (params.overlayMode && !hasCurrentChart_) {
+    if (params.overlayMode && !hasCurrentChart_ && !requestedDegreeEvent) {
         setStatusMessage("Load a natal chart before running overlay searches.");
         return;
     }
@@ -7760,7 +8021,7 @@ void MainWindow::runTransitSearch() {
         }
     }
 
-    const QString eventType = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
+    const QString eventType = requestedEventType;
     if (eventType.contains("Sign Ingress", Qt::CaseInsensitive)) {
         params.eventType = SearchEventType::SignIngress;
     } else if (eventType.contains("Sign Egress", Qt::CaseInsensitive)) {
@@ -7769,37 +8030,57 @@ void MainWindow::runTransitSearch() {
         params.eventType = SearchEventType::HouseIngress;
     } else if (eventType.contains("House Egress", Qt::CaseInsensitive)) {
         params.eventType = SearchEventType::HouseEgress;
+    } else if (eventType.contains("Degree", Qt::CaseInsensitive)) {
+        params.eventType = SearchEventType::DegreeHit;
     } else if (eventType.contains("Aspect", Qt::CaseInsensitive)) {
         params.eventType = SearchEventType::Aspect;
     } else {
         params.eventType = SearchEventType::Station;
     }
 
-    if (params.eventType == SearchEventType::Aspect) {
-        const QString aspectLabel = searchAspectCombo_ ? searchAspectCombo_->currentText() : QString("Conjunction");
+    if (params.eventType == SearchEventType::Aspect || params.eventType == SearchEventType::DegreeHit) {
+        const bool isDegreeHit = (params.eventType == SearchEventType::DegreeHit);
+        const QString aspectLabel = isDegreeHit
+            ? QString("Conjunction")
+            : (searchAspectCombo_ ? searchAspectCombo_->currentText() : QString("Conjunction"));
         params.aspectLabel = aspectLabel;
-        params.aspectAngle = aspectAngleForLabel(aspectLabel);
+        params.aspectAngle = isDegreeHit ? 0.0 : aspectAngleForLabel(aspectLabel);
         params.orb = searchOrbSpin_ ? searchOrbSpin_->value() : 0.0;
         params.aspectMode = (params.orb <= 0.01) ? AspectMode::Exact : AspectMode::WithinOrb;
 
         QMap<QString, double> targets;
-        for (const auto& body : currentChart_.bodies) {
-            targets.insert(body.name, body.longitude);
-        }
-        targets.insert("Ascendant", currentChart_.angles.asc);
-        targets.insert("Midheaven", currentChart_.angles.mc);
-        targets.insert("Descendant", currentChart_.angles.desc);
-        targets.insert("IC", currentChart_.angles.ic);
-        params.natalTargets = targets;
-
-        if (searchTargetCombo_) {
-            const QString target = searchTargetCombo_->currentText();
-            if (!target.isEmpty() && !target.startsWith("Any", Qt::CaseInsensitive)) {
-                params.targetNames = {target};
+        if (isDegreeHit) {
+            const int signIdx = searchDegreeSignCombo_ ? searchDegreeSignCombo_->currentIndex() : 0;
+            const double deg = searchDegreeSpin_ ? searchDegreeSpin_->value() : 0.0;
+            const double targetLon = normalizeDegrees(static_cast<double>(std::max(0, signIdx)) * 30.0 + deg);
+            const QString targetName = QString("%1 %2").arg(transitcalc::formatDegreeDms(deg), signName(signIdx));
+            targets.insert(targetName, targetLon);
+            params.natalTargets = targets;
+            params.targetNames = {targetName};
+        } else {
+            for (const auto& body : currentChart_.bodies) {
+                targets.insert(body.name, body.longitude);
             }
-        }
-        if (params.targetNames.isEmpty()) {
-            params.targetNames = targets.keys();
+            for (const auto& star : currentChart_.fixedStars) {
+                targets.insert(star.name, star.longitude);
+            }
+            targets.insert("Ascendant", currentChart_.angles.asc);
+            targets.insert("Midheaven", currentChart_.angles.mc);
+            targets.insert("Descendant", currentChart_.angles.desc);
+            targets.insert("IC", currentChart_.angles.ic);
+            params.natalTargets = targets;
+
+            if (searchTargetCombo_) {
+                const QString targetText = searchTargetCombo_->currentText();
+                const QString parsedTarget = aspectTargetFromLabel(targetText);
+                const QString target = parsedTarget.isEmpty() ? targetText : parsedTarget;
+                if (!target.isEmpty() && !target.startsWith("Any", Qt::CaseInsensitive)) {
+                    params.targetNames = {target};
+                }
+            }
+            if (params.targetNames.isEmpty()) {
+                params.targetNames = targets.keys();
+            }
         }
     } else if (params.eventType == SearchEventType::SignIngress || params.eventType == SearchEventType::SignEgress) {
         if (searchSignCombo_ && searchSignCombo_->currentIndex() > 0) {
@@ -8179,7 +8460,10 @@ void MainWindow::showTransitConjunctionResults() {
         rightTopTable_->setItem(row, 4, makeCell(res.bucketLabel));
         rightTopTable_->setItem(row, 5, makeCell(QString::number(res.clusterCount)));
         rightTopTable_->setItem(row, 6, makeCell(planets.join(", ")));
-        rightTopTable_->setItem(row, 7, makeCell(res.clusterSpanDeg > 0.0 ? QString::number(res.clusterSpanDeg, 'f', 2) + "°" : "-"));
+        const bool instantExact = (res.startUtc == res.endUtc);
+        rightTopTable_->setItem(row, 7, makeCell((res.clusterSpanDeg > 0.0 || instantExact)
+            ? QString::number(res.clusterSpanDeg, 'f', 2) + "°"
+            : "-"));
     }
 
     if (!transitConjunctionDisplayOrder_.isEmpty()) {
@@ -8209,7 +8493,8 @@ void MainWindow::showTransitConjunctionDetails(const TransitConjunctionWindow& r
     const QStringList clusterPlanets = result.orbClusterAtStart.isEmpty()
         ? result.planetsInBucketAtStart
         : result.orbClusterAtStart;
-    const bool showCluster = (result.clusterCount != result.bucketCount) || result.clusterSpanDeg > 0.0;
+    const bool instantExact = (result.startUtc == result.endUtc);
+    const bool showCluster = (result.clusterCount != result.bucketCount) || result.clusterSpanDeg > 0.0 || instantExact;
 
     const int totalRows = showCluster ? 12 : 10;
     setupTable(rightBottomTable_, {"Item", "Value"}, totalRows);
@@ -8234,7 +8519,7 @@ void MainWindow::showTransitConjunctionDetails(const TransitConjunctionWindow& r
     rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.clusterCount)));
     if (showCluster) {
         rightBottomTable_->setItem(row, 0, makeCell("Cluster Span"));
-        rightBottomTable_->setItem(row++, 1, makeCell(result.clusterSpanDeg > 0.0
+        rightBottomTable_->setItem(row++, 1, makeCell((result.clusterSpanDeg > 0.0 || instantExact)
             ? QString::number(result.clusterSpanDeg, 'f', 2) + "°"
             : "-"));
         rightBottomTable_->setItem(row, 0, makeCell("Cluster Planets"));
@@ -8969,8 +9254,10 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
         && hasLunationSelection_
         && lastLunationSelection_.timeUtc == result.timeUtc
         && lastLunationSelection_.event == result.event;
+    const bool hasFixedStarInfo = hasMomentPlacements && !currentTransitChart_.fixedStars.isEmpty();
     const int placementRows = hasMomentPlacements ? currentTransitChart_.bodies.size() : 0;
-    const int totalRows = (hasEclipse ? 7 : 6) + (hasMomentPlacements ? 1 + placementRows : 1);
+    const int fixedStarRows = hasFixedStarInfo ? 2 : 0;
+    const int totalRows = (hasEclipse ? 7 : 6) + fixedStarRows + (hasMomentPlacements ? 1 + placementRows : 1);
     setupTable(rightBottomTable_, {"Item", "Value"}, totalRows);
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
@@ -8989,6 +9276,29 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.sunLon)));
     rightBottomTable_->setItem(row, 0, makeCell("Moon"));
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.moonLon)));
+    if (hasFixedStarInfo) {
+        auto nearestStarLine = [&](double lon) -> QString {
+            const FixedStarPosition* bestStar = nullptr;
+            double bestOrb = 999.0;
+            for (const auto& star : currentTransitChart_.fixedStars) {
+                const double orb = angularDiffAbs(lon, star.longitude);
+                if (!bestStar || orb < bestOrb) {
+                    bestStar = &star;
+                    bestOrb = orb;
+                }
+            }
+            if (!bestStar) {
+                return "-";
+            }
+            return QString("%1 (orb %2 deg)")
+                .arg(bestStar->name)
+                .arg(QString::number(bestOrb, 'f', 2));
+        };
+        rightBottomTable_->setItem(row, 0, makeCell("Sun fixed star"));
+        rightBottomTable_->setItem(row++, 1, makeCell(nearestStarLine(result.sunLon)));
+        rightBottomTable_->setItem(row, 0, makeCell("Moon fixed star"));
+        rightBottomTable_->setItem(row++, 1, makeCell(nearestStarLine(result.moonLon)));
+    }
 
     if (!hasMomentPlacements) {
         rightBottomTable_->setItem(row, 0, makeCell("Placements"));
@@ -9255,6 +9565,10 @@ void MainWindow::showProgressionPlaceholder() {
         setupTable(planetsTable_, {"Info"}, 1);
         planetsTable_->setItem(0, 0, makeCell(message));
     }
+    if (fixedStarsTable_) {
+        setupTable(fixedStarsTable_, {"Info"}, 1);
+        fixedStarsTable_->setItem(0, 0, makeCell(message));
+    }
     if (housesTable_) {
         setupTable(housesTable_, {"Info"}, 1);
         housesTable_->setItem(0, 0, makeCell(message));
@@ -9293,6 +9607,7 @@ void MainWindow::refreshProgressionView() {
         populateSummary(currentChart_, currentInput_, currentLocation_);
         populateAngles(currentChart_);
         populatePlanets(currentChart_);
+        populateFixedStars(currentChart_);
         populateHouses(currentChart_, currentInput_.houseSystem);
         populateAspects(currentChart_);
         if (chartWheel_) {
@@ -9307,6 +9622,7 @@ void MainWindow::refreshProgressionView() {
         populateSummary(currentProgressionChart_, currentProgressionInput_, currentLocation_);
         populateAngles(currentProgressionChart_);
         populatePlanets(currentProgressionChart_);
+        populateFixedStars(currentProgressionChart_);
         populateHouses(currentProgressionChart_, currentProgressionInput_.houseSystem);
         if (chartWheel_) {
             if (overlay) {
@@ -10111,6 +10427,9 @@ NatalInput MainWindow::transitInputFor(const QDateTime& localTime, const QString
     input.timezone = tzLabel;
     input.houseSystem = transitHouseSystem_;
     input.aspectOrbs = aspectOrbs_;
+    if (input.fixedStars.isEmpty()) {
+        input.fixedStars = fixedStarCatalog();
+    }
     if (transitUseNatalLocation_ && transitUseNatalLocation_->isChecked() && hasCurrentChart_) {
         input.latitude = currentInput_.latitude;
         input.longitude = currentInput_.longitude;
@@ -10535,6 +10854,10 @@ void MainWindow::showSolarPlaceholder() {
         setupTable(planetsTable_, {"Info"}, 1);
         planetsTable_->setItem(0, 0, makeCell(message));
     }
+    if (fixedStarsTable_) {
+        setupTable(fixedStarsTable_, {"Info"}, 1);
+        fixedStarsTable_->setItem(0, 0, makeCell(message));
+    }
     if (housesTable_) {
         setupTable(housesTable_, {"Info"}, 1);
         housesTable_->setItem(0, 0, makeCell(message));
@@ -10568,6 +10891,7 @@ void MainWindow::refreshSolarReturnView() {
     populateSummary(currentSolarChart_, currentSolarInput_, currentSolarLocation_);
     populateAngles(currentSolarChart_);
     populatePlanets(currentSolarChart_);
+    populateFixedStars(currentSolarChart_);
     populateHouses(currentSolarChart_, currentSolarInput_.houseSystem);
     if (chartWheel_) {
         chartWheel_->setChart(currentSolarChart_, currentSolarInput_.houseSystem);
@@ -10600,6 +10924,10 @@ void MainWindow::showRelocationPlaceholder() {
     if (planetsTable_) {
         setupTable(planetsTable_, {"Info"}, 1);
         planetsTable_->setItem(0, 0, makeCell(message));
+    }
+    if (fixedStarsTable_) {
+        setupTable(fixedStarsTable_, {"Info"}, 1);
+        fixedStarsTable_->setItem(0, 0, makeCell(message));
     }
     if (housesTable_) {
         setupTable(housesTable_, {"Info"}, 1);
@@ -10634,6 +10962,7 @@ void MainWindow::refreshRelocationView() {
     populateSummary(currentRelocationChart_, currentRelocationInput_, currentRelocationLocation_);
     populateAngles(currentRelocationChart_);
     populatePlanets(currentRelocationChart_);
+    populateFixedStars(currentRelocationChart_);
     populateHouses(currentRelocationChart_, currentRelocationInput_.houseSystem);
     if (chartWheel_) {
         if (relocationOverlayCheck_ && relocationOverlayCheck_->isChecked()) {
@@ -11377,6 +11706,36 @@ void MainWindow::populatePlanets(const NatalChart& chart) {
         row++;
     }
     planetsTable_->setRowCount(row);
+}
+
+void MainWindow::populateFixedStars(const NatalChart& chart) {
+    if (!fixedStarsTable_) {
+        return;
+    }
+    if (chart.fixedStars.isEmpty()) {
+        setupTable(fixedStarsTable_, {"Info"}, 1);
+        fixedStarsTable_->setItem(0, 0, makeCell("No fixed star data available for this chart."));
+        return;
+    }
+
+    QVector<FixedStarPosition> rows = chart.fixedStars;
+    std::sort(rows.begin(), rows.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
+        return a.longitude < b.longitude;
+    });
+
+    setupTable(fixedStarsTable_, {"Star", "Deg in Sign", "Sign", "House", "Visible"}, rows.size());
+    for (int i = 0; i < rows.size(); ++i) {
+        const auto& star = rows[i];
+        fixedStarsTable_->setItem(i, 0, makeCell(star.name));
+        fixedStarsTable_->setItem(i, 1, makeCell(formatDegOnly(star.longitude), Qt::AlignRight | Qt::AlignVCenter));
+        fixedStarsTable_->setItem(i, 2, makeCell(star.signName.isEmpty() ? signName(signIndex(star.longitude)) : star.signName));
+        fixedStarsTable_->setItem(i, 3, makeCell(star.house > 0 ? QString::number(star.house) : "-", Qt::AlignCenter));
+        auto* visibleItem = makeCell(isFixedStarVisible(star.name) ? "Yes" : "No", Qt::AlignCenter);
+        if (!isFixedStarVisible(star.name)) {
+            visibleItem->setForeground(QColor("#8a8a8a"));
+        }
+        fixedStarsTable_->setItem(i, 4, visibleItem);
+    }
 }
 
 void MainWindow::populateHouses(const NatalChart& chart, HouseSystem system) {

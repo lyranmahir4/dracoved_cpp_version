@@ -1,10 +1,12 @@
 #include "progression.h"
 
+#include "fixed_stars.h"
 #include "formatting.h"
 #include "timezone_utils.h"
 
 #include <QDateTime>
 #include <QMap>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 
@@ -437,6 +439,49 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         }
     }
 
+    QVector<FixedStarPosition> fixedStars;
+    QStringList fixedStarNames = natalInput.fixedStars;
+    if (fixedStarNames.isEmpty()) {
+        fixedStarNames = defaultFixedStars();
+    }
+    QSet<QString> seenStars;
+    for (const auto& requestedName : fixedStarNames) {
+        const QString starName = requestedName.trimmed();
+        const QString starKey = starName.toCaseFolded();
+        if (starName.isEmpty() || seenStars.contains(starKey)) {
+            continue;
+        }
+        seenStars.insert(starKey);
+
+        double starLon = 0.0;
+        QString resolvedName;
+        QString starErr;
+        if (!swe_->fixstarUt(starName, jdProg, 0, &starLon, &resolvedName, &starErr)) {
+            warnings.push_back(QString("Skipped fixed star %1: %2").arg(starName, starErr));
+            continue;
+        }
+
+        starLon = normalizeDegrees(starLon);
+        const int sidx = signIndex(starLon);
+        const QString sname = signName(sidx);
+        int house = 0;
+        if (natalInput.houseSystem == HouseSystem::Placidus) {
+            house = houseOfLongitude(starLon, cusps);
+        } else {
+            house = ((sidx - ascSignIdx + 12) % 12) + 1;
+        }
+
+        const QString displayName = resolvedName.section(',', 0, 0).trimmed();
+        FixedStarPosition star;
+        star.name = displayName.isEmpty() ? starName : displayName;
+        star.longitude = starLon;
+        star.signIndex = sidx;
+        star.signName = sname;
+        star.degInSign = degInSign(starLon);
+        star.house = house;
+        fixedStars.push_back(star);
+    }
+
     const AspectOrbs orbs = normalizedOrbs(natalInput.aspectOrbs);
     QStringList order = tropicalBodyOrder();
     QStringList abbrev = tropicalBodyAbbrev();
@@ -485,6 +530,7 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     out->timezoneLabel = natalTzLabel;
     out->angles = angles;
     out->bodies = positions;
+    out->fixedStars = fixedStars;
     out->cusps = cuspRows;
     out->warnings = warnings;
     out->isDayChart = isDay;

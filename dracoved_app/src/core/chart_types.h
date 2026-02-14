@@ -59,6 +59,7 @@ struct NatalInput {
     QTime time;
     QString timezone;
     Gender gender = Gender::Unspecified;
+    QStringList fixedStars;
     double latitude = 0.0;
     double longitude = 0.0;
     HouseSystem houseSystem = HouseSystem::WholeSign;
@@ -92,6 +93,16 @@ struct HouseCusp {
     QString signName;
 };
 
+struct FixedStarPosition {
+    QString name;
+    double longitude = 0.0;   // 0..360
+    int signIndex = -1;       // 0..11
+    QString signName;
+    double degInSign = 0.0;
+    int house = 0;            // 1..12
+    double magnitude = 0.0;
+};
+
 struct AspectGrid {
     QVector<QString> bodyOrder;
     QVector<QString> bodyAbbrev;
@@ -112,6 +123,7 @@ struct NatalChart {
     QString timezoneLabel;
     AnglePositions angles;
     QVector<BodyPosition> bodies;
+    QVector<FixedStarPosition> fixedStars;
     QVector<HouseCusp> cusps;
     QStringList warnings;
     bool isDayChart = false;

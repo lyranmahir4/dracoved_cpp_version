@@ -313,6 +313,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/fixed_stars.h",
+			"MU",
+			"PRMOGMWJPH/moc_fixed_stars.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h",
 			"MU",
 			"PRMOGMWJPH/moc_formatting.cpp",
@@ -456,6 +462,11 @@
 	"SETTINGS_FILE" : "C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/CMakeFiles/dracoved_app_autogen.dir/AutogenUsed.txt",
 	"SOURCES" : 
 	[
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/fixed_stars.cpp",
+			"MU",
+			null
+		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.cpp",
 			"MU",

@@ -30,6 +30,7 @@ enum class SearchEventType {
     HouseIngress,
     HouseEgress,
     Aspect,
+    DegreeHit,
     Station,
 };
 
@@ -226,7 +227,7 @@ public slots:
                     handleSignEvent(t0, t1, lon0, lon1, planetName);
                 } else if (params_.eventType == SearchEventType::HouseIngress || params_.eventType == SearchEventType::HouseEgress) {
                     handleHouseEvent(t0, t1, lon0, lon1, planetName);
-                } else if (params_.eventType == SearchEventType::Aspect) {
+                } else if (params_.eventType == SearchEventType::Aspect || params_.eventType == SearchEventType::DegreeHit) {
                     handleAspectEvent(t0, t1, lon0, lon1, planetName);
                 } else if (params_.eventType == SearchEventType::Station) {
                     handleStationEvent(t0, t1, planetName);
@@ -549,7 +550,10 @@ private:
                         const double delta = diff - params_.aspectAngle;
                         return std::fabs(delta) - params_.orb;
                     });
-                    emitAspectWindowResult(entry, planetName, targetName, "Aspect Entry");
+                    const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
+                        ? QString("Degree Entry")
+                        : QString("Aspect Entry");
+                    emitAspectWindowResult(entry, planetName, targetName, eventLabel);
                 } else if (f0 <= 0.0 && f1 > 0.0) {
                     QDateTime exit = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
                         double lon = 0.0;
@@ -563,7 +567,10 @@ private:
                         const double delta = diff - params_.aspectAngle;
                         return std::fabs(delta) - params_.orb;
                     });
-                    emitAspectWindowResult(exit, planetName, targetName, "Aspect Exit");
+                    const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
+                        ? QString("Degree Exit")
+                        : QString("Aspect Exit");
+                    emitAspectWindowResult(exit, planetName, targetName, eventLabel);
                 }
             }
         }
@@ -635,7 +642,12 @@ private:
         if (planetLongitude(utc, planetName, &lon, nullptr)) {
             signHouse = signName(signIndex(lon));
         }
-        emitResult(utc, planetName, "Aspect", signHouse, QString("%1 %2").arg(params_.aspectLabel, targetName), orb, true);
+        const bool degreeMode = (params_.eventType == SearchEventType::DegreeHit);
+        const QString eventLabel = degreeMode ? QString("Degree Hit") : QString("Aspect");
+        const QString detailLabel = degreeMode
+            ? targetName
+            : QString("%1 %2").arg(params_.aspectLabel, targetName);
+        emitResult(utc, planetName, eventLabel, signHouse, detailLabel, orb, true);
     }
 
     void emitAspectWindowResult(const QDateTime& utc, const QString& planetName, const QString& targetName, const QString& eventLabel) {
@@ -647,7 +659,10 @@ private:
         const double diff = transitcalc::angularDiffAbs(lon, targetLon);
         const double orb = std::fabs(diff - params_.aspectAngle);
         const QString signHouse = signName(signIndex(lon));
-        emitResult(utc, planetName, eventLabel, signHouse, QString("%1 %2").arg(params_.aspectLabel, targetName), orb, true);
+        const QString detailLabel = (params_.eventType == SearchEventType::DegreeHit)
+            ? targetName
+            : QString("%1 %2").arg(params_.aspectLabel, targetName);
+        emitResult(utc, planetName, eventLabel, signHouse, detailLabel, orb, true);
     }
 
     void emitResult(const QDateTime& utc, const QString& planetName, const QString& eventLabel,
@@ -1291,6 +1306,29 @@ public slots:
         }
 
         results_.clear();
+        if (params_.minCount == 2 && activePlanetNames_.size() == 2) {
+            if (!runExactPairConjunctions(&err)) {
+                if (cancelled_.load()) {
+                    emit finished(true, QString());
+                } else {
+                    emit finished(false, err);
+                }
+                return;
+            }
+            std::sort(results_.begin(), results_.end(), [](const MainWindow::TransitConjunctionWindow& a,
+                                                          const MainWindow::TransitConjunctionWindow& b) {
+                if (a.startUtc == b.startUtc) {
+                    return a.bucketLabel < b.bucketLabel;
+                }
+                return a.startUtc < b.startUtc;
+            });
+            if (cancelled_.load()) {
+                emit finished(true, QString());
+            } else {
+                emit finished(false, QString());
+            }
+            return;
+        }
 
         State state0;
         if (!computeState(params_.startUtc, &state0, &err)) {
@@ -1681,6 +1719,216 @@ private:
             return QString("House %1").arg(bucketId);
         }
         return signName(bucketId);
+    }
+
+    QStringList orderedPlanetNames(const QStringList& names) const {
+        QStringList ordered;
+        QSet<QString> seen;
+        for (const auto& name : tropicalBodyOrder()) {
+            if (names.contains(name) && !seen.contains(name)) {
+                ordered.push_back(name);
+                seen.insert(name);
+            }
+        }
+        for (const auto& name : names) {
+            if (!seen.contains(name)) {
+                ordered.push_back(name);
+                seen.insert(name);
+            }
+        }
+        return ordered;
+    }
+
+    bool relativeLongitude(const QDateTime& utc, const QString& aName, const QString& bName,
+                           double* outRel, QString* error) {
+        double aLon = 0.0;
+        double bLon = 0.0;
+        if (!planetLongitude(utc, aName, &aLon, error)) {
+            return false;
+        }
+        if (!planetLongitude(utc, bName, &bLon, error)) {
+            return false;
+        }
+        if (outRel) {
+            *outRel = normalizeDegrees(aLon - bLon);
+        }
+        return true;
+    }
+
+    bool exactPairCrossing(double rel0, double rel1) const {
+        const double d0 = transitcalc::angularDiffSigned(rel0, 0.0);
+        const double d1 = transitcalc::angularDiffSigned(rel1, 0.0);
+        if (std::fabs(d0) <= 1e-9 || std::fabs(d1) <= 1e-9) {
+            return true;
+        }
+        if (d0 * d1 > 0.0) {
+            return false;
+        }
+        // Avoid false positives from the +/-180 discontinuity.
+        return (std::fabs(d0) < 90.0 || std::fabs(d1) < 90.0);
+    }
+
+    QDateTime bisectRoot(const QDateTime& lo, const QDateTime& hi,
+                         const std::function<double(const QDateTime&, double*)>& func) {
+        QDateTime a = lo;
+        QDateTime b = hi;
+        double fa = 0.0;
+        double fb = 0.0;
+        func(a, &fa);
+        func(b, &fb);
+        for (int i = 0; i < 24; ++i) {
+            if (cancelled_.load()) {
+                return a;
+            }
+            if (a.secsTo(b) <= 60) {
+                return b;
+            }
+            const QDateTime mid = transitcalc::midTimeUtc(a, b);
+            double fm = 0.0;
+            func(mid, &fm);
+            if ((fa <= 0.0 && fm <= 0.0) || (fa >= 0.0 && fm >= 0.0)) {
+                a = mid;
+                fa = fm;
+            } else {
+                b = mid;
+                fb = fm;
+            }
+        }
+        return b;
+    }
+
+    QDateTime refineExactPairConjunction(const QDateTime& lo, const QDateTime& hi,
+                                         const QString& aName, const QString& bName) {
+        return bisectRoot(lo, hi, [&](const QDateTime& t, double* outDiff) {
+            double rel = 0.0;
+            if (!relativeLongitude(t, aName, bName, &rel, nullptr)) {
+                if (outDiff) {
+                    *outDiff = 0.0;
+                }
+                return 0.0;
+            }
+            const double diff = transitcalc::angularDiffSigned(rel, 0.0);
+            if (outDiff) {
+                *outDiff = diff;
+            }
+            return diff;
+        });
+    }
+
+    void emitExactPairWindow(const QDateTime& hitUtc, const QString& aName, const QString& bName,
+                             const QStringList& orderedPair) {
+        double aLon = 0.0;
+        if (!planetLongitude(hitUtc, aName, &aLon, nullptr)) {
+            return;
+        }
+        int bucketId = 0;
+        if (params_.bucketByHouse) {
+            bucketId = houseForLongitude(aLon, params_.natalCusps, params_.natalAsc);
+        } else {
+            bucketId = signIndex(aLon);
+        }
+
+        MainWindow::TransitConjunctionWindow result;
+        result.startUtc = hitUtc;
+        result.endUtc = hitUtc;
+        result.tzLabel = params_.tzLabel;
+        result.bucketLabel = bucketLabelFor(bucketId);
+        result.planetsInBucketAtStart = orderedPair;
+        result.orbClusterAtStart = orderedPair;
+        result.bucketCount = orderedPair.size();
+        result.clusterCount = orderedPair.size();
+        result.clusterSpanDeg = 0.0;
+        results_.push_back(result);
+    }
+
+    bool runExactPairConjunctions(QString* error) {
+        if (activePlanetNames_.size() != 2) {
+            return false;
+        }
+        const QString aName = activePlanetNames_[0];
+        const QString bName = activePlanetNames_[1];
+        const QStringList orderedPair = orderedPlanetNames({aName, bName});
+        const qint64 totalSecs = std::max<qint64>(1, std::llabs(params_.startUtc.secsTo(params_.endUtc)));
+        int lastProgress = -1;
+
+        QDateTime t0 = params_.startUtc;
+        const QDateTime tEnd = params_.endUtc;
+        double rel0 = 0.0;
+        if (!relativeLongitude(t0, aName, bName, &rel0, error)) {
+            return false;
+        }
+
+        QDateTime lastHit;
+        auto emitIfDistinct = [&](const QDateTime& hit) {
+            if (!hit.isValid()) {
+                return;
+            }
+            if (hit < params_.startUtc || hit > params_.endUtc) {
+                return;
+            }
+            if (lastHit.isValid() && std::llabs(lastHit.secsTo(hit)) <= 120) {
+                return;
+            }
+            emitExactPairWindow(hit, aName, bName, orderedPair);
+            lastHit = hit;
+        };
+
+        if (std::fabs(transitcalc::angularDiffSigned(rel0, 0.0)) <= 0.02) {
+            emitIfDistinct(t0);
+        }
+
+        while (t0 < tEnd) {
+            if (cancelled_.load()) {
+                return true;
+            }
+
+            double maxSpeed = 0.0;
+            double speedA = 0.0;
+            double speedB = 0.0;
+            if (!planetSpeed(t0, aName, &speedA, error)) {
+                return false;
+            }
+            if (!planetSpeed(t0, bName, &speedB, error)) {
+                return false;
+            }
+            maxSpeed = std::max(std::fabs(speedA), std::fabs(speedB));
+            double stepDays = transitcalc::clampStepDays(maxSpeed);
+            stepDays = std::min(stepDays, 1.0);
+            if (stepDays < 0.02) {
+                stepDays = 0.02;
+            }
+
+            QDateTime t1 = t0.addSecs(static_cast<qint64>(stepDays * 86400.0));
+            if (t1 > tEnd) {
+                t1 = tEnd;
+            }
+
+            double rel1 = 0.0;
+            if (!relativeLongitude(t1, aName, bName, &rel1, error)) {
+                return false;
+            }
+            if (exactPairCrossing(rel0, rel1)) {
+                const QDateTime hit = refineExactPairConjunction(t0, t1, aName, bName);
+                double relHit = 0.0;
+                if (relativeLongitude(hit, aName, bName, &relHit, nullptr)
+                    && std::fabs(transitcalc::angularDiffSigned(relHit, 0.0)) <= 0.02) {
+                    emitIfDistinct(hit);
+                }
+            }
+
+            t0 = t1;
+            rel0 = rel1;
+
+            const qint64 elapsed = params_.startUtc.secsTo(t0);
+            const double progressRatio = static_cast<double>(std::min<qint64>(std::llabs(elapsed), totalSecs)) / totalSecs;
+            const int progress = static_cast<int>(progressRatio * 100.0);
+            if (progress != lastProgress && progress % 5 == 0) {
+                lastProgress = progress;
+                emit progressUpdate(progress, QString("Finding exact conjunctions (%1%)").arg(progress));
+            }
+        }
+
+        return true;
     }
 
     void processState(const QDateTime& utc, const State& state, QMap<int, ActiveWindow>* active) {

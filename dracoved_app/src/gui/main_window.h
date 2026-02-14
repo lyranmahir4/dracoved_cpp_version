@@ -253,9 +253,11 @@ private:
     void saveUiState();
     void showChartSettingsMenu();
     void showAsteroidSelectionDialog();
+    void showFixedStarSelectionDialog();
     void applyChartReadabilityPreset(ChartReadabilityPreset preset);
     void markChartReadabilityCustom();
     bool isAsteroidVisible(const QString& name) const;
+    bool isFixedStarVisible(const QString& name) const;
 
     void openChartSetupDialog(bool newChart);
     bool computeChart(const dracoved::NatalInput& input, const QString& location);
@@ -354,6 +356,7 @@ private:
     void populateSummary(const dracoved::NatalChart& chart, const dracoved::NatalInput& input, const QString& location);
     void populateAngles(const dracoved::NatalChart& chart);
     void populatePlanets(const dracoved::NatalChart& chart);
+    void populateFixedStars(const dracoved::NatalChart& chart);
     void populateHouses(const dracoved::NatalChart& chart, dracoved::HouseSystem system);
     void populateAspects(const dracoved::NatalChart& chart);
     void populateTransitAspectsOverlay(const dracoved::NatalChart& transitChart, const dracoved::NatalChart& natalChart);
@@ -394,6 +397,7 @@ private:
     QTableWidget* summaryTable_ = nullptr;
     QTableWidget* anglesTable_ = nullptr;
     QTableWidget* planetsTable_ = nullptr;
+    QTableWidget* fixedStarsTable_ = nullptr;
     QTableWidget* housesTable_ = nullptr;
     QTableWidget* aspectsTable_ = nullptr;
     QTableWidget* rightTopTable_ = nullptr;
@@ -436,6 +440,10 @@ private:
     QComboBox* searchAspectCombo_ = nullptr;
     QComboBox* searchHouseCombo_ = nullptr;
     QComboBox* searchSignCombo_ = nullptr;
+    QLabel* searchDegreeLabel_ = nullptr;
+    QDoubleSpinBox* searchDegreeSpin_ = nullptr;
+    QLabel* searchDegreeSignLabel_ = nullptr;
+    QComboBox* searchDegreeSignCombo_ = nullptr;
     QComboBox* searchRangeModeCombo_ = nullptr;
     QRadioButton* searchModeRangeRadio_ = nullptr;
     QRadioButton* searchModeNextRadio_ = nullptr;
@@ -654,6 +662,8 @@ private:
     bool showAsteroids_ = false;
     bool includeAsteroidAspects_ = false;
     QStringList visibleAsteroids_;
+    bool showFixedStars_ = false;
+    QStringList visibleFixedStars_;
     ChartReadabilityPreset chartReadabilityPreset_ = ChartReadabilityPreset::Clean;
     bool transitSearchCancel_ = false;
     QVector<TransitSearchResult> transitSearchResults_;

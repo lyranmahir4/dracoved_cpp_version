@@ -76,6 +76,8 @@ public:
     void setShowAsteroids(bool value);
     void setIncludeAsteroidAspects(bool value);
     void setVisibleAsteroids(const QStringList& names);
+    void setShowFixedStars(bool value);
+    void setVisibleFixedStars(const QStringList& names);
     void setTickDensity(TickDensity density);
     void setFontScale(double scale);
     void setTheme(const ChartWheelTheme& theme);
@@ -86,6 +88,8 @@ public:
     bool showAsteroids() const;
     bool includeAsteroidAspects() const;
     QStringList visibleAsteroids() const;
+    bool showFixedStars() const;
+    QStringList visibleFixedStars() const;
     TickDensity tickDensity() const;
     double zoom() const;
     double fontScale() const;
@@ -137,6 +141,7 @@ private:
     int hitTestAspect(const QPointF& point) const;
     void updateCursor();
     bool isAsteroidVisible(const QString& name) const;
+    bool isFixedStarVisible(const QString& name) const;
     QVector<PlacedBody> computePlanetPlacements(
         const QVector<BodyPosition>& bodies,
         double baseRadius,
@@ -160,6 +165,9 @@ private:
     bool includeAsteroidAspects_ = false;
     QStringList visibleAsteroids_;
     QSet<QString> visibleAsteroidSet_;
+    bool showFixedStars_ = false;
+    QStringList visibleFixedStars_;
+    QSet<QString> visibleFixedStarSet_;
     TickDensity tickDensity_ = TickDensity::Full;
     double zoom_ = 1.0;
     double fontScale_ = 1.0;

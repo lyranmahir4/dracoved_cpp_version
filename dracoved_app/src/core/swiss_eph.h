@@ -25,6 +25,8 @@ public:
     double julianDay(int year, int month, int day, double hour, int gregFlag) const;
     bool revJul(double jd, int gregFlag, int* year, int* month, int* day, double* hour, QString* error) const;
     bool calcUt(double jdUt, int body, int flags, double* outLon, QString* error) const;
+    bool fixstarUt(const QString& starName, double jdUt, int flags,
+                   double* outLon, QString* outResolvedName, QString* error) const;
     bool houses(double jdUt, double geoLat, double geoLon, char hsys, double* cusps, double* ascmc, QString* error) const;
     bool housesArmc(double armc, double geoLat, double eps, char hsys, double* cusps, double* ascmc, QString* error) const;
     int solEclipseWhenGlob(double jdStart, int flags, int typeFlags, double* tret, int backward, QString* error) const;
@@ -42,6 +44,7 @@ private:
     using SweJulDay = double (*)(int, int, int, double, int);
     using SweRevJul = void (*)(double, int, int*, int*, int*, double*);
     using SweCalcUt = int (*)(double, int, int, double*, char*);
+    using SweFixstarUt = int (*)(char*, double, int, double*, char*);
     using SweHouses = int (*)(double, double, double, int, double*, double*);
     using SweHousesArmc = int (*)(double, double, double, int, double*, double*);
     using SweSolEclipseWhenGlob = int (*)(double, int, int, double*, int, char*);
@@ -52,6 +55,8 @@ private:
     SweJulDay sweJulDay_ = nullptr;
     SweRevJul sweRevJul_ = nullptr;
     SweCalcUt sweCalcUt_ = nullptr;
+    SweFixstarUt sweFixstarUt_ = nullptr;
+    SweFixstarUt sweFixstar2Ut_ = nullptr;
     SweHouses sweHouses_ = nullptr;
     SweHousesArmc sweHousesArmc_ = nullptr;
     SweSolEclipseWhenGlob sweSolEclipseWhenGlob_ = nullptr;

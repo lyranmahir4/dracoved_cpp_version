@@ -1,5 +1,6 @@
 ﻿#include "chart_wheel_widget.h"
 
+#include "../core/fixed_stars.h"
 #include "../core/formatting.h"
 
 #include <QContextMenuEvent>
@@ -74,6 +75,7 @@ ChartWheelWidget::ChartWheelWidget(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
     setVisibleAsteroids(asteroidBodyOrder());
+    setVisibleFixedStars(fixedStarCatalog());
     theme_ = ChartWheelTheme{
         QColor("#FFFFFF"),          // background - White
         QColor("#E0E0E0"),          // ringOuter - Soft Grey
@@ -230,6 +232,30 @@ void ChartWheelWidget::setVisibleAsteroids(const QStringList& names) {
     update();
 }
 
+void ChartWheelWidget::setShowFixedStars(bool value) {
+    showFixedStars_ = value;
+    update();
+}
+
+void ChartWheelWidget::setVisibleFixedStars(const QStringList& names) {
+    QSet<QString> nextSet;
+    for (const auto& name : names) {
+        const QString normalized = name.trimmed().toCaseFolded();
+        if (!normalized.isEmpty()) {
+            nextSet.insert(normalized);
+        }
+    }
+    visibleFixedStarSet_ = nextSet;
+    visibleFixedStars_.clear();
+    for (const auto& name : fixedStarCatalog()) {
+        const QString normalized = name.trimmed().toCaseFolded();
+        if (!normalized.isEmpty() && visibleFixedStarSet_.contains(normalized)) {
+            visibleFixedStars_.push_back(name);
+        }
+    }
+    update();
+}
+
 void ChartWheelWidget::setTickDensity(TickDensity density) {
     tickDensity_ = density;
     update();
@@ -271,6 +297,14 @@ bool ChartWheelWidget::includeAsteroidAspects() const {
 
 QStringList ChartWheelWidget::visibleAsteroids() const {
     return visibleAsteroids_;
+}
+
+bool ChartWheelWidget::showFixedStars() const {
+    return showFixedStars_;
+}
+
+QStringList ChartWheelWidget::visibleFixedStars() const {
+    return visibleFixedStars_;
 }
 
 ChartWheelWidget::TickDensity ChartWheelWidget::tickDensity() const {
@@ -421,6 +455,14 @@ bool ChartWheelWidget::isAsteroidVisible(const QString& name) const {
         return true;
     }
     return visibleAsteroidSet_.contains(name);
+}
+
+bool ChartWheelWidget::isFixedStarVisible(const QString& name) const {
+    const QString normalized = name.trimmed().toCaseFolded();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+    return visibleFixedStarSet_.contains(normalized);
 }
 
 int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
@@ -1611,6 +1653,64 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         }
     };
 
+    auto drawFixedStars = [&](const QVector<FixedStarPosition>& stars, double markerRadius,
+                              const QColor& color, const QString& prefix) {
+        if (!showFixedStars_ || stars.isEmpty()) {
+            return;
+        }
+        QFont starFont("Segoe UI Symbol");
+        starFont.setPixelSize(static_cast<int>(10 * fontScale_));
+        QFont starDegFont("Segoe UI", static_cast<int>(8 * fontScale_));
+        starDegFont.setBold(true);
+
+        for (const auto& star : stars) {
+            if (!isFixedStarVisible(star.name)) {
+                continue;
+            }
+            const double lon = normalizeDegrees(star.longitude);
+            const double angle = angleForLongitude(lon);
+            const QPointF pInner = pointOnCircle(center, markerRadius - 3.5 * fontScale_, angle);
+            const QPointF pOuter = pointOnCircle(center, markerRadius + 3.5 * fontScale_, angle);
+
+            painter.save();
+            QColor lineColor = color;
+            lineColor.setAlpha(180);
+            painter.setPen(QPen(lineColor, 1.0, Qt::SolidLine, Qt::RoundCap));
+            painter.drawLine(pInner, pOuter);
+            painter.restore();
+
+            const QPointF symbolPos = pointOnCircle(center, markerRadius + 8.5 * fontScale_, angle);
+            const QRectF symbolRect(symbolPos.x() - 6.0 * fontScale_, symbolPos.y() - 6.0 * fontScale_,
+                                    12.0 * fontScale_, 12.0 * fontScale_);
+            painter.save();
+            painter.setFont(starFont);
+            painter.setPen(color);
+            painter.drawText(symbolRect, Qt::AlignCenter, QString::fromUtf8(u8"✶"));
+            painter.restore();
+
+            if (showDegrees_) {
+                painter.save();
+                painter.setFont(starDegFont);
+                const QRectF textRect = placeRadialRect(angle, markerRadius + degreeOffset + 6.0 * fontScale_,
+                                                        degWidth, degHeight);
+                painter.setPen(color);
+                painter.drawText(textRect, Qt::AlignCenter, formatDegShort(lon));
+                painter.restore();
+                occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
+            }
+
+            const QString tooltip = QString("%1%2 in %3 %4 (House %5)")
+                .arg(prefix)
+                .arg(star.name)
+                .arg(signName(signIndex(lon)))
+                .arg(formatDegShort(lon))
+                .arg(star.house > 0 ? QString::number(star.house) : QString("-"));
+            planetHitAreas_.push_back(symbolRect.adjusted(-2, -2, 2, 2));
+            planetTooltips_.push_back(tooltip);
+            occupiedRects.push_back(symbolRect.adjusted(-2, -2, 2, 2));
+        }
+    };
+
     if (overlay) {
         // Natal planets INSIDE the wheel (between houseOuter and houseInner)
         // Tick lines point outward to zodiacInner
@@ -1626,12 +1726,17 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         const double transitMax = planetLaneRadius + glyphHalf + 4.0;
         auto transitPlacements = computePlanetPlacements(overlayChart_.bodies, planetLaneRadius, transitMin, transitMax, glyphSize, center);
         drawPlacedBodies(transitPlacements, planetLaneRadius, zodiacOuter, theme_.transitBody, overlayPrefix + " ", true);
+        drawFixedStars(chart_.fixedStars, zodiacOuter - 6.0 * fontScale_, theme_.natalBody, "Natal ");
+        drawFixedStars(overlayChart_.fixedStars, zodiacOuter + 6.0 * fontScale_, theme_.transitBody, overlayPrefix + " ");
     } else {
         // Natal-only: single planet lane outside zodiac
         const double minR = planetLaneRadius - glyphHalf - 4.0;
         const double maxR = planetLaneRadius + glyphHalf + 4.0;
         auto placements = computePlanetPlacements(chart_.bodies, planetLaneRadius, minR, maxR, glyphSize, center);
         drawPlacedBodies(placements, planetLaneRadius, zodiacOuter, theme_.body, "", false);
+        const QColor starColor = (mode_ == Mode::TransitOnly) ? theme_.transitBody : theme_.body;
+        const QString starPrefix = (mode_ == Mode::TransitOnly) ? QString("Transit ") : QString();
+        drawFixedStars(chart_.fixedStars, zodiacOuter + 6.0 * fontScale_, starColor, starPrefix);
     }
 
     // Angle labels + degrees.
