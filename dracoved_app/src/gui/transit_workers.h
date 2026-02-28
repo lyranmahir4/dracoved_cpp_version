@@ -134,6 +134,10 @@ struct ConjunctionParams {
     HouseSystem houseSystem = HouseSystem::WholeSign;
     QVector<double> natalCusps;
     double natalAsc = 0.0;
+    bool uniqueFirstOnly = false;
+    double uniqueDegreeStep = 1.0;
+    QDateTime uniqueWindowStartUtc;
+    QDateTime uniqueWindowEndUtc;
 };
 
 
@@ -1322,6 +1326,12 @@ public slots:
                 }
                 return a.startUtc < b.startUtc;
             });
+            if (params_.uniqueFirstOnly) {
+                if (!applyUniqueFirstFilter(&err)) {
+                    emit finished(false, err);
+                    return;
+                }
+            }
             if (cancelled_.load()) {
                 emit finished(true, QString());
             } else {
@@ -1447,6 +1457,16 @@ public slots:
             }
             return a.startUtc < b.startUtc;
         });
+        if (params_.uniqueFirstOnly) {
+            if (!applyUniqueFirstFilter(&err)) {
+                emit finished(false, err);
+                return;
+            }
+        }
+        if (cancelled_.load()) {
+            emit finished(true, QString());
+            return;
+        }
 
         emit finished(false, QString());
     }
@@ -1737,6 +1757,104 @@ private:
             }
         }
         return ordered;
+    }
+
+    bool buildUniqueSignature(const MainWindow::TransitConjunctionWindow& result, QString* outSignature, QString* error) {
+        const QStringList cluster = result.orbClusterAtStart.isEmpty()
+            ? result.planetsInBucketAtStart
+            : result.orbClusterAtStart;
+        if (cluster.isEmpty()) {
+            if (error) {
+                *error = "Empty conjunction cluster.";
+            }
+            return false;
+        }
+        const QStringList ordered = orderedPlanetNames(cluster);
+        if (ordered.isEmpty()) {
+            if (error) {
+                *error = "Unable to resolve conjunction cluster ordering.";
+            }
+            return false;
+        }
+        const double step = std::max(0.01, params_.uniqueDegreeStep);
+        const int decimals = (step < 0.1) ? 2 : ((step < 1.0) ? 1 : 0);
+        QStringList tokens;
+        tokens.reserve(ordered.size());
+        for (const auto& name : ordered) {
+            double lon = 0.0;
+            QString lonErr;
+            if (!planetLongitude(result.startUtc, name, &lon, &lonErr)) {
+                if (error) {
+                    *error = QString("%1: %2").arg(name, lonErr);
+                }
+                return false;
+            }
+            int signIdx = signIndex(lon);
+            double lonInSign = normalizeDegrees(lon) - static_cast<double>(signIdx) * 30.0;
+            if (lonInSign < 0.0) {
+                lonInSign += 30.0;
+            }
+            double roundedDeg = std::round(lonInSign / step) * step;
+            if (roundedDeg >= 30.0 - 1e-6) {
+                roundedDeg = 0.0;
+                signIdx = (signIdx + 1) % 12;
+            }
+            tokens.push_back(QString("%1@%2 %3")
+                                 .arg(name)
+                                 .arg(signName(signIdx))
+                                 .arg(QString::number(roundedDeg, 'f', decimals)));
+        }
+        if (outSignature) {
+            *outSignature = tokens.join(" | ");
+        }
+        return true;
+    }
+
+    bool applyUniqueFirstFilter(QString* error) {
+        QDateTime gateStart = params_.uniqueWindowStartUtc;
+        QDateTime gateEnd = params_.uniqueWindowEndUtc;
+        if (!gateStart.isValid()) {
+            gateStart = params_.startUtc;
+        }
+        if (!gateEnd.isValid()) {
+            gateEnd = params_.endUtc;
+        }
+        if (!gateStart.isValid() || !gateEnd.isValid() || gateStart > gateEnd) {
+            if (error) {
+                *error = "Invalid unique conjunction gate range.";
+            }
+            return false;
+        }
+
+        QSet<QString> seenSignatures;
+        QVector<MainWindow::TransitConjunctionWindow> filtered;
+        filtered.reserve(results_.size());
+        for (const auto& event : results_) {
+            if (cancelled_.load()) {
+                return true;
+            }
+            QString signature;
+            QString signatureErr;
+            if (!buildUniqueSignature(event, &signature, &signatureErr)) {
+                warnings_.push_back(QString("%1: %2")
+                    .arg(event.startUtc.toString("yyyy-MM-dd HH:mm:ss"))
+                    .arg(signatureErr));
+                continue;
+            }
+            if (seenSignatures.contains(signature)) {
+                continue;
+            }
+            seenSignatures.insert(signature);
+            if (event.startUtc < gateStart || event.startUtc > gateEnd) {
+                continue;
+            }
+            MainWindow::TransitConjunctionWindow tagged = event;
+            tagged.uniqueFirstOccurrence = true;
+            tagged.uniqueSignature = signature;
+            filtered.push_back(tagged);
+        }
+        results_ = filtered;
+        return true;
     }
 
     bool relativeLongitude(const QDateTime& utc, const QString& aName, const QString& bName,

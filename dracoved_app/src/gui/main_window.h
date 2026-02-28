@@ -79,6 +79,8 @@ public:
         int bucketCount = 0;
         int clusterCount = 0;
         double clusterSpanDeg = 0.0;
+        bool uniqueFirstOccurrence = false;
+        QString uniqueSignature;
     };
     struct LunationResult {
         QDateTime timeLocal;
@@ -130,6 +132,7 @@ private:
     enum class ThemeMode {
         Light,
         Dark,
+        Creme,
     };
 
     enum class AspectHeaderMode {
@@ -147,6 +150,11 @@ private:
     enum class SolarAspectView {
         SolarReturn,
         SolarNatal,
+    };
+    enum class SolarPlacementFinderHouseMode {
+        WholeSign,
+        Placidus,
+        Both,
     };
     enum class RelocationAspectView {
         Relocation,
@@ -198,11 +206,34 @@ private:
         ExcludeSelected,
     };
 
+    struct AspectGridBodyFilter {
+        bool showNodes = true;
+        bool showLilith = false;
+        bool showLots = false;
+        bool showDerivedPoints = false;
+        bool showAsteroids = false;
+        bool showAngles = true;
+    };
+
     struct LunationDegreeGroup {
         double degree = 0.0;
         int signIndex = -1;
         int house = 0;
         QVector<int> eventIndices;
+    };
+
+    struct SolarPlacementFinderResult {
+        int year = 0;
+        QDateTime localDateTime;
+        QString bodyName;
+        int houseWhole = 0;
+        int housePlacidus = 0;
+        bool matchedWhole = false;
+        bool matchedPlacidus = false;
+        bool matchedConjunction = false;
+        QString matchedAngleName;
+        double conjunctionOrb = 0.0;
+        QString warning;
     };
 
     void setupUi();
@@ -218,10 +249,13 @@ private:
     ChartWheelTheme buildChartTheme(ThemeMode mode) const;
     QString aspectHeaderLabel(const QString& name) const;
     void refreshAspectsForHeaderMode();
-    void applyAspectTriangle(int size);
+    void applyAspectTableFont();
+    bool isBodyVisibleInAspectGrid(const QString& name) const;
+    void handleAspectGridSettings();
     void updateAspectHover(int row, int column);
     void clearAspectHover();
     void markSolarPending();
+    void markSolarPlacementFinderStale();
     void updateSolarStatusLabels();
     void updateSolarLocationAvailability();
     void updateSolarTimezoneStatus();
@@ -230,6 +264,11 @@ private:
     void fetchSolarTimezoneForCoords(double lat, double lon);
     void handleSolarCalculate();
     void refreshSolarReturnView();
+    void handleSolarPlacementFinderRun();
+    void refreshSolarPlacementFinderView();
+    void showSolarPlacementFinderResults();
+    void showSolarPlacementFinderDetails(int index);
+    void handleSolarPlacementFinderResultActivated(int row, int column);
     void showSolarPlaceholder();
     void markRelocationPending();
     void updateRelocationStatusLabels();
@@ -313,6 +352,7 @@ private:
     void updateChartLegend();
     void refreshSolarTechniqueView();
     bool isSolarTechniqueTabActive() const;
+    bool isSolarPlacementFinderTabActive() const;
     void updateSolarTechniqueDockTitles();
     void handleProgressionNow();
     void handleProgressionCalculate();
@@ -384,6 +424,12 @@ private:
     void updateAstrocartographyView();
     void updateGeodeticOverlays();
     void setWorldMapOverlays(const QVariantList& lineOverlays, const QVariantList& bandOverlays);
+    bool resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
+                                   QString* error) const;
+    bool computeSolarReturnChartPure(int year, const QString& tzLabel, double targetLon, const QString& locationName,
+                                     double lat, double lon, dracoved::HouseSystem houseSystem,
+                                     dracoved::NatalChart* outChart, dracoved::NatalInput* outInput, QString* error);
+    bool applySolarReturnYear(int year, QString* error = nullptr);
 
     QDockWidget* dataDock_ = nullptr;
     QDockWidget* rightTopDock_ = nullptr;
@@ -489,6 +535,9 @@ private:
     QSpinBox* conjCountSpin_ = nullptr;
     QCheckBox* conjUseOrbCheck_ = nullptr;
     QDoubleSpinBox* conjOrbSpin_ = nullptr;
+    QCheckBox* conjIncludeMoonCheck_ = nullptr;
+    QCheckBox* conjUniqueFirstCheck_ = nullptr;
+    QComboBox* conjUniqueDegreeCombo_ = nullptr;
     QPushButton* conjRunButton_ = nullptr;
     QPushButton* conjStopButton_ = nullptr;
     QLabel* conjStatusLabel_ = nullptr;
@@ -554,6 +603,7 @@ private:
     QLabel* chartTitleLabel_ = nullptr;
     QAction* themeLightAction_ = nullptr;
     QAction* themeDarkAction_ = nullptr;
+    QAction* themeCremeAction_ = nullptr;
     QAction* aspectHeaderGlyphAction_ = nullptr;
     QAction* aspectHeaderAbbrevAction_ = nullptr;
     QAction* aspectHeaderFullAction_ = nullptr;
@@ -572,11 +622,13 @@ private:
     QLabel* progressionStatusLabel_ = nullptr;
     QLabel* progressionLastLabel_ = nullptr;
     QPushButton* aspectsCopyButton_ = nullptr;
+    QToolButton* aspectGridSettingsButton_ = nullptr;
     QWidget* reportPanel_ = nullptr;
     QTextEdit* reportText_ = nullptr;
     QPushButton* reportCopyButton_ = nullptr;
     QWidget* solarControls_ = nullptr;
     QWidget* solarTechniquePanel_ = nullptr;
+    QWidget* solarPlacementFinderPanel_ = nullptr;
     QSpinBox* solarYearSpin_ = nullptr;
     QRadioButton* solarUseNatalRadio_ = nullptr;
     QRadioButton* solarUseCustomRadio_ = nullptr;
@@ -597,6 +649,15 @@ private:
     QComboBox* solarTechniqueRankMetricCombo_ = nullptr;
     QComboBox* solarTechniqueRankOrderCombo_ = nullptr;
     QSpinBox* solarTechniqueTopSpin_ = nullptr;
+    QSpinBox* solarFinderStartYearSpin_ = nullptr;
+    QSpinBox* solarFinderEndYearSpin_ = nullptr;
+    QComboBox* solarFinderPlanetCombo_ = nullptr;
+    QComboBox* solarFinderHouseCombo_ = nullptr;
+    QComboBox* solarFinderHouseSystemCombo_ = nullptr;
+    QComboBox* solarFinderConjunctionTargetCombo_ = nullptr;
+    QDoubleSpinBox* solarFinderConjunctionOrbSpin_ = nullptr;
+    QPushButton* solarFinderRunButton_ = nullptr;
+    QLabel* solarFinderStatusLabel_ = nullptr;
     QWidget* relocationControls_ = nullptr;
     QLineEdit* relocationLocationEdit_ = nullptr;
     QPushButton* relocationGeocodeButton_ = nullptr;
@@ -714,6 +775,9 @@ private:
     QDateTime conjAnchorUtc_;
     QTimeZone conjTz_;
     QString conjTzLabel_;
+    bool conjLastRunUniqueFirst_ = false;
+    bool conjLastRunIncludeMoon_ = true;
+    double conjLastRunUniqueDegreeStep_ = 1.0;
     bool searchRunning_ = false;
     bool searchAutoApplied_ = false;
     QVector<LunationResult> lunationResults_;
@@ -727,6 +791,20 @@ private:
     bool lunationAutoApplied_ = false;
     bool hasLunationSelection_ = false;
     LunationResult lastLunationSelection_;
+    QVector<SolarPlacementFinderResult> solarPlacementFinderResults_;
+    QStringList solarPlacementFinderWarnings_;
+    bool solarPlacementFinderRan_ = false;
+    bool solarPlacementFinderStale_ = false;
+    int solarPlacementFinderSelectedIndex_ = -1;
+    int solarPlacementFinderLastSearchedCount_ = 0;
+    int solarPlacementFinderLastFailedCount_ = 0;
+    int solarPlacementFinderLastStartYear_ = 0;
+    int solarPlacementFinderLastEndYear_ = 0;
+    QString solarPlacementFinderLastPlanet_;
+    int solarPlacementFinderLastHouse_ = 1;
+    SolarPlacementFinderHouseMode solarPlacementFinderLastHouseMode_ = SolarPlacementFinderHouseMode::WholeSign;
+    QString solarPlacementFinderLastConjunctionTarget_ = "None";
+    double solarPlacementFinderLastConjunctionOrb_ = 1.0;
     LunationAnalysisMode lunationAnalysisMode_ = LunationAnalysisMode::List;
     QThread* lunationThread_ = nullptr;
     QObject* lunationWorker_ = nullptr;
@@ -739,6 +817,7 @@ private:
     bool aspectTriangleEnabled_ = false;
     int aspectHoverRow_ = -1;
     int aspectHoverCol_ = -1;
+    AspectGridBodyFilter aspectGridFilter_;
 
     QNetworkAccessManager* net_ = nullptr;
 

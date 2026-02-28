@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe:*)",
+      "Bash(cmd:*)",
+      "Bash(/c/Qt/Tools/CMake_64/bin/cmake.exe:*)"
+    ]
+  }
+}

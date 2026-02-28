@@ -10,26 +10,55 @@
 - `sweph/` is upstream Swiss Ephemeris vendor source/tools and should be treated as external code.
 
 ## Build, Run, and Packaging Commands
+
+### Quickest way — use the build script
+
+After any code change, run `do_build.bat` from the project root in CMD:
+
+```bat
+cd C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version
+do_build.bat
+```
+
+This handles all steps in order (build → copy EXE → windeployqt → copy DLL → copy ephe) and updates both `build/` and `dist/` executables. Always run it manually in CMD — it will not work through a bash/POSIX shell layer.
+
+---
+
+### Manual steps (reference only)
 Use Windows CMD (as in `README.md`). Update Qt paths for your local machine.
 
 - One-time configure (only if `dracoved_app/build` is missing):
   `set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"`
-  `cmake -S DracoVed_cpp_version\dracoved_app -B DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64`
+  `cmake -S C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app -B C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64`
 
 - Required after code changes: build updated executable in `dracoved_app/build`:
   `set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"`
-  `cmake --build DracoVed_cpp_version\dracoved_app\build`
+  `cmake --build C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build`
 
 - Required after build: package fresh runtime files into `dracoved_app/dist`:
   `set "QT_BIN=C:\Qt\6.10.1\mingw_64\bin"`
-  `mkdir DracoVed_cpp_version\dracoved_app\dist 2>NUL`
-  `copy /Y DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
-  `"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
-  `copy /Y DracoVed_cpp_version\swedll64.dll DracoVed_cpp_version\dracoved_app\dist\swedll64.dll`
-  `xcopy /E /I /Y DracoVed_cpp_version\ephe DracoVed_cpp_version\dracoved_app\dist\ephe`
+  `copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+  `"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+  `copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\swedll64.dll C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\swedll64.dll`
+  `xcopy /E /I /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\ephe`
 
 - Run the app from `dist` (preferred runtime path):
-  `DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+  `C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe`
+
+- Common pitfalls:
+  `windeployqt` requires the EXE path argument.
+  `copy` requires both source and destination paths.
+  `swedll64.dll` and `ephe` are runtime assets, not executable commands.
+
+- Build discipline (learned from real failures):
+  Do: run commands in `cmd.exe` from `C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version`.
+  Do: keep strict order after code changes: build -> copy `build\dracoved_app.exe` to `dist\dracoved_app.exe` -> `windeployqt <dist exe>` -> copy `swedll64.dll` -> `xcopy ephe`.
+  Do: rerun the full packaging sequence if any step fails or the session is interrupted.
+  Do: verify timestamps for both EXEs before testing from `dist`.
+  Do not: omit mandatory command arguments (`windeployqt` target exe, `copy` destination path).
+  Do not: execute `swedll64.dll` or `ephe\` as commands.
+  Do not: assume build success updates `dist`; packaging is required.
+  Do not: test from `dist` if only `build` was refreshed.
 
 - Policy: after any code change, both EXEs must be current:
   - `dracoved_app/build/dracoved_app.exe`

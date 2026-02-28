@@ -51,6 +51,7 @@
 #include <QMessageBox>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QStackedWidget>
@@ -236,6 +237,35 @@ static QStringList geodeticBodyOrder() {
         bodies.push_back(name);
     }
     return bodies;
+}
+
+static QStringList solarPlacementFinderPlanetOrder() {
+    return {
+        "Sun",
+        "Moon",
+        "Mercury",
+        "Venus",
+        "Mars",
+        "Jupiter",
+        "Saturn",
+        "Uranus",
+        "Neptune",
+        "Pluto",
+        "North Node",
+        "South Node",
+        "Lilith",
+    };
+}
+
+static QStringList solarPlacementFinderConjunctionTargets() {
+    return {
+        "None",
+        "Ascendant",
+        "Descendant",
+        "Midheaven",
+        "IC",
+        "Any Angle",
+    };
 }
 
 static QColor geodeticColorForIndex(int index) {
@@ -608,6 +638,7 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
     loadUiState();
+    applyTheme(theme_);
 
     ephePath_ = findEphePath();
     if (!ephePath_.isEmpty()) {
@@ -870,6 +901,83 @@ void MainWindow::setupDockLayout() {
 
     tabs_->addTab(solarTechniquePanel_, "Technique");
     tabs_->setTabVisible(tabs_->indexOf(solarTechniquePanel_), false);
+
+    solarPlacementFinderPanel_ = new QWidget(tabs_);
+    auto* finderLayout = new QVBoxLayout(solarPlacementFinderPanel_);
+    finderLayout->setContentsMargins(0, 0, 0, 0);
+    finderLayout->setSpacing(8);
+
+    auto* finderRangeGroup = new QGroupBox("Year Range", solarPlacementFinderPanel_);
+    auto* finderRangeLayout = new QGridLayout(finderRangeGroup);
+    finderRangeLayout->setHorizontalSpacing(8);
+    finderRangeLayout->setVerticalSpacing(6);
+    const int currentSolarFinderYear = QDate::currentDate().year();
+    solarFinderStartYearSpin_ = new QSpinBox(finderRangeGroup);
+    solarFinderStartYearSpin_->setRange(1800, 2399);
+    solarFinderStartYearSpin_->setValue(std::clamp(currentSolarFinderYear - 5, 1800, 2399));
+    solarFinderEndYearSpin_ = new QSpinBox(finderRangeGroup);
+    solarFinderEndYearSpin_->setRange(1800, 2399);
+    solarFinderEndYearSpin_->setValue(std::clamp(currentSolarFinderYear + 5, 1800, 2399));
+    finderRangeLayout->addWidget(new QLabel("Start Year", finderRangeGroup), 0, 0);
+    finderRangeLayout->addWidget(solarFinderStartYearSpin_, 0, 1);
+    finderRangeLayout->addWidget(new QLabel("End Year", finderRangeGroup), 1, 0);
+    finderRangeLayout->addWidget(solarFinderEndYearSpin_, 1, 1);
+    finderLayout->addWidget(finderRangeGroup);
+
+    auto* finderFilterGroup = new QGroupBox("Filter", solarPlacementFinderPanel_);
+    auto* finderFilterLayout = new QGridLayout(finderFilterGroup);
+    finderFilterLayout->setHorizontalSpacing(8);
+    finderFilterLayout->setVerticalSpacing(6);
+    solarFinderPlanetCombo_ = new QComboBox(finderFilterGroup);
+    for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
+        solarFinderPlanetCombo_->addItem(bodyName);
+    }
+    solarFinderPlanetCombo_->setCurrentText("Sun");
+    solarFinderHouseCombo_ = new QComboBox(finderFilterGroup);
+    for (int house = 1; house <= 12; ++house) {
+        solarFinderHouseCombo_->addItem(QString::number(house), house);
+    }
+    solarFinderHouseSystemCombo_ = new QComboBox(finderFilterGroup);
+    solarFinderHouseSystemCombo_->addItem("Whole Sign", static_cast<int>(SolarPlacementFinderHouseMode::WholeSign));
+    solarFinderHouseSystemCombo_->addItem("Placidus", static_cast<int>(SolarPlacementFinderHouseMode::Placidus));
+    solarFinderHouseSystemCombo_->addItem("Both", static_cast<int>(SolarPlacementFinderHouseMode::Both));
+    solarFinderConjunctionTargetCombo_ = new QComboBox(finderFilterGroup);
+    for (const auto& targetName : solarPlacementFinderConjunctionTargets()) {
+        solarFinderConjunctionTargetCombo_->addItem(targetName);
+    }
+    solarFinderConjunctionTargetCombo_->setCurrentText("None");
+    solarFinderConjunctionOrbSpin_ = new QDoubleSpinBox(finderFilterGroup);
+    solarFinderConjunctionOrbSpin_->setRange(0.1, 10.0);
+    solarFinderConjunctionOrbSpin_->setDecimals(2);
+    solarFinderConjunctionOrbSpin_->setSingleStep(0.1);
+    solarFinderConjunctionOrbSpin_->setValue(1.0);
+    solarFinderConjunctionOrbSpin_->setSuffix(" deg");
+    solarFinderConjunctionOrbSpin_->setEnabled(false);
+    finderFilterLayout->addWidget(new QLabel("Planet", finderFilterGroup), 0, 0);
+    finderFilterLayout->addWidget(solarFinderPlanetCombo_, 0, 1);
+    finderFilterLayout->addWidget(new QLabel("House", finderFilterGroup), 1, 0);
+    finderFilterLayout->addWidget(solarFinderHouseCombo_, 1, 1);
+    finderFilterLayout->addWidget(new QLabel("House System", finderFilterGroup), 2, 0);
+    finderFilterLayout->addWidget(solarFinderHouseSystemCombo_, 2, 1);
+    finderFilterLayout->addWidget(new QLabel("Conjunction", finderFilterGroup), 3, 0);
+    finderFilterLayout->addWidget(solarFinderConjunctionTargetCombo_, 3, 1);
+    finderFilterLayout->addWidget(new QLabel("Conj. Orb", finderFilterGroup), 4, 0);
+    finderFilterLayout->addWidget(solarFinderConjunctionOrbSpin_, 4, 1);
+    finderLayout->addWidget(finderFilterGroup);
+
+    auto* finderRunGroup = new QGroupBox("Run", solarPlacementFinderPanel_);
+    auto* finderRunLayout = new QHBoxLayout(finderRunGroup);
+    solarFinderRunButton_ = new QPushButton("Find Matching Years", finderRunGroup);
+    solarFinderStatusLabel_ = new QLabel("Idle", finderRunGroup);
+    solarFinderStatusLabel_->setObjectName("hintLabel");
+    finderRunLayout->addWidget(solarFinderRunButton_);
+    finderRunLayout->addStretch();
+    finderRunLayout->addWidget(solarFinderStatusLabel_);
+    finderLayout->addWidget(finderRunGroup);
+    finderLayout->addStretch();
+
+    tabs_->addTab(solarPlacementFinderPanel_, "Placement Finder");
+    tabs_->setTabVisible(tabs_->indexOf(solarPlacementFinderPanel_), false);
 
     auto* dataPanel = new QFrame(this);
     dataPanel->setObjectName("dataPanel");
@@ -1533,10 +1641,23 @@ void MainWindow::setupDockLayout() {
     conjOrbSpin_->setValue(10.0);
     conjOrbSpin_->setSuffix("°");
     conjOrbSpin_->setEnabled(false);
+    conjIncludeMoonCheck_ = new QCheckBox("Include Moon", conjParamGroup);
+    conjIncludeMoonCheck_->setChecked(true);
+    conjUniqueFirstCheck_ = new QCheckBox("First-time unique only (sign + degree)", conjParamGroup);
+    conjUniqueDegreeCombo_ = new QComboBox(conjParamGroup);
+    conjUniqueDegreeCombo_->addItem("1.0°", 1.0);
+    conjUniqueDegreeCombo_->addItem("0.5°", 0.5);
+    conjUniqueDegreeCombo_->addItem("0.1°", 0.1);
+    conjUniqueDegreeCombo_->setCurrentIndex(0);
+    conjUniqueDegreeCombo_->setEnabled(false);
     conjParamLayout->addWidget(new QLabel("Min Planets (N)", conjParamGroup), 0, 0);
     conjParamLayout->addWidget(conjCountSpin_, 0, 1);
     conjParamLayout->addWidget(conjUseOrbCheck_, 1, 0);
     conjParamLayout->addWidget(conjOrbSpin_, 1, 1);
+    conjParamLayout->addWidget(conjIncludeMoonCheck_, 2, 0, 1, 2);
+    conjParamLayout->addWidget(conjUniqueFirstCheck_, 3, 0, 1, 2);
+    conjParamLayout->addWidget(new QLabel("Degree Step", conjParamGroup), 4, 0);
+    conjParamLayout->addWidget(conjUniqueDegreeCombo_, 4, 1);
 
     auto* conjRangeGroup = new QGroupBox("Range", transitConjunctionPanel_);
     auto* conjRangeLayout = new QGridLayout(conjRangeGroup);
@@ -2097,6 +2218,7 @@ void MainWindow::setupDockLayout() {
     aspectsPanel_->setObjectName("aspectsPanel");
     auto* aspectsLayout = new QVBoxLayout(aspectsPanel_);
     aspectsLayout->setContentsMargins(6, 6, 6, 6);
+    aspectsLayout->setSpacing(4);
     aspectScopeTabs_ = new QTabBar(aspectsPanel_);
     aspectScopeTabs_->addTab("Transit-Natal");
     aspectScopeTabs_->addTab("Transit-Transit");
@@ -2107,11 +2229,19 @@ void MainWindow::setupDockLayout() {
     auto* aspectsHeader = new QWidget(aspectsPanel_);
     auto* aspectsHeaderLayout = new QHBoxLayout(aspectsHeader);
     aspectsHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    aspectsHeaderLayout->setSpacing(4);
+    aspectGridSettingsButton_ = new QToolButton(aspectsHeader);
+    aspectGridSettingsButton_->setText(QString(QChar(0x2699)));
+    aspectGridSettingsButton_->setToolTip("Aspect grid body visibility");
+    aspectGridSettingsButton_->setAutoRaise(false);
     aspectsCopyButton_ = new QPushButton("Copy Aspects", aspectsHeader);
     aspectsHeaderLayout->addWidget(aspectScopeTabs_);
     aspectsHeaderLayout->addStretch();
+    aspectsHeaderLayout->addWidget(aspectGridSettingsButton_);
     aspectsHeaderLayout->addWidget(aspectsCopyButton_);
     aspectsLayout->addWidget(aspectsHeader);
+    aspectsTable_->setObjectName("aspectsTable");
+    aspectsTable_->setFrameShape(QFrame::NoFrame);
     aspectsLayout->addWidget(aspectsTable_, 1);
 
     leftSplitter_ = new QSplitter(Qt::Vertical, this);
@@ -2290,16 +2420,25 @@ void MainWindow::setupMenuBar() {
     auto* themeMenu = menuBar()->addMenu("&Theme");
     auto* themeGroup = new QActionGroup(this);
     themeLightAction_ = themeMenu->addAction("Light");
+    themeCremeAction_ = themeMenu->addAction("Creme");
     themeDarkAction_ = themeMenu->addAction("Dark");
     themeLightAction_->setCheckable(true);
+    themeCremeAction_->setCheckable(true);
     themeDarkAction_->setCheckable(true);
     themeGroup->addAction(themeLightAction_);
+    themeGroup->addAction(themeCremeAction_);
     themeGroup->addAction(themeDarkAction_);
     connect(themeLightAction_, &QAction::triggered, this, [this]() {
         applyTheme(ThemeMode::Light);
+        saveUiState();
+    });
+    connect(themeCremeAction_, &QAction::triggered, this, [this]() {
+        applyTheme(ThemeMode::Creme);
+        saveUiState();
     });
     connect(themeDarkAction_, &QAction::triggered, this, [this]() {
         applyTheme(ThemeMode::Dark);
+        saveUiState();
     });
 
     auto* helpMenu = menuBar()->addMenu("&Help");
@@ -2310,6 +2449,88 @@ void MainWindow::setupMenuBar() {
 }
 
 QString MainWindow::buildStyleSheet(ThemeMode mode) const {
+    if (mode == ThemeMode::Creme) {
+        // Palette:
+        //   base bg:      #f5efe6  warm parchment
+        //   surface:      #ede3d6  slightly deeper creme panel
+        //   panel border: #d6c9b6  warm taupe border
+        //   header bg:    #e6d9c8  warm header strip
+        //   text:         #3a2e22  deep warm brown
+        //   accent:       #8b5e3c  warm terracotta / sienna
+        //   hover accent: #a0714f
+        //   input bg:     #faf4ec  near-white warm
+        //   selection:    #ddd0bc
+        //   grid lines:   #cfc0a8
+        return
+            "QMainWindow { background-color: #f5efe6; color: #3a2e22; }"
+            "QDialog { background-color: #f5efe6; color: #3a2e22; }"
+            "QWidget { color: #3a2e22; }"
+            "QMenuBar { background-color: #ede3d6; color: #3a2e22; border-bottom: 1px solid #d6c9b6; }"
+            "QMenuBar::item:selected { background-color: #ddd0bc; }"
+            "QLineEdit, QDateEdit, QTimeEdit, QComboBox, QDoubleSpinBox, QSpinBox {"
+            "  background-color: #faf4ec; border: 1px solid #c9b89e; padding: 3px; border-radius: 3px; color: #3a2e22;"
+            "}"
+            "QDateEdit, QTimeEdit, QDoubleSpinBox, QSpinBox { padding-right: 20px; }"
+            "QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {"
+            "  subcontrol-origin: border; width: 16px; border-left: 1px solid #c9b89e; background-color: #ede3d6;"
+            "}"
+            "QAbstractSpinBox::up-button { subcontrol-position: top right; border-top-right-radius: 3px; }"
+            "QAbstractSpinBox::down-button { subcontrol-position: bottom right; border-top: 1px solid #c9b89e; border-bottom-right-radius: 3px; }"
+            "QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow { width: 8px; height: 8px; }"
+            "QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {"
+            "  border: 1px solid #8b5e3c;"
+            "}"
+            "QAbstractItemView {"
+            "  background-color: #faf4ec; color: #3a2e22; selection-background-color: #ddd0bc; selection-color: #3a2e22;"
+            "}"
+            "QAbstractItemView::item { padding: 4px 6px; }"
+            "QPushButton { background-color: #ede3d6; border: 1px solid #c9b89e; padding: 4px 10px; border-radius: 3px; color: #3a2e22; }"
+            "QPushButton:hover { border: 1px solid #8b5e3c; background-color: #e4d8c8; }"
+            "QPushButton:pressed { background-color: #d8cab5; }"
+            "QToolButton { background-color: #ede3d6; border: 1px solid #c9b89e; padding: 2px 6px; border-radius: 3px; color: #3a2e22; }"
+            "QToolButton:hover { border: 1px solid #8b5e3c; background-color: #e4d8c8; }"
+            "QToolButton:pressed { background-color: #d8cab5; }"
+            "QDockWidget { background-color: #ede3d6; color: #3a2e22; }"
+            "QDockWidget::title { background-color: #e6d9c8; border: 1px solid #d6c9b6; padding: 4px 8px; color: #3a2e22; }"
+            "QFrame#profileQuickBar { background-color: #f0e8d8; border: 1px solid #d6c9b6; border-radius: 6px; }"
+            "QLabel#profileQuickState { color: #7a6550; border: none; }"
+            "QFrame#profileQuickBar QToolButton { padding: 3px 10px; border-radius: 4px; }"
+            "QFrame#profileQuickBar QToolButton:hover { background-color: #e4d8c8; border: 1px solid #a0714f; }"
+            "QFrame#profileQuickBar QToolButton:pressed { background-color: #d8cab5; }"
+            "QFrame#profileQuickBar QToolButton:disabled { color: #b0a090; border-color: #d6c9b6; }"
+            "QFrame#dataPanel, QFrame#aspectsPanel, QWidget#chartPlaceholder {"
+            "  background-color: #faf4ec; border: 1px solid #d6c9b6; border-radius: 6px;"
+            "}"
+            "QHeaderView::section { background-color: #e6d9c8; color: #3a2e22; border: 1px solid #d0c0a8; padding: 3px 6px; }"
+            "QTableWidget { background-color: #faf4ec; alternate-background-color: #f3ead8; gridline-color: #cfc0a8; color: #3a2e22; }"
+            "QTableWidget#aspectsTable QHeaderView::section { background-color: #dfd0bc; color: #3a2e22; font-weight: 600; padding: 2px 5px; border: 1px solid #c9b89e; }"
+            "QTabWidget::pane { border: 1px solid #d6c9b6; top: -1px; }"
+            "QTabBar::tab { background: #e6d9c8; padding: 6px 10px; border: 1px solid #d6c9b6; border-bottom: none; color: #3a2e22; }"
+            "QTabBar::tab:selected { background: #faf4ec; border-color: #8b5e3c; }"
+            "QTabBar::tab:hover { background: #ede3d6; }"
+            "QMenu { background-color: #faf4ec; color: #3a2e22; border: 1px solid #c9b89e; }"
+            "QMenu::item { padding: 6px 24px 6px 24px; }"
+            "QMenu::item:selected { background-color: #ddd0bc; }"
+            "QMenu::separator { height: 1px; background: #d6c9b6; margin: 4px 8px; }"
+            "QMenu::item:disabled { color: #b0a090; }"
+            "QGroupBox { border: 1px solid #d6c9b6; margin-top: 8px; color: #3a2e22; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+            "QRadioButton { spacing: 8px; color: #3a2e22; }"
+            "QCheckBox { color: #3a2e22; }"
+            "QLabel { color: #3a2e22; }"
+            "QSplitter::handle { background-color: #d6c9b6; }"
+            "QScrollBar:vertical { background: #ede3d6; width: 10px; }"
+            "QScrollBar::handle:vertical { background: #c9b89e; border-radius: 5px; min-height: 20px; }"
+            "QScrollBar::handle:vertical:hover { background: #a0714f; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+            "QScrollBar:horizontal { background: #ede3d6; height: 10px; }"
+            "QScrollBar::handle:horizontal { background: #c9b89e; border-radius: 5px; min-width: 20px; }"
+            "QScrollBar::handle:horizontal:hover { background: #a0714f; }"
+            "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+            "QProgressBar { background-color: #ede3d6; border: 1px solid #c9b89e; border-radius: 3px; }"
+            "QProgressBar::chunk { background-color: #8b5e3c; border-radius: 3px; }"
+            "QLabel#hintLabel { color: #7a6550; }";
+    }
     if (mode == ThemeMode::Dark) {
         return
             "QMainWindow { background-color: #0b0c0d; color: #e2e2e2; }"
@@ -2353,6 +2574,7 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
             "}"
             "QHeaderView::section { background-color: #121416; color: #d8d8d8; border: 1px solid #202326; padding: 3px 6px; }"
             "QTableWidget { background-color: #0f1112; alternate-background-color: #121416; gridline-color: #1f2326; }"
+            "QTableWidget#aspectsTable QHeaderView::section { background-color: #161a1d; color: #c8cdd1; font-weight: 600; padding: 2px 5px; border: 1px solid #252a2e; }"
             "QTabWidget::pane { border: 1px solid #202326; top: -1px; }"
             "QTabBar::tab { background: #141618; padding: 6px 10px; border: 1px solid #202326; border-bottom: none; }"
             "QTabBar::tab:selected { background: #1b1f22; border-color: #b14040; }"
@@ -2409,6 +2631,7 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
         "}"
         "QHeaderView::section { background-color: #f1f1f1; color: #1b1b1b; border: 1px solid #d6d6d6; padding: 3px 6px; }"
         "QTableWidget { background-color: #ffffff; alternate-background-color: #f7f7f7; gridline-color: #e2e2e2; }"
+        "QTableWidget#aspectsTable QHeaderView::section { background-color: #ececec; color: #1b1b1b; font-weight: 600; padding: 2px 5px; border: 1px solid #d0d0d0; }"
         "QTabWidget::pane { border: 1px solid #d6d6d6; top: -1px; }"
         "QTabBar::tab { background: #f1f1f1; padding: 6px 10px; border: 1px solid #d6d6d6; border-bottom: none; }"
         "QTabBar::tab:selected { background: #ffffff; border-color: #b14040; }"
@@ -2424,49 +2647,94 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
 }
 
 ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
-    if (mode == ThemeMode::Dark) {
+    if (mode == ThemeMode::Creme) {
         return ChartWheelTheme{
-            QColor("#0f1112"),
-            QColor("#202326"),
-            QColor("#1f2225"),
-            QColor("#24282b"),
-            QColor("#1b1f22"),
-            QColor("#6a6f73"),
-            QColor("#2b2f33"),
-            QColor("#2f3337"),
-            QColor("#b14040"),
-            QColor("#3a3f44"),
-            QColor("#9aa0a6"),
-            QColor("#23272b"),
-            QColor(11, 12, 13, 200),
-            QColor("#c0c0c0"),
-            QColor("#98a9bf"),
-            QColor("#7c7f84"),
-            QColor("#e6e6e6"),
-            QColor("#cfd3d6"),
-            QColor("#e6e6e6"),
+            QColor("#f5efe6"),          // background — warm parchment
+            QColor("#d6c9b6"),          // ringOuter — taupe border
+            QColor("#ede3d6"),          // ringZodiac — creme ring
+            QColor("#e6d9c8"),          // ringHouseOuter
+            QColor("#ede3d6"),          // ringHouseInner
+            QColor("#7a6550"),          // placeholderText — warm grey-brown
+            QColor("#c9b89e"),          // tick — warm tan
+            QColor("#c4b09a"),          // signBoundary
+            QColor("#5a3e28"),          // signGlyph — deep warm brown
+            QColor("#b8a48a"),          // houseLine — muted tan
+            QColor("#6b5240"),          // houseLabel — medium brown
+            QColor("#ede3d6"),          // transitRing
+            QColor(245, 239, 230, 210), // aspectSymbolBg — warm parchment translucent
+            QColor("#b0a090"),          // aspectLineNeutral — muted warm grey
+            QColor("#8b9eb5"),          // aspectLineTransitTransit — muted slate blue
+            QColor("#a08898"),          // aspectLineNatalNatal — muted mauve
+            QColor("#3a2e22"),          // body — deep warm brown text
+            QColor("#4a3828"),          // natalBody
+            QColor("#5c3a20"),          // transitBody — warm sienna
+            QColor("#fde8d0"),          // elementFire — soft peach
+            QColor("#e8f0e0"),          // elementEarth — soft sage
+            QColor("#ddeaf5"),          // elementAir — soft sky
+            QColor("#ecddf5"),          // elementWater — soft lavender
+            QColor("#d6c9b6"),          // aspectInnerCircle
+            QColor("#b14040"),          // retrogradeIndicator — keep red
+            QColor("#8b5e3c"),          // angularHouseLabel — terracotta
         };
     }
+    if (mode == ThemeMode::Dark) {
+        return ChartWheelTheme{
+            QColor("#0f1112"),          // background
+            QColor("#202326"),          // ringOuter
+            QColor("#1f2225"),          // ringZodiac
+            QColor("#24282b"),          // ringHouseOuter
+            QColor("#1b1f22"),          // ringHouseInner
+            QColor("#6a6f73"),          // placeholderText
+            QColor("#2b2f33"),          // tick
+            QColor("#2f3337"),          // signBoundary
+            QColor("#b14040"),          // signGlyph
+            QColor("#3a3f44"),          // houseLine
+            QColor("#9aa0a6"),          // houseLabel
+            QColor("#23272b"),          // transitRing
+            QColor(11, 12, 13, 200),    // aspectSymbolBg
+            QColor("#c0c0c0"),          // aspectLineNeutral
+            QColor("#98a9bf"),          // aspectLineTransitTransit
+            QColor("#7c7f84"),          // aspectLineNatalNatal
+            QColor("#e6e6e6"),          // body
+            QColor("#cfd3d6"),          // natalBody
+            QColor("#e6e6e6"),          // transitBody
+            QColor("#2a1a0a"),          // elementFire — dark ember
+            QColor("#0f1f10"),          // elementEarth — dark forest
+            QColor("#0a1525"),          // elementAir — dark navy
+            QColor("#1a0a25"),          // elementWater — dark indigo
+            QColor("#2b2f33"),          // aspectInnerCircle
+            QColor("#b14040"),          // retrogradeIndicator
+            QColor("#9aa0a6"),          // angularHouseLabel
+        };
+    }
+    // Light
     return ChartWheelTheme{
-        QColor("#ffffff"),
-        QColor("#d7d7d7"),
-        QColor("#e2e2e2"),
-        QColor("#dedede"),
-        QColor("#e8e8e8"),
-        QColor("#8a8a8a"),
-        QColor("#d0d0d0"),
-        QColor("#cfcfcf"),
-        QColor("#b14040"),
-        QColor("#c0c0c0"),
-        QColor("#6f6f6f"),
-        QColor("#d0d0d0"),
-        QColor(245, 245, 245, 220),
-        QColor("#6f7378"),
-        QColor("#6a7a90"),
-        QColor("#7a7e83"),
-        QColor("#2b2b2b"),
-        QColor("#2b2b2b"),
-        QColor("#1f1f1f"),
+        QColor("#ffffff"),          // background
+        QColor("#d7d7d7"),          // ringOuter
+        QColor("#e2e2e2"),          // ringZodiac
+        QColor("#dedede"),          // ringHouseOuter
+        QColor("#e8e8e8"),          // ringHouseInner
+        QColor("#8a8a8a"),          // placeholderText
+        QColor("#d0d0d0"),          // tick
+        QColor("#cfcfcf"),          // signBoundary
+        QColor("#b14040"),          // signGlyph
+        QColor("#c0c0c0"),          // houseLine
+        QColor("#6f6f6f"),          // houseLabel
+        QColor("#d0d0d0"),          // transitRing
+        QColor(245, 245, 245, 220), // aspectSymbolBg
+        QColor("#6f7378"),          // aspectLineNeutral
+        QColor("#6a7a90"),          // aspectLineTransitTransit
+        QColor("#7a7e83"),          // aspectLineNatalNatal
+        QColor("#2b2b2b"),          // body
+        QColor("#2b2b2b"),          // natalBody
+        QColor("#1f1f1f"),          // transitBody
+        QColor("#fff3e0"),          // elementFire — soft peach
+        QColor("#e8f5e9"),          // elementEarth — soft sage
+        QColor("#e3f2fd"),          // elementAir — soft sky
+        QColor("#f3e5f5"),          // elementWater — soft lavender
+        QColor("#d0d0d0"),          // aspectInnerCircle
+        QColor("#b14040"),          // retrogradeIndicator
+        QColor("#6f6f6f"),          // angularHouseLabel
     };
 }
 
@@ -2479,46 +2747,13 @@ void MainWindow::applyTheme(ThemeMode mode) {
         setStyleSheet(style);
     }
     if (chartWheel_) {
-        // Enforce Light/Pastel theme regardless of mode for now, or ensure Light mode is truly Light
-        if (mode == ThemeMode::Light) {
-            ChartWheelTheme lightTheme{
-                QColor("#FFFFFF"),          // background - White
-                QColor("#E0E0E0"),          // ringOuter - Soft Grey
-                QColor("#F5F5F5"),          // ringZodiac - Very Light Grey (or transparent context)
-                QColor("#EEEEEE"),          // ringHouseOuter
-                QColor("#EEEEEE"),          // ringHouseInner
-                QColor("#9E9E9E"),          // placeholderText
-                QColor("#BDBDBD"),          // tick
-                QColor("#E0E0E0"),          // signBoundary - Soft Grey
-                QColor("#5D4037"),          // signGlyph - Dark Brown/Gold for contrast on pastel
-                QColor("#C8C8C8"),          // houseLine - Darker for visibility
-                QColor("#757575"),          // houseLabel - Dark Grey
-                QColor("#E0E0E0"),          // transitRing
-                QColor(255, 255, 255, 220), // aspectSymbolBg - White semi-transparent
-                QColor("#B0BEC5"),          // aspectLineNeutral - Blue Grey
-                QColor("#90CAF9"),          // aspectLineTransitTransit
-                QColor("#B39DDB"),          // aspectLineNatalNatal
-                QColor("#37474F"),          // body - Dark Blue Grey for planets
-                QColor("#546E7A"),          // natalBody
-                QColor("#37474F"),          // transitBody
-                // Element colors - Pastel Tints
-                QColor("#FFF3E0"),          // elementFire - Soft Peach
-                QColor("#E8F5E9"),          // elementEarth - Soft Sage
-                QColor("#E3F2FD"),          // elementAir - Soft Sky
-                QColor("#F3E5F5"),          // elementWater - Soft Lavender
-                // Additional visual enhancements
-                QColor("#E0E0E0"),          // aspectInnerCircle
-                QColor("#D32F2F"),          // retrogradeIndicator - Red
-                QColor("#F57F17"),          // angularHouseLabel - Dark Gold
-            };
-            chartWheel_->setTheme(lightTheme);
-        } else {
-             // Keep Dark Theme for Dark Mode (optional, but let's stick to Light as requested)
-             chartWheel_->setTheme(buildChartTheme(mode)); 
-        }
+        chartWheel_->setTheme(buildChartTheme(mode));
     }
     if (themeLightAction_) {
         themeLightAction_->setChecked(mode == ThemeMode::Light);
+    }
+    if (themeCremeAction_) {
+        themeCremeAction_->setChecked(mode == ThemeMode::Creme);
     }
     if (themeDarkAction_) {
         themeDarkAction_->setChecked(mode == ThemeMode::Dark);
@@ -2637,44 +2872,83 @@ void MainWindow::refreshAspectsForHeaderMode() {
     }
 }
 
-void MainWindow::applyAspectTriangle(int size) {
+void MainWindow::applyAspectTableFont() {
     if (!aspectsTable_) {
         return;
     }
-    aspectsTable_->clearSpans();
-    if (size <= 0) {
+    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
+        QFont glyphFont = aspectsTable_->font();
+        glyphFont.setFamily("Segoe UI Symbol");
+        glyphFont.setPointSize(9);
+        aspectsTable_->setFont(glyphFont);
+        aspectsTable_->horizontalHeader()->setFont(glyphFont);
+        aspectsTable_->verticalHeader()->setFont(glyphFont);
+    } else {
+        QFont baseFont = aspectsTable_->font();
+        baseFont.setFamily(QString());
+        baseFont.setPointSize(-1);
+        aspectsTable_->setFont(baseFont);
+        aspectsTable_->horizontalHeader()->setFont(baseFont);
+        aspectsTable_->verticalHeader()->setFont(baseFont);
+    }
+}
+
+bool MainWindow::isBodyVisibleInAspectGrid(const QString& name) const {
+    if (isAsteroidBody(name)) {
+        return aspectGridFilter_.showAsteroids && isAsteroidVisible(name);
+    }
+    if (isArabicLotName(name)) {
+        return aspectGridFilter_.showLots;
+    }
+    if (name == "Vertex") {
+        return aspectGridFilter_.showDerivedPoints;
+    }
+    if (name == "Lilith") {
+        return aspectGridFilter_.showLilith;
+    }
+    if (name == "North Node" || name == "South Node") {
+        return aspectGridFilter_.showNodes;
+    }
+    if (name == "Ascendant" || name == "Midheaven" || name == "Descendant" || name == "IC") {
+        return aspectGridFilter_.showAngles;
+    }
+    return true;
+}
+
+void MainWindow::handleAspectGridSettings() {
+    if (!aspectGridSettingsButton_) {
         return;
     }
-    const QColor blank = (theme_ == ThemeMode::Dark) ? QColor("#0f1112") : QColor("#ffffff");
-    for (int row = 0; row < size; ++row) {
-        const int startCol = row + 1;
-        const int span = size - startCol;
-        if (span <= 0) {
-            continue;
-        }
-        auto* item = aspectsTable_->item(row, startCol);
-        if (!item) {
-            item = makeCell("");
-            aspectsTable_->setItem(row, startCol, item);
-        }
-        item->setFlags(Qt::NoItemFlags);
-        item->setText("");
-        item->setToolTip("");
-        item->setBackground(blank);
-
-        for (int col = startCol + 1; col < size; ++col) {
-            auto* cell = aspectsTable_->item(row, col);
-            if (!cell) {
-                cell = makeCell("");
-                aspectsTable_->setItem(row, col, cell);
-            }
-            cell->setFlags(Qt::NoItemFlags);
-            cell->setText("");
-            cell->setToolTip("");
-            cell->setBackground(blank);
-        }
-        aspectsTable_->setSpan(row, startCol, 1, span);
-    }
+    QMenu menu(this);
+    auto makeToggle = [&](const QString& label, bool current, auto setter) {
+        auto* action = menu.addAction(label);
+        action->setCheckable(true);
+        action->setChecked(current);
+        connect(action, &QAction::toggled, this, [this, setter](bool checked) {
+            setter(checked);
+            saveUiState();
+            refreshAspectsForHeaderMode();
+        });
+    };
+    makeToggle("Show Planets (Sun–Pluto)", true, [](bool) {});  // always on, informational
+    menu.actions().last()->setEnabled(false);
+    menu.addSeparator();
+    makeToggle("Show Nodes (☊ ☋)", aspectGridFilter_.showNodes,
+        [this](bool v) { aspectGridFilter_.showNodes = v; });
+    makeToggle("Show Lilith", aspectGridFilter_.showLilith,
+        [this](bool v) { aspectGridFilter_.showLilith = v; });
+    makeToggle("Show Asteroids", aspectGridFilter_.showAsteroids,
+        [this](bool v) { aspectGridFilter_.showAsteroids = v; });
+    menu.addSeparator();
+    makeToggle("Show Arabic Lots", aspectGridFilter_.showLots,
+        [this](bool v) { aspectGridFilter_.showLots = v; });
+    makeToggle("Show Derived Points (Vertex)", aspectGridFilter_.showDerivedPoints,
+        [this](bool v) { aspectGridFilter_.showDerivedPoints = v; });
+    menu.addSeparator();
+    makeToggle("Show Angles (AC/MC/DC/IC)", aspectGridFilter_.showAngles,
+        [this](bool v) { aspectGridFilter_.showAngles = v; });
+    menu.exec(aspectGridSettingsButton_->mapToGlobal(
+        QPoint(0, aspectGridSettingsButton_->height())));
 }
 
 void MainWindow::updateAspectHover(int row, int column) {
@@ -2703,8 +2977,12 @@ void MainWindow::updateAspectHover(int row, int column) {
     aspectHoverRow_ = row;
     aspectHoverCol_ = column;
 
-    const QColor axisColor = (theme_ == ThemeMode::Dark) ? QColor("#1f2326") : QColor("#e6e6e6");
-    const QColor crossColor = (theme_ == ThemeMode::Dark) ? QColor("#2a2f33") : QColor("#dcdcdc");
+    const QColor axisColor = (theme_ == ThemeMode::Dark) ? QColor("#1f2326")
+                           : (theme_ == ThemeMode::Creme) ? QColor("#ddd0bc")
+                           : QColor("#e6e6e6");
+    const QColor crossColor = (theme_ == ThemeMode::Dark) ? QColor("#2a2f33")
+                            : (theme_ == ThemeMode::Creme) ? QColor("#d0c0a8")
+                            : QColor("#dcdcdc");
 
     for (int c = 0; c < cols; ++c) {
         if (aspectTriangleEnabled_ && row < c) {
@@ -2775,6 +3053,22 @@ void MainWindow::clearAspectHover() {
     aspectHoverCol_ = -1;
 }
 void MainWindow::setupConnections() {
+    auto syncConjunctionCountWithSelection = [this]() {
+        if (!conjCountSpin_) {
+            return;
+        }
+        QStringList selectedPlanetsList = selectedCheckableItems(conjPlanetCombo_);
+        if (conjIncludeMoonCheck_ && !conjIncludeMoonCheck_->isChecked()) {
+            selectedPlanetsList.removeAll("Moon");
+        }
+        const int selectedPlanets = selectedPlanetsList.size();
+        const int clampedCount = std::max(2, selectedPlanets);
+        const QSignalBlocker blocker(conjCountSpin_);
+        conjCountSpin_->setMinimum(2);
+        conjCountSpin_->setMaximum(clampedCount);
+        conjCountSpin_->setValue(clampedCount);
+    };
+
     if (mainTabBar_) {
         connect(mainTabBar_, &QTabBar::currentChanged, this, &MainWindow::handleMainTabChanged);
     }
@@ -3058,6 +3352,46 @@ void MainWindow::setupConnections() {
     if (solarCalculateButton_) {
         connect(solarCalculateButton_, &QPushButton::clicked, this, &MainWindow::handleSolarCalculate);
     }
+    if (solarFinderRunButton_) {
+        connect(solarFinderRunButton_, &QPushButton::clicked, this, &MainWindow::handleSolarPlacementFinderRun);
+    }
+    if (solarFinderStartYearSpin_) {
+        connect(solarFinderStartYearSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderEndYearSpin_) {
+        connect(solarFinderEndYearSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderPlanetCombo_) {
+        connect(solarFinderPlanetCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderHouseCombo_) {
+        connect(solarFinderHouseCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderHouseSystemCombo_) {
+        connect(solarFinderHouseSystemCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderConjunctionTargetCombo_) {
+        connect(solarFinderConjunctionTargetCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) {
+                    if (solarFinderConjunctionOrbSpin_) {
+                        const QString targetText = solarFinderConjunctionTargetCombo_
+                            ? solarFinderConjunctionTargetCombo_->currentText().trimmed()
+                            : QString("None");
+                        const bool useConjunction = (targetText.compare("None", Qt::CaseInsensitive) != 0);
+                        solarFinderConjunctionOrbSpin_->setEnabled(useConjunction);
+                    }
+                    markSolarPlacementFinderStale();
+                });
+    }
+    if (solarFinderConjunctionOrbSpin_) {
+        connect(solarFinderConjunctionOrbSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &MainWindow::markSolarPlacementFinderStale);
+    }
     if (relocationLocationEdit_) {
         connect(relocationLocationEdit_, &QLineEdit::editingFinished, this, &MainWindow::markRelocationPending);
     }
@@ -3137,6 +3471,7 @@ void MainWindow::setupConnections() {
             updateAspectScopeTabs();
             updateSolarTechniqueDockTitles();
             refreshSolarTechniqueView();
+            refreshSolarPlacementFinderView();
         });
     }
     if (searchRunButton_) {
@@ -3452,6 +3787,22 @@ void MainWindow::setupConnections() {
             updateConjunctionModeAvailability();
         });
     }
+    if (conjIncludeMoonCheck_) {
+        connect(conjIncludeMoonCheck_, &QCheckBox::toggled, this, [this, syncConjunctionCountWithSelection](bool) {
+            syncConjunctionCountWithSelection();
+            updateConjunctionModeAvailability();
+        });
+    }
+    if (conjUniqueFirstCheck_) {
+        connect(conjUniqueFirstCheck_, &QCheckBox::toggled, this, [this](bool) {
+            updateConjunctionModeAvailability();
+        });
+    }
+    if (conjUniqueDegreeCombo_) {
+        connect(conjUniqueDegreeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            updateConjunctionModeAvailability();
+        });
+    }
     if (conjCountSpin_) {
         connect(conjCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
             updateConjunctionModeAvailability();
@@ -3467,7 +3818,7 @@ void MainWindow::setupConnections() {
         auto* model = qobject_cast<QStandardItemModel*>(conjPlanetCombo_->model());
         if (model && model->rowCount() > 0) {
             updateCheckableComboLabel(conjPlanetCombo_);
-            connect(model, &QStandardItemModel::itemChanged, this, [this, model](QStandardItem* item) {
+            connect(model, &QStandardItemModel::itemChanged, this, [this, model, syncConjunctionCountWithSelection](QStandardItem* item) {
                 if (!item) {
                     return;
                 }
@@ -3493,6 +3844,7 @@ void MainWindow::setupConnections() {
                     }
                 }
                 updateCheckableComboLabel(conjPlanetCombo_);
+                syncConjunctionCountWithSelection();
                 updateConjunctionModeAvailability();
             });
             if (auto* view = conjPlanetCombo_->view()) {
@@ -3755,12 +4107,19 @@ void MainWindow::setupConnections() {
             }
         });
     }
+    if (aspectGridSettingsButton_) {
+        connect(aspectGridSettingsButton_, &QToolButton::clicked, this, &MainWindow::handleAspectGridSettings);
+    }
     if (aspectsTable_) {
         connect(aspectsTable_, &QTableWidget::cellEntered, this, &MainWindow::updateAspectHover);
     }
     if (rightTopTable_) {
         connect(rightTopTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
             Q_UNUSED(column);
+            if (activeTab_ == AppTab::SolarReturn && isSolarPlacementFinderTabActive()) {
+                handleSolarPlacementFinderResultActivated(row, column);
+                return;
+            }
             if (activeTab_ == AppTab::SolarReturn && isSolarTechniqueTabActive()) {
                 if (!rightTopTable_ || !solarTechniqueDateEdit_) {
                     return;
@@ -3890,6 +4249,11 @@ void MainWindow::loadUiState() {
         }
     }
 
+    const int themeValue = settings.value("ui/theme", static_cast<int>(ThemeMode::Light)).toInt();
+    if (themeValue >= 0 && themeValue <= static_cast<int>(ThemeMode::Creme)) {
+        theme_ = static_cast<ThemeMode>(themeValue);
+    }
+
     overlayAspectsTransitNatal_ = settings.value("chart/overlay_aspects/transit_natal", true).toBool();
     overlayAspectsTransitTransit_ = settings.value("chart/overlay_aspects/transit_transit", false).toBool();
     overlayAspectsNatalNatal_ = settings.value("chart/overlay_aspects/natal_natal", false).toBool();
@@ -3942,6 +4306,13 @@ void MainWindow::loadUiState() {
     if (!overlayAspectsTransitNatal_ && !overlayAspectsTransitTransit_ && !overlayAspectsNatalNatal_) {
         overlayAspectsTransitNatal_ = true;
     }
+
+    aspectGridFilter_.showNodes          = settings.value("aspects/grid/show_nodes", true).toBool();
+    aspectGridFilter_.showLilith         = settings.value("aspects/grid/show_lilith", false).toBool();
+    aspectGridFilter_.showLots           = settings.value("aspects/grid/show_lots", false).toBool();
+    aspectGridFilter_.showDerivedPoints  = settings.value("aspects/grid/show_derived_points", false).toBool();
+    aspectGridFilter_.showAsteroids      = settings.value("aspects/grid/show_asteroids", false).toBool();
+    aspectGridFilter_.showAngles         = settings.value("aspects/grid/show_angles", true).toBool();
 
     int readabilityPresetValue = settings.value("chart/readability_preset",
         static_cast<int>(ChartReadabilityPreset::Clean)).toInt();
@@ -4008,6 +4379,27 @@ void MainWindow::loadUiState() {
     if (aspectScopeTabs_) {
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(transitAspectView_));
     }
+    if (conjIncludeMoonCheck_) {
+        conjIncludeMoonCheck_->setChecked(settings.value("transit/conj_include_moon", true).toBool());
+    }
+    if (conjUniqueFirstCheck_) {
+        conjUniqueFirstCheck_->setChecked(settings.value("transit/conj_unique_first", false).toBool());
+    }
+    if (conjUniqueDegreeCombo_) {
+        const double requestedStep = settings.value("transit/conj_unique_degree_step", 1.0).toDouble();
+        int bestIndex = 0;
+        double bestDiff = std::numeric_limits<double>::max();
+        for (int i = 0; i < conjUniqueDegreeCombo_->count(); ++i) {
+            const double step = conjUniqueDegreeCombo_->itemData(i).toDouble();
+            const double diff = std::fabs(step - requestedStep);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIndex = i;
+            }
+        }
+        conjUniqueDegreeCombo_->setCurrentIndex(bestIndex);
+    }
+    updateConjunctionModeAvailability();
     const int progressionView = settings.value("ui/progression_view", static_cast<int>(ProgressionView::ProgressedOnly)).toInt();
     if (progressionView >= 0 && progressionView <= 2) {
         progressionView_ = static_cast<ProgressionView>(progressionView);
@@ -4053,6 +4445,55 @@ void MainWindow::loadUiState() {
     const int solarView = settings.value("solar/aspect_view", 0).toInt();
     if (solarView >= 0 && solarView <= 1) {
         solarAspectView_ = static_cast<SolarAspectView>(solarView);
+    }
+    if (solarFinderStartYearSpin_) {
+        solarFinderStartYearSpin_->setValue(settings.value("solar/finder_start_year", solarFinderStartYearSpin_->value()).toInt());
+    }
+    if (solarFinderEndYearSpin_) {
+        solarFinderEndYearSpin_->setValue(settings.value("solar/finder_end_year", solarFinderEndYearSpin_->value()).toInt());
+    }
+    if (solarFinderPlanetCombo_) {
+        const QString finderPlanet = settings.value("solar/finder_planet", solarFinderPlanetCombo_->currentText()).toString();
+        const int idx = solarFinderPlanetCombo_->findText(finderPlanet);
+        if (idx >= 0) {
+            solarFinderPlanetCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarFinderHouseCombo_) {
+        const int finderHouse = settings.value("solar/finder_house", 1).toInt();
+        const int idx = solarFinderHouseCombo_->findData(finderHouse);
+        if (idx >= 0) {
+            solarFinderHouseCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarFinderHouseSystemCombo_) {
+        int finderMode = settings.value("solar/finder_house_mode",
+            static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)).toInt();
+        if (finderMode < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
+            || finderMode > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+            finderMode = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
+        }
+        const int idx = solarFinderHouseSystemCombo_->findData(finderMode);
+        if (idx >= 0) {
+            solarFinderHouseSystemCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarFinderConjunctionTargetCombo_) {
+        const QString target = settings.value("solar/finder_conjunction_target",
+            solarFinderConjunctionTargetCombo_->currentText()).toString();
+        const int idx = solarFinderConjunctionTargetCombo_->findText(target);
+        if (idx >= 0) {
+            solarFinderConjunctionTargetCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarFinderConjunctionOrbSpin_) {
+        solarFinderConjunctionOrbSpin_->setValue(settings.value("solar/finder_conjunction_orb",
+            solarFinderConjunctionOrbSpin_->value()).toDouble());
+    }
+    if (solarFinderConjunctionTargetCombo_ && solarFinderConjunctionOrbSpin_) {
+        const bool useConjunction =
+            (solarFinderConjunctionTargetCombo_->currentText().trimmed().compare("None", Qt::CaseInsensitive) != 0);
+        solarFinderConjunctionOrbSpin_->setEnabled(useConjunction);
     }
     updateSolarLocationAvailability();
     updateSolarTimezoneStatus();
@@ -4104,6 +4545,15 @@ void MainWindow::saveUiState() {
     settings.setValue("ui/transit_mode", transitMode_ == TransitMode::TransitOnly ? 1 : 0);
     settings.setValue("ui/transit_house_system", transitHouseSystem_ == HouseSystem::Placidus ? 1 : 0);
     settings.setValue("ui/transit_aspect_view", static_cast<int>(transitAspectView_));
+    if (conjIncludeMoonCheck_) {
+        settings.setValue("transit/conj_include_moon", conjIncludeMoonCheck_->isChecked());
+    }
+    if (conjUniqueFirstCheck_) {
+        settings.setValue("transit/conj_unique_first", conjUniqueFirstCheck_->isChecked());
+    }
+    if (conjUniqueDegreeCombo_) {
+        settings.setValue("transit/conj_unique_degree_step", conjUniqueDegreeCombo_->currentData().toDouble());
+    }
     settings.setValue("ui/progression_view", static_cast<int>(progressionView_));
     if (chartWheel_) {
         settings.setValue("chart/zoom", chartWheel_->zoom());
@@ -4126,6 +4576,13 @@ void MainWindow::saveUiState() {
     settings.setValue("chart/overlay_aspects/transit_transit", overlayAspectsTransitTransit_);
     settings.setValue("chart/overlay_aspects/natal_natal", overlayAspectsNatalNatal_);
     settings.setValue("chart/overlay_aspects/max_orb", aspectDisplayMaxOrb_);
+    settings.setValue("ui/theme", static_cast<int>(theme_));
+    settings.setValue("aspects/grid/show_nodes",           aspectGridFilter_.showNodes);
+    settings.setValue("aspects/grid/show_lilith",          aspectGridFilter_.showLilith);
+    settings.setValue("aspects/grid/show_lots",            aspectGridFilter_.showLots);
+    settings.setValue("aspects/grid/show_derived_points",  aspectGridFilter_.showDerivedPoints);
+    settings.setValue("aspects/grid/show_asteroids",       aspectGridFilter_.showAsteroids);
+    settings.setValue("aspects/grid/show_angles",          aspectGridFilter_.showAngles);
     settings.setValue("chart/orbs/conjunction", aspectOrbs_.conjunction);
     settings.setValue("chart/orbs/sextile", aspectOrbs_.sextile);
     settings.setValue("chart/orbs/square", aspectOrbs_.square);
@@ -4159,6 +4616,27 @@ void MainWindow::saveUiState() {
         settings.setValue("solar/timezone", solarTimezoneEdit_->text());
     }
     settings.setValue("solar/aspect_view", static_cast<int>(solarAspectView_));
+    if (solarFinderStartYearSpin_) {
+        settings.setValue("solar/finder_start_year", solarFinderStartYearSpin_->value());
+    }
+    if (solarFinderEndYearSpin_) {
+        settings.setValue("solar/finder_end_year", solarFinderEndYearSpin_->value());
+    }
+    if (solarFinderPlanetCombo_) {
+        settings.setValue("solar/finder_planet", solarFinderPlanetCombo_->currentText());
+    }
+    if (solarFinderHouseCombo_) {
+        settings.setValue("solar/finder_house", solarFinderHouseCombo_->currentData().toInt());
+    }
+    if (solarFinderHouseSystemCombo_) {
+        settings.setValue("solar/finder_house_mode", solarFinderHouseSystemCombo_->currentData().toInt());
+    }
+    if (solarFinderConjunctionTargetCombo_) {
+        settings.setValue("solar/finder_conjunction_target", solarFinderConjunctionTargetCombo_->currentText());
+    }
+    if (solarFinderConjunctionOrbSpin_) {
+        settings.setValue("solar/finder_conjunction_orb", solarFinderConjunctionOrbSpin_->value());
+    }
     settings.setValue("relocation/house_system", relocationHouseSystem_ == HouseSystem::Placidus ? 1 : 0);
     if (relocationLocationEdit_) {
         settings.setValue("relocation/location", relocationLocationEdit_->text());
@@ -5169,15 +5647,23 @@ void MainWindow::handleMainTabChanged(int index) {
     if (relocationControls_) {
         relocationControls_->setVisible(activeTab_ == AppTab::Relocation);
     }
-    if (tabs_ && solarTechniquePanel_) {
-        const int techniqueIndex = tabs_->indexOf(solarTechniquePanel_);
-        if (techniqueIndex >= 0) {
-            const bool showTechnique = (activeTab_ == AppTab::SolarReturn);
-            tabs_->setTabVisible(techniqueIndex, showTechnique);
-            if (!showTechnique && tabs_->currentWidget() == solarTechniquePanel_) {
+    if (tabs_) {
+        const bool showSolarTools = (activeTab_ == AppTab::SolarReturn);
+        auto updateSolarToolTabVisibility = [this, showSolarTools](QWidget* panel) {
+            if (!tabs_ || !panel) {
+                return;
+            }
+            const int index = tabs_->indexOf(panel);
+            if (index < 0) {
+                return;
+            }
+            tabs_->setTabVisible(index, showSolarTools);
+            if (!showSolarTools && tabs_->currentWidget() == panel) {
                 tabs_->setCurrentIndex(0);
             }
-        }
+        };
+        updateSolarToolTabVisibility(solarTechniquePanel_);
+        updateSolarToolTabVisibility(solarPlacementFinderPanel_);
     }
 
     if (centerStack_) {
@@ -5261,6 +5747,7 @@ void MainWindow::handleMainTabChanged(int index) {
         updateSolarStatusLabels();
         refreshSolarReturnView();
         refreshSolarTechniqueView();
+        refreshSolarPlacementFinderView();
     } else if (activeTab_ == AppTab::Relocation) {
         if (rightTopDock_) {
             rightTopDock_->setWindowTitle("Relocation");
@@ -5365,7 +5852,7 @@ void MainWindow::handleTransitModeChanged() {
 
 void MainWindow::handleTransitAspectViewChanged(int index) {
     if (activeTab_ == AppTab::SolarReturn) {
-        if (isSolarTechniqueTabActive()) {
+        if (isSolarTechniqueTabActive() || isSolarPlacementFinderTabActive()) {
             return;
         }
         if (index < 0 || index > 1) {
@@ -5724,8 +6211,14 @@ void MainWindow::handleTransitConjunctionRun() {
     }
 
     QStringList planets = selectedCheckableItems(conjPlanetCombo_);
+    const bool includeMoon = !(conjIncludeMoonCheck_ && !conjIncludeMoonCheck_->isChecked());
+    if (!includeMoon) {
+        planets.removeAll("Moon");
+    }
     if (planets.isEmpty()) {
-        setStatusMessage("Select at least one conjunction planet.");
+        setStatusMessage(includeMoon
+            ? "Select at least one conjunction planet."
+            : "Select at least one conjunction planet after Moon exclusion.");
         if (conjStatusLabel_) {
             conjStatusLabel_->setText("Select planets");
         }
@@ -5735,6 +6228,14 @@ void MainWindow::handleTransitConjunctionRun() {
     if (minCount > planets.size()) {
         setStatusMessage("N is greater than the selected planet count.");
         return;
+    }
+    const bool uniqueFirstOnly = conjUniqueFirstCheck_ && conjUniqueFirstCheck_->isChecked();
+    double uniqueDegreeStep = 1.0;
+    if (conjUniqueDegreeCombo_) {
+        const double uiStep = conjUniqueDegreeCombo_->currentData().toDouble();
+        if (uiStep > 0.0) {
+            uniqueDegreeStep = uiStep;
+        }
     }
 
     const bool bucketByHouse = (conjBucketHouseRadio_ && conjBucketHouseRadio_->isChecked());
@@ -5762,6 +6263,13 @@ void MainWindow::handleTransitConjunctionRun() {
         conjFindMode_ = ConjunctionFindMode::Previous;
     } else {
         conjFindMode_ = ConjunctionFindMode::Range;
+    }
+    if (uniqueFirstOnly && conjFindMode_ != ConjunctionFindMode::Range) {
+        setStatusMessage("First-time unique conjunctions require Year Range mode.");
+        if (conjStatusLabel_) {
+            conjStatusLabel_->setText("Set Year Range");
+        }
+        return;
     }
 
     const QDateTime anchorLocal = transitSelectedLocal();
@@ -5804,6 +6312,17 @@ void MainWindow::handleTransitConjunctionRun() {
             startUtc = conjAnchorUtc_.addDays(-horizonDays);
         }
     }
+    const QDateTime requestedStartUtc = startUtc;
+    const QDateTime requestedEndUtc = endUtc;
+    if (uniqueFirstOnly) {
+        const QDateTime uniqueScanStartLocal(QDate(1800, 1, 1), QTime(0, 0, 0), tz);
+        if (!uniqueScanStartLocal.isValid()) {
+            setStatusMessage("Invalid unique conjunction scan start.");
+            return;
+        }
+        startUtc = uniqueScanStartLocal.toUTC();
+        endUtc = requestedEndUtc;
+    }
 
     ConjunctionParams params;
     params.startUtc = startUtc;
@@ -5819,6 +6338,10 @@ void MainWindow::handleTransitConjunctionRun() {
     params.orbDeg = params.useOrb && conjOrbSpin_ ? conjOrbSpin_->value() : 0.0;
     params.bucketByHouse = bucketByHouse;
     params.houseSystem = transitHouseSystem_;
+    params.uniqueFirstOnly = uniqueFirstOnly;
+    params.uniqueDegreeStep = std::max(0.01, uniqueDegreeStep);
+    params.uniqueWindowStartUtc = requestedStartUtc;
+    params.uniqueWindowEndUtc = requestedEndUtc;
     if (bucketByHouse) {
         params.natalAsc = currentChart_.angles.asc;
         params.natalCusps.reserve(natalPlacidusCusps_.size());
@@ -5827,6 +6350,9 @@ void MainWindow::handleTransitConjunctionRun() {
         }
     }
 
+    conjLastRunUniqueFirst_ = uniqueFirstOnly;
+    conjLastRunIncludeMoon_ = includeMoon;
+    conjLastRunUniqueDegreeStep_ = params.uniqueDegreeStep;
     transitConjunctionResults_.clear();
     transitConjunctionDisplayOrder_.clear();
     hasTransitConjunctionSelection_ = false;
@@ -5834,7 +6360,7 @@ void MainWindow::handleTransitConjunctionRun() {
     conjAutoApplied_ = false;
     conjRunning_ = true;
     if (conjStatusLabel_) {
-        conjStatusLabel_->setText("Computing...");
+        conjStatusLabel_->setText(uniqueFirstOnly ? "Computing unique-first..." : "Computing...");
     }
     if (conjRunButton_) {
         conjRunButton_->setEnabled(false);
@@ -6521,6 +7047,10 @@ QString MainWindow::buildTransitConjunctionDetailsClipboardText() const {
         ? result.planetsInBucketAtStart
         : result.orbClusterAtStart).join(", "));
     lines << QString("Span: %1").arg(QString::number(result.clusterSpanDeg, 'f', 2));
+    if (result.uniqueFirstOccurrence) {
+        lines << "First-Time Unique: Yes";
+        lines << QString("Unique Signature: %1").arg(result.uniqueSignature.isEmpty() ? "-" : result.uniqueSignature);
+    }
     lines << "";
     lines << "| Body | Degree | Sign | House | Motion |";
     lines << "| --- | --- | --- | --- | --- |";
@@ -7154,17 +7684,38 @@ void MainWindow::applyTransitSearchResult(const TransitSearchResult& result) {
     transitPending_ = false;
     lastTransitCalculated_ = QDateTime::currentDateTime();
 
+    auto populateOverlayAspects = [&](const NatalChart& transitChart) {
+        switch (transitAspectView_) {
+            case TransitAspectView::TransitTransit:
+                populateAspects(transitChart);
+                break;
+            case TransitAspectView::NatalNatal:
+                populateAspects(currentChart_);
+                break;
+            case TransitAspectView::TransitNatal:
+            default:
+                populateTransitAspectsOverlay(transitChart, currentChart_);
+                break;
+        }
+    };
+
     if (chartWheel_) {
         if (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_) {
             chartWheel_->setShowAspects(true);
             chartWheel_->setOverlayLabel("Transit");
             chartWheel_->setOverlayCharts(currentChart_, chart, transitHouseSystem_, aspectOrbs_);
             chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
+            populateOverlayAspects(chart);
         } else {
             chartWheel_->setTransitChart(chart, transitHouseSystem_);
+            populateAspects(chart);
         }
         chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
         chartWheel_->setHighlight(result.planet, true, result.event, QColor("#f0c24b"));
+    } else if (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_) {
+        populateOverlayAspects(chart);
+    } else {
+        populateAspects(chart);
     }
     showTransitSearchDetails(result);
 }
@@ -7578,6 +8129,7 @@ void MainWindow::updateLunationModeAvailability() {
 
 void MainWindow::updateConjunctionModeAvailability() {
     const bool useRange = conjModeRangeRadio_ && conjModeRangeRadio_->isChecked();
+    const bool uniqueOnly = conjUniqueFirstCheck_ && conjUniqueFirstCheck_->isChecked();
     if (conjStartYearSpin_) {
         conjStartYearSpin_->setEnabled(useRange);
     }
@@ -7590,10 +8142,18 @@ void MainWindow::updateConjunctionModeAvailability() {
         const QString targetText = target.isValid()
             ? target.toString("yyyy-MM-dd hh:mm:ss AP")
             : QString("-");
-        conjReferenceLabel_->setText(QString("Reference: %1 (%2)").arg(targetText, tzLabel));
+        QString reference = QString("Reference: %1 (%2)").arg(targetText, tzLabel);
+        if (uniqueOnly && !useRange) {
+            reference += " | Unique-first requires Year Range mode";
+        }
+        conjReferenceLabel_->setText(reference);
     }
 
-    const int selectedPlanets = selectedCheckableItems(conjPlanetCombo_).size();
+    QStringList selectedPlanetsList = selectedCheckableItems(conjPlanetCombo_);
+    if (conjIncludeMoonCheck_ && !conjIncludeMoonCheck_->isChecked()) {
+        selectedPlanetsList.removeAll("Moon");
+    }
+    const int selectedPlanets = selectedPlanetsList.size();
     const bool exactPairMode = (conjCountSpin_ && conjCountSpin_->value() == 2 && selectedPlanets == 2);
     if (conjUseOrbCheck_) {
         if (exactPairMode && conjUseOrbCheck_->isChecked()) {
@@ -7612,6 +8172,9 @@ void MainWindow::updateConjunctionModeAvailability() {
         conjOrbSpin_->setToolTip(exactPairMode
             ? "Exact two-planet conjunction mode ignores orb span."
             : QString());
+    }
+    if (conjUniqueDegreeCombo_) {
+        conjUniqueDegreeCombo_->setEnabled(uniqueOnly);
     }
 }
 
@@ -8838,6 +9401,7 @@ void MainWindow::showTransitConjunctionResults() {
     if (!rightTopTable_) {
         return;
     }
+    const bool uniqueMode = conjLastRunUniqueFirst_;
     if (conjRunning_) {
         setupTable(rightTopTable_, {"Info"}, 1);
         rightTopTable_->setItem(0, 0, makeCell("Searching for conjunctions..."));
@@ -8852,10 +9416,14 @@ void MainWindow::showTransitConjunctionResults() {
     }
     if (transitConjunctionResults_.isEmpty()) {
         setupTable(rightTopTable_, {"Info"}, 1);
-        rightTopTable_->setItem(0, 0, makeCell("Run the conjunction finder to see results."));
+        rightTopTable_->setItem(0, 0, makeCell(uniqueMode
+            ? "Run the conjunction finder to see first-time unique results."
+            : "Run the conjunction finder to see results."));
         if (rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
-            rightBottomTable_->setItem(0, 0, makeCell("No conjunction results yet."));
+            rightBottomTable_->setItem(0, 0, makeCell(uniqueMode
+                ? "No first-time unique conjunction results yet."
+                : "No conjunction results yet."));
         }
         transitConjunctionDisplayOrder_.clear();
         hasTransitConjunctionSelection_ = false;
@@ -8901,10 +9469,17 @@ void MainWindow::showTransitConjunctionResults() {
 
     if (transitConjunctionDisplayOrder_.isEmpty()) {
         setupTable(rightTopTable_, {"Info"}, 1);
-        rightTopTable_->setItem(0, 0, makeCell("No conjunction windows found for the selected range."));
+        rightTopTable_->setItem(0, 0, makeCell(uniqueMode
+            ? "No first-time unique conjunction windows found for the selected range."
+            : "No conjunction windows found for the selected range."));
         if (rightBottomTable_) {
+            const QString uniqueHint = QString("Try a wider range, increase degree step (now %1 deg), lower N%2.")
+                .arg(QString::number(conjLastRunUniqueDegreeStep_, 'f', 1))
+                .arg(conjLastRunIncludeMoon_ ? "" : ", or include Moon");
             setupTable(rightBottomTable_, {"Info"}, 1);
-            rightBottomTable_->setItem(0, 0, makeCell("Try a different range or lower N."));
+            rightBottomTable_->setItem(0, 0, makeCell(uniqueMode
+                ? uniqueHint
+                : "Try a different range or lower N."));
         }
         hasTransitConjunctionSelection_ = false;
         updateLunationCopyButtonState();
@@ -8912,8 +9487,10 @@ void MainWindow::showTransitConjunctionResults() {
     }
 
     const QTimeZone displayTz = conjTz_.isValid() ? conjTz_ : QTimeZone::utc();
-    setupTable(rightTopTable_, {"Start Date", "Start Time", "End Date", "End Time", "Sign/House", "Count", "Planets", "Span"},
-               transitConjunctionDisplayOrder_.size());
+    const QStringList headers = uniqueMode
+        ? QStringList{"Start Date", "Start Time", "End Date", "End Time", "Sign/House", "Count", "Planets", "Span", "Unique Signature"}
+        : QStringList{"Start Date", "Start Time", "End Date", "End Time", "Sign/House", "Count", "Planets", "Span"};
+    setupTable(rightTopTable_, headers, transitConjunctionDisplayOrder_.size());
     rightTopTable_->verticalHeader()->setDefaultSectionSize(24);
     if (auto* header = rightTopTable_->horizontalHeader()) {
         header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -8922,8 +9499,11 @@ void MainWindow::showTransitConjunctionResults() {
         header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
         header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
         header->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-        header->setSectionResizeMode(6, QHeaderView::Stretch);
+        header->setSectionResizeMode(6, uniqueMode ? QHeaderView::ResizeToContents : QHeaderView::Stretch);
         header->setSectionResizeMode(7, QHeaderView::ResizeToContents);
+        if (uniqueMode) {
+            header->setSectionResizeMode(8, QHeaderView::Stretch);
+        }
     }
 
     for (int row = 0; row < transitConjunctionDisplayOrder_.size(); ++row) {
@@ -8942,6 +9522,9 @@ void MainWindow::showTransitConjunctionResults() {
         rightTopTable_->setItem(row, 4, makeCell(res.bucketLabel));
         rightTopTable_->setItem(row, 5, makeCell(QString::number(res.clusterCount)));
         rightTopTable_->setItem(row, 6, makeCell(planets.join(", ")));
+        if (uniqueMode) {
+            rightTopTable_->setItem(row, 8, makeCell(res.uniqueSignature.isEmpty() ? "-" : res.uniqueSignature));
+        }
         const bool instantExact = (res.startUtc == res.endUtc);
         rightTopTable_->setItem(row, 7, makeCell((res.clusterSpanDeg > 0.0 || instantExact)
             ? QString::number(res.clusterSpanDeg, 'f', 2) + "°"
@@ -9014,7 +9597,7 @@ void MainWindow::showTransitConjunctionDetails(const TransitConjunctionWindow& r
     const QStringList clusterPlanets = result.orbClusterAtStart.isEmpty()
         ? result.planetsInBucketAtStart
         : result.orbClusterAtStart;
-    const QString summary = QString("Local %1 - %2 | UTC %3 - %4 | %5 | %6 | %7 | Span %8 deg")
+    QString summary = QString("Local %1 - %2 | UTC %3 - %4 | %5 | %6 | %7 | Span %8 deg")
         .arg(localStart.toString("yyyy-MM-dd HH:mm:ss"))
         .arg(localEnd.toString("yyyy-MM-dd HH:mm:ss"))
         .arg(result.startUtc.toString("yyyy-MM-dd HH:mm:ss"))
@@ -9023,6 +9606,9 @@ void MainWindow::showTransitConjunctionDetails(const TransitConjunctionWindow& r
         .arg(result.bucketLabel)
         .arg(clusterPlanets.join(", "))
         .arg(QString::number(result.clusterSpanDeg, 'f', 2));
+    if (result.uniqueFirstOccurrence && !result.uniqueSignature.isEmpty()) {
+        summary += QString(" | Unique Signature: %1").arg(result.uniqueSignature);
+    }
     rightBottomTable_->setToolTip(summary);
 
     for (int row = 0; row < orderedBodies.size(); ++row) {
@@ -9974,8 +10560,23 @@ bool MainWindow::isSolarTechniqueTabActive() const {
     return tabs_->currentWidget() == solarTechniquePanel_;
 }
 
+bool MainWindow::isSolarPlacementFinderTabActive() const {
+    if (activeTab_ != AppTab::SolarReturn) {
+        return false;
+    }
+    if (!tabs_ || !solarPlacementFinderPanel_) {
+        return false;
+    }
+    return tabs_->currentWidget() == solarPlacementFinderPanel_;
+}
+
 void MainWindow::updateSolarTechniqueDockTitles() {
     if (!rightTopDock_ || !rightBottomDock_) {
+        return;
+    }
+    if (activeTab_ == AppTab::SolarReturn && isSolarPlacementFinderTabActive()) {
+        rightTopDock_->setWindowTitle("SR Finder Results");
+        rightBottomDock_->setWindowTitle("SR Finder Details");
         return;
     }
     if (activeTab_ == AppTab::SolarReturn && isSolarTechniqueTabActive()) {
@@ -10276,7 +10877,9 @@ void MainWindow::updateAspectScopeTabs() {
     };
 
     const bool showTransitTabs = (activeTab_ == AppTab::Transits && transitMode_ == TransitMode::NatalOverlay);
-    const bool showSolarTabs = (activeTab_ == AppTab::SolarReturn && !isSolarTechniqueTabActive());
+    const bool showSolarTabs = (activeTab_ == AppTab::SolarReturn
+        && !isSolarTechniqueTabActive()
+        && !isSolarPlacementFinderTabActive());
     const bool showRelocationTabs = (activeTab_ == AppTab::Relocation);
     const bool showTabs = showTransitTabs || showSolarTabs || showRelocationTabs;
     aspectScopeTabs_->setVisible(showTabs);
@@ -10322,9 +10925,20 @@ void MainWindow::markTransitPending() {
     }
 }
 
+void MainWindow::markSolarPlacementFinderStale() {
+    if (!solarPlacementFinderRan_) {
+        return;
+    }
+    solarPlacementFinderStale_ = true;
+    if (isSolarPlacementFinderTabActive()) {
+        refreshSolarPlacementFinderView();
+    }
+}
+
 void MainWindow::markSolarPending() {
     solarPending_ = true;
     updateSolarStatusLabels();
+    markSolarPlacementFinderStale();
     refreshSolarTechniqueView();
 }
 
@@ -10981,6 +11595,55 @@ bool MainWindow::computeTransitChart(const QDateTime& localTime, const QString& 
     return ok;
 }
 
+bool MainWindow::resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
+                                           QString* error) const {
+    if (!hasCurrentChart_) {
+        if (error) {
+            *error = "Load a natal chart first to compute solar return.";
+        }
+        return false;
+    }
+    QTimeZone tz;
+    QString normLabel;
+    QString tzErr;
+    const QString tzText = solarTimezoneEdit_ ? solarTimezoneEdit_->text().trimmed() : QString("UTC");
+    if (!parseTimezoneInput(tzText, &tz, &normLabel, &tzErr)) {
+        if (error) {
+            *error = tzErr;
+        }
+        return false;
+    }
+    const bool useNatal = solarUseNatalRadio_ && solarUseNatalRadio_->isChecked();
+    const QString locationName = useNatal
+        ? currentLocation_
+        : (solarLocationEdit_ ? solarLocationEdit_->text().trimmed() : QString());
+    const double lat = useNatal
+        ? currentInput_.latitude
+        : (solarLatSpin_ ? solarLatSpin_->value() : currentInput_.latitude);
+    const double lon = useNatal
+        ? currentInput_.longitude
+        : (solarLonSpin_ ? solarLonSpin_->value() : currentInput_.longitude);
+    if (!useNatal && locationName.isEmpty() && std::abs(lat) < 0.0001 && std::abs(lon) < 0.0001) {
+        if (error) {
+            *error = "Set a solar return location or coordinates.";
+        }
+        return false;
+    }
+    if (outTzLabel) {
+        *outTzLabel = normLabel;
+    }
+    if (outLocationName) {
+        *outLocationName = locationName;
+    }
+    if (outLat) {
+        *outLat = lat;
+    }
+    if (outLon) {
+        *outLon = lon;
+    }
+    return true;
+}
+
 bool MainWindow::solarReturnTimeUtc(int year, const QString& tzLabel, double targetLon, QDateTime* outUtc, QDateTime* outLocal, QString* error) {
     if (!hasCurrentChart_) {
         if (error) {
@@ -11127,9 +11790,11 @@ bool MainWindow::solarReturnTimeUtc(int year, const QString& tzLabel, double tar
     return true;
 }
 
-bool MainWindow::computeSolarReturnChart(int year, const QString& tzLabel, double targetLon, const QString& locationName,
-                                         double lat, double lon, NatalChart* out, QString* error) {
-    if (!out) {
+bool MainWindow::computeSolarReturnChartPure(int year, const QString& tzLabel, double targetLon, const QString& locationName,
+                                             double lat, double lon, HouseSystem houseSystem,
+                                             NatalChart* outChart, NatalInput* outInput, QString* error) {
+    Q_UNUSED(locationName);
+    if (!outChart) {
         return false;
     }
     if (!swe_.isLoaded()) {
@@ -11171,17 +11836,63 @@ bool MainWindow::computeSolarReturnChart(int year, const QString& tzLabel, doubl
     input.timezone = normLabel;
     input.latitude = lat;
     input.longitude = lon;
-    input.houseSystem = currentInput_.houseSystem;
+    input.houseSystem = houseSystem;
     input.aspectOrbs = aspectOrbs_;
 
-    NatalChart chart;
-    if (!engine_.compute(input, &chart, error)) {
+    if (!engine_.compute(input, outChart, error)) {
         return false;
     }
+    if (outInput) {
+        *outInput = input;
+    }
+    return true;
+}
 
-    *out = chart;
-    currentSolarInput_ = input;
+bool MainWindow::computeSolarReturnChart(int year, const QString& tzLabel, double targetLon, const QString& locationName,
+                                         double lat, double lon, NatalChart* out, QString* error) {
+    NatalInput computedInput;
+    NatalChart computedChart;
+    if (!computeSolarReturnChartPure(year, tzLabel, targetLon, locationName, lat, lon,
+                                     currentInput_.houseSystem, &computedChart, &computedInput, error)) {
+        return false;
+    }
+    if (out) {
+        *out = computedChart;
+    }
+    currentSolarInput_ = computedInput;
     currentSolarLocation_ = locationName;
+    return true;
+}
+
+bool MainWindow::applySolarReturnYear(int year, QString* error) {
+    QString tzLabel;
+    QString locationName;
+    double lat = 0.0;
+    double lon = 0.0;
+    if (!resolveSolarReturnContext(&tzLabel, &locationName, &lat, &lon, error)) {
+        return false;
+    }
+    double natalSunLon = 0.0;
+    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
+        if (error) {
+            *error = "Unable to locate natal Sun longitude.";
+        }
+        return false;
+    }
+    NatalChart chart;
+    if (!computeSolarReturnChart(year, tzLabel, natalSunLon, locationName, lat, lon, &chart, error)) {
+        return false;
+    }
+    currentSolarChart_ = chart;
+    hasSolarChart_ = true;
+    solarPending_ = false;
+    lastSolarCalculated_ = QDateTime::currentDateTime();
+    updateSolarStatusLabels();
+    if (activeTab_ == AppTab::SolarReturn) {
+        refreshSolarReturnView();
+        refreshSolarTechniqueView();
+        refreshSolarPlacementFinderView();
+    }
     return true;
 }
 
@@ -11224,52 +11935,11 @@ void MainWindow::refreshNatalTransitsPanels() {
 }
 
 void MainWindow::handleSolarCalculate() {
-    if (!hasCurrentChart_) {
-        setStatusMessage("Load a natal chart first to compute solar return.");
-        return;
-    }
-    if (ephePath_.isEmpty()) {
-        setStatusMessage("Ephemeris folder not found. Place ephemeris files in an 'ephe' folder.");
-        return;
-    }
-    double natalSunLon = 0.0;
-    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
-        setStatusMessage("Unable to locate natal Sun longitude.");
-        return;
-    }
-
     const int year = solarYearSpin_ ? solarYearSpin_->value() : QDate::currentDate().year();
-    const QString tzLabel = solarTimezoneEdit_ ? solarTimezoneEdit_->text().trimmed() : QString("UTC");
-    const bool useNatal = solarUseNatalRadio_ && solarUseNatalRadio_->isChecked();
-    const QString locationName = useNatal
-        ? currentLocation_
-        : (solarLocationEdit_ ? solarLocationEdit_->text().trimmed() : QString());
-    const double lat = useNatal
-        ? currentInput_.latitude
-        : (solarLatSpin_ ? solarLatSpin_->value() : currentInput_.latitude);
-    const double lon = useNatal
-        ? currentInput_.longitude
-        : (solarLonSpin_ ? solarLonSpin_->value() : currentInput_.longitude);
-
-    if (!useNatal && locationName.isEmpty() && std::abs(lat) < 0.0001 && std::abs(lon) < 0.0001) {
-        setStatusMessage("Set a solar return location or coordinates.");
-        return;
-    }
-
-    NatalChart chart;
     QString err;
-    if (!computeSolarReturnChart(year, tzLabel, natalSunLon, locationName, lat, lon, &chart, &err)) {
+    if (!applySolarReturnYear(year, &err)) {
         setStatusMessage(err);
         return;
-    }
-    currentSolarChart_ = chart;
-    hasSolarChart_ = true;
-    solarPending_ = false;
-    lastSolarCalculated_ = QDateTime::currentDateTime();
-    updateSolarStatusLabels();
-    if (activeTab_ == AppTab::SolarReturn) {
-        refreshSolarReturnView();
-        refreshSolarTechniqueView();
     }
 }
 
@@ -11872,6 +12542,525 @@ void MainWindow::refreshSolarTechniqueView() {
     }
 }
 
+void MainWindow::handleSolarPlacementFinderRun() {
+    if (!solarFinderStartYearSpin_ || !solarFinderEndYearSpin_ || !solarFinderPlanetCombo_
+        || !solarFinderHouseCombo_ || !solarFinderHouseSystemCombo_ || !solarFinderConjunctionTargetCombo_) {
+        return;
+    }
+    if (solarFinderStatusLabel_) {
+        solarFinderStatusLabel_->setText("Running");
+    }
+
+    QString tzLabel;
+    QString locationName;
+    double lat = 0.0;
+    double lon = 0.0;
+    QString err;
+    if (!resolveSolarReturnContext(&tzLabel, &locationName, &lat, &lon, &err)) {
+        if (solarFinderStatusLabel_) {
+            solarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage(err);
+        refreshSolarPlacementFinderView();
+        return;
+    }
+
+    double natalSunLon = 0.0;
+    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
+        if (solarFinderStatusLabel_) {
+            solarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage("Unable to locate natal Sun longitude.");
+        refreshSolarPlacementFinderView();
+        return;
+    }
+
+    int startYear = std::clamp(solarFinderStartYearSpin_->value(), 1800, 2399);
+    int endYear = std::clamp(solarFinderEndYearSpin_->value(), 1800, 2399);
+    if (startYear > endYear) {
+        std::swap(startYear, endYear);
+    }
+    {
+        const QSignalBlocker startBlock(solarFinderStartYearSpin_);
+        const QSignalBlocker endBlock(solarFinderEndYearSpin_);
+        solarFinderStartYearSpin_->setValue(startYear);
+        solarFinderEndYearSpin_->setValue(endYear);
+    }
+
+    const QString planetName = solarFinderPlanetCombo_->currentText().trimmed();
+    if (planetName.isEmpty()) {
+        if (solarFinderStatusLabel_) {
+            solarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage("Select a planet for the finder.");
+        refreshSolarPlacementFinderView();
+        return;
+    }
+
+    int targetHouse = solarFinderHouseCombo_->currentData().toInt();
+    if (targetHouse <= 0) {
+        targetHouse = solarFinderHouseCombo_->currentText().toInt();
+    }
+    if (targetHouse < 1 || targetHouse > 12) {
+        if (solarFinderStatusLabel_) {
+            solarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage("Select a valid house (1-12).");
+        refreshSolarPlacementFinderView();
+        return;
+    }
+
+    int modeValue = solarFinderHouseSystemCombo_->currentData().toInt();
+    if (modeValue < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
+        || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+        modeValue = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
+    }
+    const SolarPlacementFinderHouseMode houseMode = static_cast<SolarPlacementFinderHouseMode>(modeValue);
+    const QString conjunctionTarget = solarFinderConjunctionTargetCombo_
+        ? solarFinderConjunctionTargetCombo_->currentText().trimmed()
+        : QString("None");
+    const bool useConjunction = (conjunctionTarget.compare("None", Qt::CaseInsensitive) != 0);
+    const double conjunctionOrbLimit = useConjunction
+        ? std::max(0.01, (solarFinderConjunctionOrbSpin_ ? solarFinderConjunctionOrbSpin_->value() : 1.0))
+        : 0.0;
+
+    QVector<SolarPlacementFinderResult> matches;
+    QStringList warnings;
+    const int searchedCount = endYear - startYear + 1;
+    int failedCount = 0;
+    matches.reserve(searchedCount);
+
+    for (int year = startYear; year <= endYear; ++year) {
+        QString yearErr;
+        QString yearWarning;
+        NatalChart chart;
+        NatalInput unusedInput;
+        const HouseSystem computeSystem = (houseMode == SolarPlacementFinderHouseMode::WholeSign)
+            ? HouseSystem::WholeSign
+            : HouseSystem::Placidus;
+        if (!computeSolarReturnChartPure(year, tzLabel, natalSunLon, locationName, lat, lon,
+                                         computeSystem, &chart, &unusedInput, &yearErr)) {
+            ++failedCount;
+            warnings.push_back(QString("%1: %2").arg(year).arg(yearErr));
+            continue;
+        }
+
+        double bodyLon = 0.0;
+        if (!findBodyLongitude(chart, planetName, &bodyLon)) {
+            ++failedCount;
+            warnings.push_back(QString("%1: %2 position unavailable in computed chart.").arg(year).arg(planetName));
+            continue;
+        }
+
+        const int houseWhole = calcHouseForLongitude(bodyLon, {}, chart.angles.asc, HouseSystem::WholeSign);
+        int housePlacidus = 0;
+        const bool hasPlacidusCusps = (chart.cusps.size() == 12);
+        if (hasPlacidusCusps) {
+            housePlacidus = calcHouseForLongitude(bodyLon, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+        } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
+            ++failedCount;
+            warnings.push_back(QString("%1: Placidus cusps unavailable for this year.").arg(year));
+            continue;
+        } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+            ++failedCount;
+            yearWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
+            warnings.push_back(QString("%1: %2").arg(year).arg(yearWarning));
+        }
+
+        const bool matchedWhole = (houseWhole == targetHouse);
+        const bool matchedPlacidus = (housePlacidus == targetHouse);
+        bool matchedHouse = false;
+        switch (houseMode) {
+            case SolarPlacementFinderHouseMode::WholeSign:
+                matchedHouse = matchedWhole;
+                break;
+            case SolarPlacementFinderHouseMode::Placidus:
+                matchedHouse = matchedPlacidus;
+                break;
+            case SolarPlacementFinderHouseMode::Both:
+                matchedHouse = (matchedWhole || matchedPlacidus);
+                break;
+        }
+        if (!matchedHouse) {
+            continue;
+        }
+
+        bool matchedConjunction = !useConjunction;
+        QString matchedAngleName;
+        double matchedConjunctionOrb = 0.0;
+        if (useConjunction) {
+            auto diffToAngle = [&](const QString& angleName, double angleLon, QString* outName, double* outOrb) {
+                const double diff = angularDiffAbs(bodyLon, angleLon);
+                if (outName) {
+                    *outName = angleName;
+                }
+                if (outOrb) {
+                    *outOrb = diff;
+                }
+            };
+
+            if (conjunctionTarget.compare("Any Angle", Qt::CaseInsensitive) == 0) {
+                struct AngleCandidate {
+                    QString name;
+                    double lon = 0.0;
+                };
+                const QVector<AngleCandidate> angles = {
+                    {"Ascendant", chart.angles.asc},
+                    {"Descendant", chart.angles.desc},
+                    {"Midheaven", chart.angles.mc},
+                    {"IC", chart.angles.ic},
+                };
+                double bestOrb = 1e9;
+                QString bestName;
+                for (const auto& angle : angles) {
+                    QString name;
+                    double orb = 0.0;
+                    diffToAngle(angle.name, angle.lon, &name, &orb);
+                    if (orb < bestOrb) {
+                        bestOrb = orb;
+                        bestName = name;
+                    }
+                }
+                matchedAngleName = bestName;
+                matchedConjunctionOrb = bestOrb;
+                matchedConjunction = (bestOrb <= conjunctionOrbLimit);
+            } else {
+                QString resolvedAngleName;
+                double angleLon = 0.0;
+                if (conjunctionTarget.compare("Ascendant", Qt::CaseInsensitive) == 0) {
+                    resolvedAngleName = "Ascendant";
+                    angleLon = chart.angles.asc;
+                } else if (conjunctionTarget.compare("Descendant", Qt::CaseInsensitive) == 0) {
+                    resolvedAngleName = "Descendant";
+                    angleLon = chart.angles.desc;
+                } else if (conjunctionTarget.compare("Midheaven", Qt::CaseInsensitive) == 0
+                           || conjunctionTarget.compare("MC", Qt::CaseInsensitive) == 0) {
+                    resolvedAngleName = "Midheaven";
+                    angleLon = chart.angles.mc;
+                } else if (conjunctionTarget.compare("IC", Qt::CaseInsensitive) == 0) {
+                    resolvedAngleName = "IC";
+                    angleLon = chart.angles.ic;
+                } else {
+                    ++failedCount;
+                    warnings.push_back(QString("%1: Unknown conjunction target '%2'.").arg(year).arg(conjunctionTarget));
+                    continue;
+                }
+                diffToAngle(resolvedAngleName, angleLon, &matchedAngleName, &matchedConjunctionOrb);
+                matchedConjunction = (matchedConjunctionOrb <= conjunctionOrbLimit);
+            }
+        }
+        if (!matchedConjunction) {
+            continue;
+        }
+
+        SolarPlacementFinderResult result;
+        result.year = year;
+        result.localDateTime = chart.localDateTime;
+        result.bodyName = planetName;
+        result.houseWhole = houseWhole;
+        result.housePlacidus = housePlacidus;
+        result.matchedWhole = matchedWhole;
+        result.matchedPlacidus = matchedPlacidus;
+        result.matchedConjunction = matchedConjunction;
+        result.matchedAngleName = matchedAngleName;
+        result.conjunctionOrb = matchedConjunctionOrb;
+        result.warning = yearWarning;
+        matches.push_back(result);
+    }
+
+    solarPlacementFinderResults_ = matches;
+    solarPlacementFinderWarnings_ = warnings;
+    solarPlacementFinderRan_ = true;
+    solarPlacementFinderStale_ = false;
+    solarPlacementFinderSelectedIndex_ = solarPlacementFinderResults_.isEmpty() ? -1 : 0;
+    solarPlacementFinderLastSearchedCount_ = searchedCount;
+    solarPlacementFinderLastFailedCount_ = failedCount;
+    solarPlacementFinderLastStartYear_ = startYear;
+    solarPlacementFinderLastEndYear_ = endYear;
+    solarPlacementFinderLastPlanet_ = planetName;
+    solarPlacementFinderLastHouse_ = targetHouse;
+    solarPlacementFinderLastHouseMode_ = houseMode;
+    solarPlacementFinderLastConjunctionTarget_ = conjunctionTarget;
+    solarPlacementFinderLastConjunctionOrb_ = conjunctionOrbLimit;
+
+    if (solarFinderStatusLabel_) {
+        if (solarPlacementFinderResults_.isEmpty()) {
+            solarFinderStatusLabel_->setText("No matches");
+        } else if (!solarPlacementFinderWarnings_.isEmpty()) {
+            solarFinderStatusLabel_->setText("Done with warnings");
+        } else {
+            solarFinderStatusLabel_->setText("Done");
+        }
+    }
+
+    setStatusMessage(QString("SR finder scanned %1 years, matched %2, failed %3.")
+                         .arg(searchedCount)
+                         .arg(solarPlacementFinderResults_.size())
+                         .arg(failedCount));
+    refreshSolarPlacementFinderView();
+}
+
+void MainWindow::refreshSolarPlacementFinderView() {
+    if (!isSolarPlacementFinderTabActive()) {
+        return;
+    }
+    updateSolarTechniqueDockTitles();
+    showSolarPlacementFinderResults();
+}
+
+void MainWindow::showSolarPlacementFinderResults() {
+    if (!rightTopTable_ || !rightBottomTable_) {
+        return;
+    }
+    if (!hasCurrentChart_) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Load a natal chart to use the Solar Return placement finder."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Finder details appear after running a search."));
+        return;
+    }
+    if (!solarPlacementFinderRan_) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("Set range/filter and click Find Matching Years."));
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Search results and run summary will appear here."));
+        return;
+    }
+
+    if (solarPlacementFinderResults_.isEmpty()) {
+        setupTable(rightTopTable_, {"Info"}, 1);
+        rightTopTable_->setItem(0, 0, makeCell("No matching years found for the current filter."));
+        showSolarPlacementFinderDetails(-1);
+        return;
+    }
+
+    auto matchedByLabel = [](const SolarPlacementFinderResult& result) {
+        if (result.matchedWhole && result.matchedPlacidus) {
+            return QString("Whole + Placidus");
+        }
+        if (result.matchedWhole) {
+            return QString("Whole");
+        }
+        if (result.matchedPlacidus) {
+            return QString("Placidus");
+        }
+        return QString("-");
+    };
+    auto conjunctionLabel = [this](const SolarPlacementFinderResult& result) {
+        const bool conjunctionFiltered =
+            (solarPlacementFinderLastConjunctionTarget_.trimmed().compare("None", Qt::CaseInsensitive) != 0);
+        if (!conjunctionFiltered) {
+            return QString("-");
+        }
+        const QString angleName = result.matchedAngleName.isEmpty()
+            ? solarPlacementFinderLastConjunctionTarget_
+            : result.matchedAngleName;
+        return QString("%1 (%2 deg)").arg(angleName, QString::number(result.conjunctionOrb, 'f', 2));
+    };
+
+    setupTable(rightTopTable_, {"Year", "SR Local Date/Time", "Planet", "House (Whole)", "House (Placidus)",
+                                "House Match", "Conjunction"},
+               solarPlacementFinderResults_.size());
+    if (auto* header = rightTopTable_->horizontalHeader()) {
+        header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+        header->setSectionResizeMode(6, QHeaderView::Stretch);
+    }
+    for (int i = 0; i < solarPlacementFinderResults_.size(); ++i) {
+        const auto& result = solarPlacementFinderResults_[i];
+        auto* yearItem = makeCell(QString::number(result.year), Qt::AlignCenter);
+        yearItem->setData(Qt::UserRole, result.year);
+        rightTopTable_->setItem(i, 0, yearItem);
+        rightTopTable_->setItem(i, 1, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+        rightTopTable_->setItem(i, 2, makeCell(result.bodyName));
+        rightTopTable_->setItem(i, 3, makeCell(result.houseWhole > 0 ? QString::number(result.houseWhole) : "-", Qt::AlignCenter));
+        rightTopTable_->setItem(i, 4, makeCell(result.housePlacidus > 0 ? QString::number(result.housePlacidus) : "-", Qt::AlignCenter));
+        auto* matchedByItem = makeCell(matchedByLabel(result));
+        if (!result.warning.isEmpty()) {
+            matchedByItem->setToolTip(result.warning);
+        }
+        rightTopTable_->setItem(i, 5, matchedByItem);
+        auto* conjunctionItem = makeCell(conjunctionLabel(result));
+        if (!result.warning.isEmpty()) {
+            conjunctionItem->setToolTip(result.warning);
+        }
+        rightTopTable_->setItem(i, 6, conjunctionItem);
+    }
+
+    const int maxIndex = std::max(0, static_cast<int>(solarPlacementFinderResults_.size()) - 1);
+    solarPlacementFinderSelectedIndex_ = std::clamp(solarPlacementFinderSelectedIndex_, 0, maxIndex);
+    rightTopTable_->selectRow(solarPlacementFinderSelectedIndex_);
+    showSolarPlacementFinderDetails(solarPlacementFinderSelectedIndex_);
+}
+
+void MainWindow::showSolarPlacementFinderDetails(int index) {
+    if (!rightBottomTable_) {
+        return;
+    }
+    if (!solarPlacementFinderRan_) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Run a finder search to view details."));
+        return;
+    }
+
+    auto houseModeLabel = [](SolarPlacementFinderHouseMode mode) {
+        switch (mode) {
+            case SolarPlacementFinderHouseMode::Placidus:
+                return QString("Placidus");
+            case SolarPlacementFinderHouseMode::Both:
+                return QString("Both");
+            case SolarPlacementFinderHouseMode::WholeSign:
+            default:
+                return QString("Whole Sign");
+        }
+    };
+    auto conjunctionFilterLabel = [this]() {
+        const QString target = solarPlacementFinderLastConjunctionTarget_.trimmed();
+        if (target.isEmpty() || target.compare("None", Qt::CaseInsensitive) == 0) {
+            return QString("None");
+        }
+        return QString("%1 (<= %2 deg)")
+            .arg(target, QString::number(solarPlacementFinderLastConjunctionOrb_, 'f', 2));
+    };
+    const bool conjunctionFiltered =
+        (solarPlacementFinderLastConjunctionTarget_.trimmed().compare("None", Qt::CaseInsensitive) != 0);
+
+    QString warningsSummary = "-";
+    if (!solarPlacementFinderWarnings_.isEmpty()) {
+        const int maxItems = 3;
+        if (solarPlacementFinderWarnings_.size() <= maxItems) {
+            warningsSummary = solarPlacementFinderWarnings_.join(" | ");
+        } else {
+            warningsSummary = QString("%1 (+%2 more)")
+                .arg(solarPlacementFinderWarnings_.mid(0, maxItems).join(" | "))
+                .arg(solarPlacementFinderWarnings_.size() - maxItems);
+        }
+    }
+
+    const QString rangeLabel = QString("%1 -> %2")
+        .arg(solarPlacementFinderLastStartYear_)
+        .arg(solarPlacementFinderLastEndYear_);
+    const QString stateLabel = solarPlacementFinderStale_
+        ? "Stale (filters/inputs changed)"
+        : "Current";
+
+    if (index < 0 || index >= solarPlacementFinderResults_.size()) {
+        setupTable(rightBottomTable_, {"Item", "Value"}, 9);
+        int row = 0;
+        rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
+        rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("Planet / House"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 in House %2").arg(
+            solarPlacementFinderLastPlanet_, QString::number(solarPlacementFinderLastHouse_))));
+        rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(solarPlacementFinderLastHouseMode_)));
+        rightBottomTable_->setItem(row, 0, makeCell("Conjunction Filter"));
+        rightBottomTable_->setItem(row++, 1, makeCell(conjunctionFilterLabel()));
+        rightBottomTable_->setItem(row, 0, makeCell("Searched Years"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderLastSearchedCount_)));
+        rightBottomTable_->setItem(row, 0, makeCell("Matched Years"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderResults_.size())));
+        rightBottomTable_->setItem(row, 0, makeCell("Failed Years"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderLastFailedCount_)));
+        rightBottomTable_->setItem(row, 0, makeCell("Warnings"));
+        auto* warningItem = makeCell(warningsSummary);
+        warningItem->setToolTip(solarPlacementFinderWarnings_.join("\n"));
+        rightBottomTable_->setItem(row++, 1, warningItem);
+        rightBottomTable_->setItem(row, 0, makeCell("Result State"));
+        rightBottomTable_->setItem(row++, 1, makeCell(stateLabel));
+        rightBottomTable_->setWordWrap(true);
+        rightBottomTable_->resizeRowsToContents();
+        return;
+    }
+
+    const auto& result = solarPlacementFinderResults_[index];
+    QString matchedBy = "-";
+    if (result.matchedWhole && result.matchedPlacidus) {
+        matchedBy = "Whole + Placidus";
+    } else if (result.matchedWhole) {
+        matchedBy = "Whole";
+    } else if (result.matchedPlacidus) {
+        matchedBy = "Placidus";
+    }
+    QString conjunctionMatch = "Not filtered";
+    if (conjunctionFiltered) {
+        const QString angleName = result.matchedAngleName.isEmpty()
+            ? solarPlacementFinderLastConjunctionTarget_
+            : result.matchedAngleName;
+        conjunctionMatch = QString("%1 (%2 deg)")
+            .arg(angleName, QString::number(result.conjunctionOrb, 'f', 2));
+    }
+
+    setupTable(rightBottomTable_, {"Item", "Value"}, 16);
+    int row = 0;
+    rightBottomTable_->setItem(row, 0, makeCell("Year"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.year)));
+    rightBottomTable_->setItem(row, 0, makeCell("SR Local Date/Time"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+    rightBottomTable_->setItem(row, 0, makeCell("Planet / Target House"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 in House %2").arg(
+        solarPlacementFinderLastPlanet_, QString::number(solarPlacementFinderLastHouse_))));
+    rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
+    rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(solarPlacementFinderLastHouseMode_)));
+    rightBottomTable_->setItem(row, 0, makeCell("House (Whole)"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.houseWhole > 0 ? QString::number(result.houseWhole) : "-"));
+    rightBottomTable_->setItem(row, 0, makeCell("House (Placidus)"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.housePlacidus > 0 ? QString::number(result.housePlacidus) : "-"));
+    rightBottomTable_->setItem(row, 0, makeCell("Matched By"));
+    rightBottomTable_->setItem(row++, 1, makeCell(matchedBy));
+    rightBottomTable_->setItem(row, 0, makeCell("Conjunction Filter"));
+    rightBottomTable_->setItem(row++, 1, makeCell(conjunctionFilterLabel()));
+    rightBottomTable_->setItem(row, 0, makeCell("Conjunction Match"));
+    rightBottomTable_->setItem(row++, 1, makeCell(conjunctionMatch));
+    rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
+    rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
+    rightBottomTable_->setItem(row, 0, makeCell("Searched Years"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderLastSearchedCount_)));
+    rightBottomTable_->setItem(row, 0, makeCell("Matched Years"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderResults_.size())));
+    rightBottomTable_->setItem(row, 0, makeCell("Failed Years"));
+    rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderLastFailedCount_)));
+    rightBottomTable_->setItem(row, 0, makeCell("Warnings"));
+    auto* warningItem = makeCell(warningsSummary);
+    warningItem->setToolTip(solarPlacementFinderWarnings_.join("\n"));
+    rightBottomTable_->setItem(row++, 1, warningItem);
+    rightBottomTable_->setItem(row, 0, makeCell("Result State"));
+    rightBottomTable_->setItem(row++, 1, makeCell(stateLabel));
+    rightBottomTable_->setItem(row, 0, makeCell("Row Notes"));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.warning.isEmpty() ? "-" : result.warning));
+    rightBottomTable_->setWordWrap(true);
+    rightBottomTable_->resizeRowsToContents();
+}
+
+void MainWindow::handleSolarPlacementFinderResultActivated(int row, int column) {
+    Q_UNUSED(column);
+    if (row < 0 || row >= solarPlacementFinderResults_.size()) {
+        return;
+    }
+    solarPlacementFinderSelectedIndex_ = row;
+    const int year = solarPlacementFinderResults_[row].year;
+    if (solarYearSpin_) {
+        const QSignalBlocker blocker(solarYearSpin_);
+        solarYearSpin_->setValue(year);
+    }
+    QString err;
+    if (!applySolarReturnYear(year, &err)) {
+        setStatusMessage(err);
+        showSolarPlacementFinderDetails(row);
+        return;
+    }
+    if (isSolarPlacementFinderTabActive()) {
+        showSolarPlacementFinderResults();
+        if (rightTopTable_ && row >= 0 && row < rightTopTable_->rowCount()) {
+            rightTopTable_->selectRow(row);
+        }
+    }
+}
+
 void MainWindow::refreshTransitsTab() {
     if (activeTab_ != AppTab::Transits) {
         return;
@@ -12287,7 +13476,7 @@ void MainWindow::populateAspects(const NatalChart& chart) {
     QVector<int> indices;
     indices.reserve(grid.bodyOrder.size());
     for (int i = 0; i < grid.bodyOrder.size(); ++i) {
-        if (isAsteroidBody(grid.bodyOrder[i]) && (!includeAsteroidAspects_ || !isAsteroidVisible(grid.bodyOrder[i]))) {
+        if (!isBodyVisibleInAspectGrid(grid.bodyOrder[i])) {
             continue;
         }
         indices.push_back(i);
@@ -12303,7 +13492,8 @@ void MainWindow::populateAspects(const NatalChart& chart) {
     aspectsTable_->setRowCount(n);
     aspectsTable_->setColumnCount(n);
     aspectsTable_->verticalHeader()->setVisible(true);
-    aspectsTable_->horizontalHeader()->setVisible(false);
+    aspectsTable_->horizontalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setSectionsClickable(false);
     QStringList headers;
     headers.reserve(n);
     for (int i = 0; i < n; ++i) {
@@ -12316,40 +13506,48 @@ void MainWindow::populateAspects(const NatalChart& chart) {
     aspectsTable_->setVerticalHeaderLabels(headers);
     aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->horizontalHeader()->setMinimumSectionSize(30);
     aspectsTable_->setShowGrid(true);
     aspectsTable_->setAlternatingRowColors(false);
     aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
     aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
-    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
-        QFont glyphFont = aspectsTable_->font();
-        glyphFont.setFamily("Segoe UI Symbol");
-        glyphFont.setPointSize(9);
-        aspectsTable_->setFont(glyphFont);
-        aspectsTable_->horizontalHeader()->setFont(glyphFont);
-        aspectsTable_->verticalHeader()->setFont(glyphFont);
-    } else {
-        QFont baseFont = aspectsTable_->font();
-        aspectsTable_->setFont(baseFont);
-        aspectsTable_->horizontalHeader()->setFont(baseFont);
-        aspectsTable_->verticalHeader()->setFont(baseFont);
-    }
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(24);
+    applyAspectTableFont();
     for (int i = 0; i < n; ++i) {
         const int src = indices[i];
+        if (src < 0 || src >= grid.bodyOrder.size()) {
+            continue;
+        }
+        const QString fullName = grid.bodyOrder[src];
         if (auto* item = aspectsTable_->horizontalHeaderItem(i)) {
-            if (src >= 0 && src < grid.bodyOrder.size()) {
-                item->setToolTip(grid.bodyOrder[src]);
-            }
+            item->setToolTip(fullName);
         }
         if (auto* item = aspectsTable_->verticalHeaderItem(i)) {
-            if (src >= 0 && src < grid.bodyOrder.size()) {
-                item->setToolTip(grid.bodyOrder[src]);
-            }
+            item->setToolTip(fullName);
         }
     }
 
+    const bool isDark = (theme_ == ThemeMode::Dark);
+    const bool isCreme = (theme_ == ThemeMode::Creme);
+    const QColor conjColor   = isDark ? QColor("#f0a830") : isCreme ? QColor("#9a6020") : QColor("#b07010");
+    const QColor hardColor   = isDark ? QColor("#e05555") : isCreme ? QColor("#a83030") : QColor("#c0392b");
+    const QColor softColor   = isDark ? QColor("#4aa3ff") : isCreme ? QColor("#3060a0") : QColor("#1a6fbf");
+    const QColor diagBg      = isDark ? QColor("#1a1e21") : isCreme ? QColor("#dfd0bc") : QColor("#e8e8e8");
+
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
+            // Diagonal — styled separator cell, no text
+            if (i == j) {
+                auto* diag = makeCell("", Qt::AlignCenter);
+                diag->setBackground(diagBg);
+                diag->setFlags(Qt::ItemIsEnabled);
+                aspectsTable_->setItem(i, j, diag);
+                continue;
+            }
+            // Upper triangle — leave empty (no item = natural table background)
+            if (j > i) {
+                continue;
+            }
             const int srcI = indices[i];
             const int srcJ = indices[j];
             if (srcI < 0 || srcJ < 0
@@ -12363,22 +13561,25 @@ void MainWindow::populateAspects(const NatalChart& chart) {
                     aspectsTable_->setItem(i, j, makeCell(""));
                     continue;
                 }
-                const QString text = QString("%1 %2")
-                    .arg(cell.symbol)
-                    .arg(QString::number(cell.orb, 'f', 1));
+                const QString orbStr = (cell.orb < 0.1)
+                    ? QString::number(cell.orb, 'f', 2)
+                    : QString::number(cell.orb, 'f', 1);
+                const QString text = QString("%1 %2°").arg(cell.symbol).arg(orbStr);
                 auto* item = makeCell(text, Qt::AlignCenter);
                 if (srcI < grid.bodyOrder.size() && srcJ < grid.bodyOrder.size()) {
-                    const QString tooltip = QString("%1 vs %2: %3 (orb %4 deg)")
+                    const QString tooltip = QString("%1 %2 %3 — orb %4°")
                         .arg(grid.bodyOrder[srcI])
-                        .arg(grid.bodyOrder[srcJ])
                         .arg(cell.label)
+                        .arg(grid.bodyOrder[srcJ])
                         .arg(QString::number(cell.orb, 'f', 2));
                     item->setToolTip(tooltip);
                 }
-                if (cell.label == "Square" || cell.label == "Opposition") {
-                    item->setForeground(QColor("#e05555"));
+                if (cell.label == "Conjunction") {
+                    item->setForeground(conjColor);
+                } else if (cell.label == "Square" || cell.label == "Opposition") {
+                    item->setForeground(hardColor);
                 } else if (cell.label == "Trine" || cell.label == "Sextile") {
-                    item->setForeground(QColor("#4aa3ff"));
+                    item->setForeground(softColor);
                 }
                 aspectsTable_->setItem(i, j, item);
             } else {
@@ -12386,28 +13587,8 @@ void MainWindow::populateAspects(const NatalChart& chart) {
             }
         }
     }
-    for (int i = 0; i < n; ++i) {
-        const int src = indices[i];
-        if (src < 0 || src >= grid.bodyOrder.size()) {
-            continue;
-        }
-        auto* diag = aspectsTable_->item(i, i);
-        if (!diag) {
-            diag = makeCell("", Qt::AlignCenter);
-            aspectsTable_->setItem(i, i, diag);
-        }
-        diag->setText(aspectHeaderLabel(grid.bodyOrder[src]));
-        diag->setTextAlignment(Qt::AlignCenter);
-        diag->setToolTip(grid.bodyOrder[src]);
-        QFont diagFont = diag->font();
-        diagFont.setBold(true);
-        diag->setFont(diagFont);
-        diag->setForeground(QBrush());
-        diag->setFlags(Qt::ItemIsEnabled);
-    }
 
     aspectTriangleEnabled_ = true;
-    applyAspectTriangle(n);
     clearAspectHover();
 }
 
@@ -12424,15 +13605,17 @@ void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, c
     for (const auto& body : natalChart.bodies) {
         natalMap.insert(body.name, body.longitude);
     }
-    natalMap.insert("Ascendant", natalChart.angles.asc);
-    natalMap.insert("Midheaven", natalChart.angles.mc);
-    natalMap.insert("Descendant", natalChart.angles.desc);
-    natalMap.insert("IC", natalChart.angles.ic);
+    if (aspectGridFilter_.showAngles) {
+        natalMap.insert("Ascendant", natalChart.angles.asc);
+        natalMap.insert("Midheaven", natalChart.angles.mc);
+        natalMap.insert("Descendant", natalChart.angles.desc);
+        natalMap.insert("IC", natalChart.angles.ic);
+    }
 
     QStringList rowNames;
     QStringList colNames;
     for (const auto& name : tropicalBodyOrder()) {
-        if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
+        if (!isBodyVisibleInAspectGrid(name)) {
             continue;
         }
         if (transitMap.contains(name)) {
@@ -12451,6 +13634,7 @@ void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, c
     aspectsTable_->setColumnCount(cols);
     aspectsTable_->verticalHeader()->setVisible(true);
     aspectsTable_->horizontalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setSectionsClickable(false);
 
     QStringList rowHeaders;
     QStringList colHeaders;
@@ -12466,35 +13650,30 @@ void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, c
     aspectsTable_->setVerticalHeaderLabels(rowHeaders);
     aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->horizontalHeader()->setMinimumSectionSize(30);
     aspectsTable_->setShowGrid(true);
     aspectsTable_->setAlternatingRowColors(false);
     aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
     aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
-    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
-        QFont glyphFont = aspectsTable_->font();
-        glyphFont.setFamily("Segoe UI Symbol");
-        glyphFont.setPointSize(9);
-        aspectsTable_->setFont(glyphFont);
-        aspectsTable_->horizontalHeader()->setFont(glyphFont);
-        aspectsTable_->verticalHeader()->setFont(glyphFont);
-    } else {
-        QFont baseFont = aspectsTable_->font();
-        aspectsTable_->setFont(baseFont);
-        aspectsTable_->horizontalHeader()->setFont(baseFont);
-        aspectsTable_->verticalHeader()->setFont(baseFont);
-    }
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(24);
+    applyAspectTableFont();
 
     for (int r = 0; r < rows; ++r) {
         if (auto* item = aspectsTable_->verticalHeaderItem(r)) {
-            item->setToolTip("Transit " + rowNames[r]);
+            item->setToolTip("Transit: " + rowNames[r]);
         }
     }
     for (int c = 0; c < cols; ++c) {
         if (auto* item = aspectsTable_->horizontalHeaderItem(c)) {
-            item->setToolTip("Natal " + colNames[c]);
+            item->setToolTip("Natal: " + colNames[c]);
         }
     }
+
+    const bool isDark = (theme_ == ThemeMode::Dark);
+    const bool isCreme = (theme_ == ThemeMode::Creme);
+    const QColor conjColor = isDark ? QColor("#f0a830") : isCreme ? QColor("#9a6020") : QColor("#b07010");
+    const QColor hardColor = isDark ? QColor("#e05555") : isCreme ? QColor("#a83030") : QColor("#c0392b");
+    const QColor softColor = isDark ? QColor("#4aa3ff") : isCreme ? QColor("#3060a0") : QColor("#1a6fbf");
 
     for (int r = 0; r < rows; ++r) {
         const QString& tName = rowNames[r];
@@ -12511,20 +13690,25 @@ void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, c
                     aspectsTable_->setItem(r, c, makeCell(""));
                     continue;
                 }
-                const QString text = QString("%1 %2")
+                const QString orbStr = (orb < 0.1)
+                    ? QString::number(orb, 'f', 2)
+                    : QString::number(orb, 'f', 1);
+                const QString text = QString("%1 %2°")
                     .arg(aspectSymbolForLabel(label))
-                    .arg(QString::number(orb, 'f', 1));
+                    .arg(orbStr);
                 auto* item = makeCell(text, Qt::AlignCenter);
-                const QString tooltip = QString("Transit %1 vs Natal %2: %3 (orb %4 deg)")
+                const QString tooltip = QString("Transit %1 %2 Natal %3 — orb %4°")
                     .arg(tName)
-                    .arg(nName)
                     .arg(label)
+                    .arg(nName)
                     .arg(QString::number(orb, 'f', 2));
                 item->setToolTip(tooltip);
-                if (label == "Square" || label == "Opposition") {
-                    item->setForeground(QColor("#e05555"));
+                if (label == "Conjunction") {
+                    item->setForeground(conjColor);
+                } else if (label == "Square" || label == "Opposition") {
+                    item->setForeground(hardColor);
                 } else if (label == "Trine" || label == "Sextile") {
-                    item->setForeground(QColor("#4aa3ff"));
+                    item->setForeground(softColor);
                 }
                 aspectsTable_->setItem(r, c, item);
             } else {
@@ -12548,15 +13732,17 @@ void MainWindow::populateProgressedAspectsOverlay(const NatalChart& progressedCh
     for (const auto& body : natalChart.bodies) {
         natalMap.insert(body.name, body.longitude);
     }
-    natalMap.insert("Ascendant", natalChart.angles.asc);
-    natalMap.insert("Midheaven", natalChart.angles.mc);
-    natalMap.insert("Descendant", natalChart.angles.desc);
-    natalMap.insert("IC", natalChart.angles.ic);
+    if (aspectGridFilter_.showAngles) {
+        natalMap.insert("Ascendant", natalChart.angles.asc);
+        natalMap.insert("Midheaven", natalChart.angles.mc);
+        natalMap.insert("Descendant", natalChart.angles.desc);
+        natalMap.insert("IC", natalChart.angles.ic);
+    }
 
     QStringList rowNames;
     QStringList colNames;
     for (const auto& name : tropicalBodyOrder()) {
-        if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
+        if (!isBodyVisibleInAspectGrid(name)) {
             continue;
         }
         if (progressedMap.contains(name)) {
@@ -12575,6 +13761,7 @@ void MainWindow::populateProgressedAspectsOverlay(const NatalChart& progressedCh
     aspectsTable_->setColumnCount(cols);
     aspectsTable_->verticalHeader()->setVisible(true);
     aspectsTable_->horizontalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setSectionsClickable(false);
 
     QStringList rowHeaders;
     QStringList colHeaders;
@@ -12590,35 +13777,30 @@ void MainWindow::populateProgressedAspectsOverlay(const NatalChart& progressedCh
     aspectsTable_->setVerticalHeaderLabels(rowHeaders);
     aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->horizontalHeader()->setMinimumSectionSize(30);
     aspectsTable_->setShowGrid(true);
     aspectsTable_->setAlternatingRowColors(false);
     aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
     aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
-    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
-        QFont glyphFont = aspectsTable_->font();
-        glyphFont.setFamily("Segoe UI Symbol");
-        glyphFont.setPointSize(9);
-        aspectsTable_->setFont(glyphFont);
-        aspectsTable_->horizontalHeader()->setFont(glyphFont);
-        aspectsTable_->verticalHeader()->setFont(glyphFont);
-    } else {
-        QFont baseFont = aspectsTable_->font();
-        aspectsTable_->setFont(baseFont);
-        aspectsTable_->horizontalHeader()->setFont(baseFont);
-        aspectsTable_->verticalHeader()->setFont(baseFont);
-    }
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(24);
+    applyAspectTableFont();
 
     for (int r = 0; r < rows; ++r) {
         if (auto* item = aspectsTable_->verticalHeaderItem(r)) {
-            item->setToolTip("Progressed " + rowNames[r]);
+            item->setToolTip("Progressed: " + rowNames[r]);
         }
     }
     for (int c = 0; c < cols; ++c) {
         if (auto* item = aspectsTable_->horizontalHeaderItem(c)) {
-            item->setToolTip("Natal " + colNames[c]);
+            item->setToolTip("Natal: " + colNames[c]);
         }
     }
+
+    const bool isDark = (theme_ == ThemeMode::Dark);
+    const bool isCreme = (theme_ == ThemeMode::Creme);
+    const QColor conjColor = isDark ? QColor("#f0a830") : isCreme ? QColor("#9a6020") : QColor("#b07010");
+    const QColor hardColor = isDark ? QColor("#e05555") : isCreme ? QColor("#a83030") : QColor("#c0392b");
+    const QColor softColor = isDark ? QColor("#4aa3ff") : isCreme ? QColor("#3060a0") : QColor("#1a6fbf");
 
     for (int r = 0; r < rows; ++r) {
         const QString& pName = rowNames[r];
@@ -12635,20 +13817,25 @@ void MainWindow::populateProgressedAspectsOverlay(const NatalChart& progressedCh
                     aspectsTable_->setItem(r, c, makeCell(""));
                     continue;
                 }
-                const QString text = QString("%1 %2")
+                const QString orbStr = (orb < 0.1)
+                    ? QString::number(orb, 'f', 2)
+                    : QString::number(orb, 'f', 1);
+                const QString text = QString("%1 %2°")
                     .arg(aspectSymbolForLabel(label))
-                    .arg(QString::number(orb, 'f', 1));
+                    .arg(orbStr);
                 auto* item = makeCell(text, Qt::AlignCenter);
-                const QString tooltip = QString("Progressed %1 vs Natal %2: %3 (orb %4 deg)")
+                const QString tooltip = QString("Progressed %1 %2 Natal %3 — orb %4°")
                     .arg(pName)
-                    .arg(nName)
                     .arg(label)
+                    .arg(nName)
                     .arg(QString::number(orb, 'f', 2));
                 item->setToolTip(tooltip);
-                if (label == "Square" || label == "Opposition") {
-                    item->setForeground(QColor("#e05555"));
+                if (label == "Conjunction") {
+                    item->setForeground(conjColor);
+                } else if (label == "Square" || label == "Opposition") {
+                    item->setForeground(hardColor);
                 } else if (label == "Trine" || label == "Sextile") {
-                    item->setForeground(QColor("#4aa3ff"));
+                    item->setForeground(softColor);
                 }
                 aspectsTable_->setItem(r, c, item);
             } else {
@@ -12668,15 +13855,27 @@ void MainWindow::populateSolarNatalAspectsOverlay(const NatalChart& solarChart, 
     for (const auto& body : solarChart.bodies) {
         solarMap.insert(body.name, body.longitude);
     }
+    if (aspectGridFilter_.showAngles) {
+        solarMap.insert("Ascendant", solarChart.angles.asc);
+        solarMap.insert("Midheaven", solarChart.angles.mc);
+        solarMap.insert("Descendant", solarChart.angles.desc);
+        solarMap.insert("IC", solarChart.angles.ic);
+    }
     QMap<QString, double> natalMap;
     for (const auto& body : natalChart.bodies) {
         natalMap.insert(body.name, body.longitude);
+    }
+    if (aspectGridFilter_.showAngles) {
+        natalMap.insert("Ascendant", natalChart.angles.asc);
+        natalMap.insert("Midheaven", natalChart.angles.mc);
+        natalMap.insert("Descendant", natalChart.angles.desc);
+        natalMap.insert("IC", natalChart.angles.ic);
     }
 
     QStringList rowNames;
     QStringList colNames;
     for (const auto& name : tropicalBodyOrder()) {
-        if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
+        if (!isBodyVisibleInAspectGrid(name)) {
             continue;
         }
         if (solarMap.contains(name)) {
@@ -12695,50 +13894,46 @@ void MainWindow::populateSolarNatalAspectsOverlay(const NatalChart& solarChart, 
     aspectsTable_->setColumnCount(cols);
     aspectsTable_->verticalHeader()->setVisible(true);
     aspectsTable_->horizontalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setSectionsClickable(false);
 
     QStringList rowHeaders;
     QStringList colHeaders;
     rowHeaders.reserve(rows);
     colHeaders.reserve(cols);
     for (const auto& name : rowNames) {
-        rowHeaders.push_back(QString("Solar %1").arg(aspectHeaderLabel(name)));
+        rowHeaders.push_back(aspectHeaderLabel(name));
     }
     for (const auto& name : colNames) {
-        colHeaders.push_back(QString("Natal %1").arg(aspectHeaderLabel(name)));
+        colHeaders.push_back(aspectHeaderLabel(name));
     }
     aspectsTable_->setHorizontalHeaderLabels(colHeaders);
     aspectsTable_->setVerticalHeaderLabels(rowHeaders);
     aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->horizontalHeader()->setMinimumSectionSize(30);
     aspectsTable_->setShowGrid(true);
     aspectsTable_->setAlternatingRowColors(false);
     aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
     aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
-    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
-        QFont glyphFont = aspectsTable_->font();
-        glyphFont.setFamily("Segoe UI Symbol");
-        glyphFont.setPointSize(9);
-        aspectsTable_->setFont(glyphFont);
-        aspectsTable_->horizontalHeader()->setFont(glyphFont);
-        aspectsTable_->verticalHeader()->setFont(glyphFont);
-    } else {
-        QFont baseFont = aspectsTable_->font();
-        aspectsTable_->setFont(baseFont);
-        aspectsTable_->horizontalHeader()->setFont(baseFont);
-        aspectsTable_->verticalHeader()->setFont(baseFont);
-    }
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(24);
+    applyAspectTableFont();
 
     for (int r = 0; r < rows; ++r) {
         if (auto* item = aspectsTable_->verticalHeaderItem(r)) {
-            item->setToolTip("Solar " + rowNames[r]);
+            item->setToolTip("Solar: " + rowNames[r]);
         }
     }
     for (int c = 0; c < cols; ++c) {
         if (auto* item = aspectsTable_->horizontalHeaderItem(c)) {
-            item->setToolTip("Natal " + colNames[c]);
+            item->setToolTip("Natal: " + colNames[c]);
         }
     }
+
+    const bool isDark = (theme_ == ThemeMode::Dark);
+    const bool isCreme = (theme_ == ThemeMode::Creme);
+    const QColor conjColor = isDark ? QColor("#f0a830") : isCreme ? QColor("#9a6020") : QColor("#b07010");
+    const QColor hardColor = isDark ? QColor("#e05555") : isCreme ? QColor("#a83030") : QColor("#c0392b");
+    const QColor softColor = isDark ? QColor("#4aa3ff") : isCreme ? QColor("#3060a0") : QColor("#1a6fbf");
 
     for (int r = 0; r < rows; ++r) {
         const QString& sName = rowNames[r];
@@ -12755,20 +13950,25 @@ void MainWindow::populateSolarNatalAspectsOverlay(const NatalChart& solarChart, 
                     aspectsTable_->setItem(r, c, makeCell(""));
                     continue;
                 }
-                const QString text = QString("%1 %2")
+                const QString orbStr = (orb < 0.1)
+                    ? QString::number(orb, 'f', 2)
+                    : QString::number(orb, 'f', 1);
+                const QString text = QString("%1 %2°")
                     .arg(aspectSymbolForLabel(label))
-                    .arg(QString::number(orb, 'f', 1));
+                    .arg(orbStr);
                 auto* item = makeCell(text, Qt::AlignCenter);
-                const QString tooltip = QString("Solar %1 vs Natal %2: %3 (orb %4 deg)")
+                const QString tooltip = QString("Solar %1 %2 Natal %3 — orb %4°")
                     .arg(sName)
-                    .arg(nName)
                     .arg(label)
+                    .arg(nName)
                     .arg(QString::number(orb, 'f', 2));
                 item->setToolTip(tooltip);
-                if (label == "Square" || label == "Opposition") {
-                    item->setForeground(QColor("#e05555"));
+                if (label == "Conjunction") {
+                    item->setForeground(conjColor);
+                } else if (label == "Square" || label == "Opposition") {
+                    item->setForeground(hardColor);
                 } else if (label == "Trine" || label == "Sextile") {
-                    item->setForeground(QColor("#4aa3ff"));
+                    item->setForeground(softColor);
                 }
                 aspectsTable_->setItem(r, c, item);
             } else {
@@ -12788,24 +13988,28 @@ void MainWindow::populateRelocationNatalAspectsOverlay(const NatalChart& relocat
     for (const auto& body : relocationChart.bodies) {
         relocationMap.insert(body.name, body.longitude);
     }
-    relocationMap.insert("Ascendant", relocationChart.angles.asc);
-    relocationMap.insert("Midheaven", relocationChart.angles.mc);
-    relocationMap.insert("Descendant", relocationChart.angles.desc);
-    relocationMap.insert("IC", relocationChart.angles.ic);
+    if (aspectGridFilter_.showAngles) {
+        relocationMap.insert("Ascendant", relocationChart.angles.asc);
+        relocationMap.insert("Midheaven", relocationChart.angles.mc);
+        relocationMap.insert("Descendant", relocationChart.angles.desc);
+        relocationMap.insert("IC", relocationChart.angles.ic);
+    }
 
     QMap<QString, double> natalMap;
     for (const auto& body : natalChart.bodies) {
         natalMap.insert(body.name, body.longitude);
     }
-    natalMap.insert("Ascendant", natalChart.angles.asc);
-    natalMap.insert("Midheaven", natalChart.angles.mc);
-    natalMap.insert("Descendant", natalChart.angles.desc);
-    natalMap.insert("IC", natalChart.angles.ic);
+    if (aspectGridFilter_.showAngles) {
+        natalMap.insert("Ascendant", natalChart.angles.asc);
+        natalMap.insert("Midheaven", natalChart.angles.mc);
+        natalMap.insert("Descendant", natalChart.angles.desc);
+        natalMap.insert("IC", natalChart.angles.ic);
+    }
 
     QStringList rowNames;
     QStringList colNames;
     for (const auto& name : tropicalBodyOrder()) {
-        if (isAsteroidBody(name) && (!includeAsteroidAspects_ || !isAsteroidVisible(name))) {
+        if (!isBodyVisibleInAspectGrid(name)) {
             continue;
         }
         if (relocationMap.contains(name)) {
@@ -12824,50 +14028,46 @@ void MainWindow::populateRelocationNatalAspectsOverlay(const NatalChart& relocat
     aspectsTable_->setColumnCount(cols);
     aspectsTable_->verticalHeader()->setVisible(true);
     aspectsTable_->horizontalHeader()->setVisible(true);
+    aspectsTable_->horizontalHeader()->setSectionsClickable(false);
 
     QStringList rowHeaders;
     QStringList colHeaders;
     rowHeaders.reserve(rows);
     colHeaders.reserve(cols);
     for (const auto& name : rowNames) {
-        rowHeaders.push_back(QString("Relocation %1").arg(aspectHeaderLabel(name)));
+        rowHeaders.push_back(aspectHeaderLabel(name));
     }
     for (const auto& name : colNames) {
-        colHeaders.push_back(QString("Natal %1").arg(aspectHeaderLabel(name)));
+        colHeaders.push_back(aspectHeaderLabel(name));
     }
     aspectsTable_->setHorizontalHeaderLabels(colHeaders);
     aspectsTable_->setVerticalHeaderLabels(rowHeaders);
     aspectsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     aspectsTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    aspectsTable_->horizontalHeader()->setMinimumSectionSize(30);
     aspectsTable_->setShowGrid(true);
     aspectsTable_->setAlternatingRowColors(false);
     aspectsTable_->setSelectionMode(QAbstractItemView::NoSelection);
     aspectsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    aspectsTable_->verticalHeader()->setDefaultSectionSize(18);
-    if (aspectHeaderMode_ == AspectHeaderMode::Glyphs) {
-        QFont glyphFont = aspectsTable_->font();
-        glyphFont.setFamily("Segoe UI Symbol");
-        glyphFont.setPointSize(9);
-        aspectsTable_->setFont(glyphFont);
-        aspectsTable_->horizontalHeader()->setFont(glyphFont);
-        aspectsTable_->verticalHeader()->setFont(glyphFont);
-    } else {
-        QFont baseFont = aspectsTable_->font();
-        aspectsTable_->setFont(baseFont);
-        aspectsTable_->horizontalHeader()->setFont(baseFont);
-        aspectsTable_->verticalHeader()->setFont(baseFont);
-    }
+    aspectsTable_->verticalHeader()->setDefaultSectionSize(24);
+    applyAspectTableFont();
 
     for (int r = 0; r < rows; ++r) {
         if (auto* item = aspectsTable_->verticalHeaderItem(r)) {
-            item->setToolTip("Relocation " + rowNames[r]);
+            item->setToolTip("Relocation: " + rowNames[r]);
         }
     }
     for (int c = 0; c < cols; ++c) {
         if (auto* item = aspectsTable_->horizontalHeaderItem(c)) {
-            item->setToolTip("Natal " + colNames[c]);
+            item->setToolTip("Natal: " + colNames[c]);
         }
     }
+
+    const bool isDark = (theme_ == ThemeMode::Dark);
+    const bool isCreme = (theme_ == ThemeMode::Creme);
+    const QColor conjColor = isDark ? QColor("#f0a830") : isCreme ? QColor("#9a6020") : QColor("#b07010");
+    const QColor hardColor = isDark ? QColor("#e05555") : isCreme ? QColor("#a83030") : QColor("#c0392b");
+    const QColor softColor = isDark ? QColor("#4aa3ff") : isCreme ? QColor("#3060a0") : QColor("#1a6fbf");
 
     for (int r = 0; r < rows; ++r) {
         const QString& sName = rowNames[r];
@@ -12884,20 +14084,25 @@ void MainWindow::populateRelocationNatalAspectsOverlay(const NatalChart& relocat
                     aspectsTable_->setItem(r, c, makeCell(""));
                     continue;
                 }
-                const QString text = QString("%1 %2")
+                const QString orbStr = (orb < 0.1)
+                    ? QString::number(orb, 'f', 2)
+                    : QString::number(orb, 'f', 1);
+                const QString text = QString("%1 %2°")
                     .arg(aspectSymbolForLabel(label))
-                    .arg(QString::number(orb, 'f', 1));
+                    .arg(orbStr);
                 auto* item = makeCell(text, Qt::AlignCenter);
-                const QString tooltip = QString("Relocation %1 vs Natal %2: %3 (orb %4 deg)")
+                const QString tooltip = QString("Relocation %1 %2 Natal %3 — orb %4°")
                     .arg(sName)
-                    .arg(nName)
                     .arg(label)
+                    .arg(nName)
                     .arg(QString::number(orb, 'f', 2));
                 item->setToolTip(tooltip);
-                if (label == "Square" || label == "Opposition") {
-                    item->setForeground(QColor("#e05555"));
+                if (label == "Conjunction") {
+                    item->setForeground(conjColor);
+                } else if (label == "Square" || label == "Opposition") {
+                    item->setForeground(hardColor);
                 } else if (label == "Trine" || label == "Sextile") {
-                    item->setForeground(QColor("#4aa3ff"));
+                    item->setForeground(softColor);
                 }
                 aspectsTable_->setItem(r, c, item);
             } else {

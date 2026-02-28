@@ -72,36 +72,75 @@ Swiss Ephemeris DLL:
 
 ## Build and Run (Windows CMD)
 
+### Quickest way — use the build script
+
+After any code change, just double-click `do_build.bat` in the project root, or run it from CMD:
+
+```bat
+cd C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version
+do_build.bat
+```
+
+This runs all required steps in order: build → copy EXE to `dist/` → `windeployqt` → copy `swedll64.dll` → copy `ephe/`. Both `build/` and `dist/` executables will be current when it finishes.
+
+---
+
+### Manual steps (reference only)
+
+Run these in `cmd.exe` from:
+`C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version`
+
 ### One-time configure (only if `dracoved_app/build` is missing)
 
 ```bat
 set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"
-cmake -S DracoVed_cpp_version\dracoved_app -B DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
+cmake -S C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app -B C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
 ```
 
 ### Build updated EXE in `build/` (required after code changes)
 
 ```bat
 set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"
-cmake --build DracoVed_cpp_version\dracoved_app\build
+cmake --build C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build
 ```
 
 ### Package fresh runtime EXE in `dist/` (required after build)
 
 ```bat
 set "QT_BIN=C:\Qt\6.10.1\mingw_64\bin"
-mkdir DracoVed_cpp_version\dracoved_app\dist 2>NUL
-copy /Y DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-copy /Y DracoVed_cpp_version\swedll64.dll DracoVed_cpp_version\dracoved_app\dist\swedll64.dll
-xcopy /E /I /Y DracoVed_cpp_version\ephe DracoVed_cpp_version\dracoved_app\dist\ephe
+copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
+"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
+copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\swedll64.dll C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\swedll64.dll
+xcopy /E /I /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\ephe
 ```
 
 ### Run packaged app (preferred)
 
 ```bat
-DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
 ```
+
+### Common pitfalls
+
+- `windeployqt` must include the EXE path argument.
+- `copy` must include both source and destination paths.
+- `swedll64.dll` and `ephe` are assets; do not execute them as commands.
+
+### Build Discipline (Do / Do Not)
+
+Do:
+- Run build/package commands in `cmd.exe`, not mixed through another shell parser.
+- Run from `C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version`.
+- Run steps in this order every time after code changes:
+  `cmake --build` -> copy `build\dracoved_app.exe` to `dist\dracoved_app.exe` -> `windeployqt <dist exe>` -> copy `swedll64.dll` -> `xcopy ephe`.
+- If any step fails or the session is interrupted, rerun the full packaging sequence before testing.
+- Verify both exe timestamps are current before launching from `dist`.
+
+Do not:
+- Do not omit required arguments (`windeployqt` target exe, `copy` destination path).
+- Do not treat assets (`swedll64.dll`, `ephe\`) as executable commands.
+- Do not assume a successful build means `dist` is updated; packaging is a separate required step.
+- Do not mix partial old/new runtime files in `dist`; always redeploy after a new build.
 
 ## Notes
 
