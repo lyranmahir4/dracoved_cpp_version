@@ -12,6 +12,115 @@ enum class HouseSystem {
     Placidus,
 };
 
+enum class ZodiacSystem {
+    Tropical,
+    Sidereal,
+};
+
+inline QString zodiacSystemToString(ZodiacSystem system) {
+    switch (system) {
+        case ZodiacSystem::Sidereal:
+            return "Sidereal";
+        case ZodiacSystem::Tropical:
+        default:
+            return "Tropical";
+    }
+}
+
+inline ZodiacSystem zodiacSystemFromString(const QString& text) {
+    const QString normalized = text.trimmed();
+    if (normalized.compare("Sidereal", Qt::CaseInsensitive) == 0) {
+        return ZodiacSystem::Sidereal;
+    }
+    return ZodiacSystem::Tropical;
+}
+
+enum class SiderealAyanamsa {
+    Lahiri,
+    Raman,
+    Krishnamurti,
+    FaganBradley,
+    Yukteshwar,
+    TrueCitra,
+    TrueRevati,
+};
+
+inline QString siderealAyanamsaToString(SiderealAyanamsa ayanamsa) {
+    switch (ayanamsa) {
+        case SiderealAyanamsa::Raman:
+            return "Raman";
+        case SiderealAyanamsa::Krishnamurti:
+            return "Krishnamurti";
+        case SiderealAyanamsa::FaganBradley:
+            return "Fagan/Bradley";
+        case SiderealAyanamsa::Yukteshwar:
+            return "Yukteshwar";
+        case SiderealAyanamsa::TrueCitra:
+            return "True Citra";
+        case SiderealAyanamsa::TrueRevati:
+            return "True Revati";
+        case SiderealAyanamsa::Lahiri:
+        default:
+            return "Lahiri";
+    }
+}
+
+inline SiderealAyanamsa siderealAyanamsaFromString(const QString& text) {
+    const QString normalized = text.trimmed();
+    if (normalized.compare("Raman", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::Raman;
+    }
+    if (normalized.compare("Krishnamurti", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::Krishnamurti;
+    }
+    if (normalized.compare("Fagan/Bradley", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::FaganBradley;
+    }
+    if (normalized.compare("Yukteshwar", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::Yukteshwar;
+    }
+    if (normalized.compare("True Citra", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::TrueCitra;
+    }
+    if (normalized.compare("True Revati", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::TrueRevati;
+    }
+    return SiderealAyanamsa::Lahiri;
+}
+
+inline int siderealAyanamsaSwissMode(SiderealAyanamsa ayanamsa) {
+    // Swiss Ephemeris sidereal mode IDs (swephexp.h).
+    switch (ayanamsa) {
+        case SiderealAyanamsa::Raman:
+            return 3;
+        case SiderealAyanamsa::Krishnamurti:
+            return 5;
+        case SiderealAyanamsa::FaganBradley:
+            return 0;
+        case SiderealAyanamsa::Yukteshwar:
+            return 7;
+        case SiderealAyanamsa::TrueCitra:
+            return 27;
+        case SiderealAyanamsa::TrueRevati:
+            return 28;
+        case SiderealAyanamsa::Lahiri:
+        default:
+            return 1;
+    }
+}
+
+inline QStringList availableSiderealAyanamsaNames() {
+    return {
+        siderealAyanamsaToString(SiderealAyanamsa::Lahiri),
+        siderealAyanamsaToString(SiderealAyanamsa::Raman),
+        siderealAyanamsaToString(SiderealAyanamsa::Krishnamurti),
+        siderealAyanamsaToString(SiderealAyanamsa::FaganBradley),
+        siderealAyanamsaToString(SiderealAyanamsa::Yukteshwar),
+        siderealAyanamsaToString(SiderealAyanamsa::TrueCitra),
+        siderealAyanamsaToString(SiderealAyanamsa::TrueRevati),
+    };
+}
+
 enum class Gender {
     Unspecified,
     Male,
@@ -58,6 +167,8 @@ struct NatalInput {
     QDate date;
     QTime time;
     QString timezone;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     Gender gender = Gender::Unspecified;
     QStringList fixedStars;
     double latitude = 0.0;
@@ -121,6 +232,8 @@ struct NatalChart {
     QDateTime localDateTime;
     QDateTime utcDateTime;
     QString timezoneLabel;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     AnglePositions angles;
     QVector<BodyPosition> bodies;
     QVector<FixedStarPosition> fixedStars;

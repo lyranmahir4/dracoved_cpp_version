@@ -207,6 +207,34 @@ static int bodyIdForName(const QString& name) {
     return -1;
 }
 
+static int calcFlagsForInput(const NatalInput& input) {
+    return (input.zodiacSystem == ZodiacSystem::Sidereal) ? SEFLG_SIDEREAL : 0;
+}
+
+static void applyZodiacModeToSwe(SwissEph* swe, const NatalInput& input) {
+    if (!swe) {
+        return;
+    }
+    if (input.zodiacSystem == ZodiacSystem::Sidereal) {
+        swe->setSidMode(siderealAyanamsaSwissMode(input.siderealAyanamsa));
+    }
+}
+
+static QString zodiacModeSummary(const NatalInput& input) {
+    if (input.zodiacSystem == ZodiacSystem::Sidereal) {
+        return QString("Sidereal (%1)").arg(siderealAyanamsaToString(input.siderealAyanamsa));
+    }
+    return "Tropical";
+}
+
+static HouseSystem lunationHouseSystemForInput(const NatalInput& input) {
+    // Vedic lunation analysis uses whole-sign houses in sidereal mode.
+    if (input.zodiacSystem == ZodiacSystem::Sidereal) {
+        return HouseSystem::WholeSign;
+    }
+    return input.houseSystem;
+}
+
 static bool isComputableBody(const QString& name) {
     return bodyIdForName(name) >= 0;
 }
@@ -657,7 +685,7 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 void MainWindow::setupUi() {
-    setWindowTitle("DracoVed - Tropical Natal (MVP)");
+    setWindowTitle("DracoVed - Natal");
     resize(1400, 900);
 
     QFont base = font();
@@ -696,12 +724,21 @@ void MainWindow::setupDockLayout() {
 
     profileToolbarFrame_ = new QFrame(central);
     profileToolbarFrame_->setObjectName("profileQuickBar");
-    auto* profileToolbarLayout = new QHBoxLayout(profileToolbarFrame_);
+    auto* profileToolbarLayout = new QVBoxLayout(profileToolbarFrame_);
     profileToolbarLayout->setContentsMargins(8, 6, 8, 6);
-    profileToolbarLayout->setSpacing(6);
+    profileToolbarLayout->setSpacing(4);
+    auto* profileRow = new QWidget(profileToolbarFrame_);
+    auto* profileRowLayout = new QHBoxLayout(profileRow);
+    profileRowLayout->setContentsMargins(0, 0, 0, 0);
+    profileRowLayout->setSpacing(6);
+    auto* zodiacRow = new QWidget(profileToolbarFrame_);
+    auto* zodiacRowLayout = new QHBoxLayout(zodiacRow);
+    zodiacRowLayout->setContentsMargins(0, 0, 0, 0);
+    zodiacRowLayout->setSpacing(6);
     auto* profileLabel = new QLabel("Chart Profile", profileToolbarFrame_);
     profileToolbarCombo_ = new QComboBox(profileToolbarFrame_);
-    profileToolbarCombo_->setMinimumWidth(240);
+    profileToolbarCombo_->setMinimumWidth(150);
+    profileToolbarCombo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     profileToolbarCombo_->setToolTip("Select a saved chart profile.");
     profileToolbarLoadButton_ = new QToolButton(profileToolbarFrame_);
     profileToolbarLoadButton_->setText("Load");
@@ -713,6 +750,22 @@ void MainWindow::setupDockLayout() {
     profileToolbarEditButton_->setText("Edit");
     profileToolbarDeleteButton_ = new QToolButton(profileToolbarFrame_);
     profileToolbarDeleteButton_->setText("Delete");
+    auto* zodiacLabel = new QLabel("Zodiac", profileToolbarFrame_);
+    zodiacToolbarTropicalRadio_ = new QRadioButton("Tropical", profileToolbarFrame_);
+    zodiacToolbarSiderealRadio_ = new QRadioButton("Sidereal", profileToolbarFrame_);
+    auto* ayanamsaLabel = new QLabel("Ayanamsa", profileToolbarFrame_);
+    zodiacToolbarAyanamsaCombo_ = new QComboBox(profileToolbarFrame_);
+    zodiacToolbarAyanamsaCombo_->setMinimumWidth(110);
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::Lahiri), static_cast<int>(SiderealAyanamsa::Lahiri));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::Raman), static_cast<int>(SiderealAyanamsa::Raman));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::Krishnamurti), static_cast<int>(SiderealAyanamsa::Krishnamurti));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::FaganBradley), static_cast<int>(SiderealAyanamsa::FaganBradley));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::Yukteshwar), static_cast<int>(SiderealAyanamsa::Yukteshwar));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::TrueCitra), static_cast<int>(SiderealAyanamsa::TrueCitra));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::TrueRevati), static_cast<int>(SiderealAyanamsa::TrueRevati));
+    zodiacToolbarTropicalRadio_->setChecked(true);
+    zodiacToolbarAyanamsaCombo_->setCurrentIndex(0);
+    zodiacToolbarAyanamsaCombo_->setEnabled(false);
     profileToolbarLoadButton_->setCursor(Qt::PointingHandCursor);
     profileToolbarSaveButton_->setCursor(Qt::PointingHandCursor);
     profileToolbarSaveAsButton_->setCursor(Qt::PointingHandCursor);
@@ -720,15 +773,28 @@ void MainWindow::setupDockLayout() {
     profileToolbarDeleteButton_->setCursor(Qt::PointingHandCursor);
     profileToolbarStateLabel_ = new QLabel(profileToolbarFrame_);
     profileToolbarStateLabel_->setObjectName("profileQuickState");
-    profileToolbarLayout->addWidget(profileLabel);
-    profileToolbarLayout->addWidget(profileToolbarCombo_, 1);
-    profileToolbarLayout->addWidget(profileToolbarLoadButton_);
-    profileToolbarLayout->addWidget(profileToolbarSaveButton_);
-    profileToolbarLayout->addWidget(profileToolbarSaveAsButton_);
-    profileToolbarLayout->addWidget(profileToolbarEditButton_);
-    profileToolbarLayout->addWidget(profileToolbarDeleteButton_);
-    profileToolbarLayout->addSpacing(8);
-    profileToolbarLayout->addWidget(profileToolbarStateLabel_);
+    profileToolbarStateLabel_->setMinimumWidth(0);
+    profileToolbarStateLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+
+    profileRowLayout->addWidget(profileLabel);
+    profileRowLayout->addWidget(profileToolbarCombo_, 1);
+    profileRowLayout->addWidget(profileToolbarLoadButton_);
+    profileRowLayout->addWidget(profileToolbarSaveButton_);
+    profileRowLayout->addWidget(profileToolbarSaveAsButton_);
+    profileRowLayout->addWidget(profileToolbarEditButton_);
+    profileRowLayout->addWidget(profileToolbarDeleteButton_);
+    profileRowLayout->addSpacing(8);
+    profileRowLayout->addWidget(profileToolbarStateLabel_, 1);
+
+    zodiacRowLayout->addWidget(zodiacLabel);
+    zodiacRowLayout->addWidget(zodiacToolbarTropicalRadio_);
+    zodiacRowLayout->addWidget(zodiacToolbarSiderealRadio_);
+    zodiacRowLayout->addWidget(ayanamsaLabel);
+    zodiacRowLayout->addWidget(zodiacToolbarAyanamsaCombo_);
+    zodiacRowLayout->addStretch(1);
+
+    profileToolbarLayout->addWidget(profileRow);
+    profileToolbarLayout->addWidget(zodiacRow);
 
     auto* chartPanel = new QFrame(central);
     chartPanel->setObjectName("chartPlaceholder");
@@ -1931,6 +1997,10 @@ void MainWindow::setupDockLayout() {
     lunationModeRowLayout->addWidget(lunationModePrevRadio_);
     lunationModeRowLayout->addWidget(lunationModeRangeRadio_);
     lunationModeRowLayout->addStretch();
+    lunationEclipseRuleCombo_ = new QComboBox(lunationModeGroup);
+    lunationEclipseRuleCombo_->addItem("Astronomical (Swiss)", static_cast<int>(LunationEclipseRule::AstronomicalSwiss));
+    lunationEclipseRuleCombo_->addItem("Strict Vedic (whole-sign nodes)", static_cast<int>(LunationEclipseRule::StrictVedicWholeSign));
+    lunationEclipseRuleCombo_->setToolTip("Choose how Solar/Lunar Eclipse events are classified in sidereal mode.");
 
     lunationStartYearSpin_ = new QSpinBox(lunationModeGroup);
     lunationEndYearSpin_ = new QSpinBox(lunationModeGroup);
@@ -1967,15 +2037,17 @@ void MainWindow::setupDockLayout() {
     lunationRefLabel->setObjectName("hintLabel");
     lunationModeLayout->addWidget(new QLabel("Mode", lunationModeGroup), 0, 0);
     lunationModeLayout->addWidget(lunationModeRow, 0, 1, 1, 2);
-    lunationModeLayout->addWidget(new QLabel("Start Year", lunationModeGroup), 1, 0);
-    lunationModeLayout->addWidget(lunationStartYearSpin_, 1, 1);
-    lunationModeLayout->addWidget(new QLabel("End Year", lunationModeGroup), 2, 0);
-    lunationModeLayout->addWidget(lunationEndYearSpin_, 2, 1);
-    lunationModeLayout->addWidget(lunationDegreeRangeCheck_, 3, 0, 1, 3);
-    lunationModeLayout->addWidget(lunationDegreeRangeRow, 4, 1, 1, 2);
-    lunationModeLayout->addWidget(new QLabel("Timezone", lunationModeGroup), 5, 0);
-    lunationModeLayout->addWidget(lunationTimezoneLabel_, 5, 1, 1, 2);
-    lunationModeLayout->addWidget(lunationRefLabel, 6, 0, 1, 3);
+    lunationModeLayout->addWidget(new QLabel("Eclipse Rule", lunationModeGroup), 1, 0);
+    lunationModeLayout->addWidget(lunationEclipseRuleCombo_, 1, 1, 1, 2);
+    lunationModeLayout->addWidget(new QLabel("Start Year", lunationModeGroup), 2, 0);
+    lunationModeLayout->addWidget(lunationStartYearSpin_, 2, 1);
+    lunationModeLayout->addWidget(new QLabel("End Year", lunationModeGroup), 3, 0);
+    lunationModeLayout->addWidget(lunationEndYearSpin_, 3, 1);
+    lunationModeLayout->addWidget(lunationDegreeRangeCheck_, 4, 0, 1, 3);
+    lunationModeLayout->addWidget(lunationDegreeRangeRow, 5, 1, 1, 2);
+    lunationModeLayout->addWidget(new QLabel("Timezone", lunationModeGroup), 6, 0);
+    lunationModeLayout->addWidget(lunationTimezoneLabel_, 6, 1, 1, 2);
+    lunationModeLayout->addWidget(lunationRefLabel, 7, 0, 1, 3);
 
     auto* lunationAnalysisGroup = new QGroupBox("Degree Analysis", transitLunationPanel_);
     auto* lunationAnalysisLayout = new QGridLayout(lunationAnalysisGroup);
@@ -2010,8 +2082,10 @@ void MainWindow::setupDockLayout() {
 
     lunationSignModeCombo_ = new QComboBox(lunationAnalysisGroup);
     lunationSignModeCombo_->addItems({"Any", "Only selected", "Exclude selected"});
+    lunationSignModeCombo_->setToolTip("Sign filter applies Moon sign of each lunation event.");
     lunationSignCombo_ = new QComboBox(lunationAnalysisGroup);
     lunationSignCombo_->setEditable(true);
+    lunationSignCombo_->setToolTip("Sign filter applies Moon sign of each lunation event.");
     if (auto* edit = lunationSignCombo_->lineEdit()) {
         edit->setReadOnly(true);
         edit->setPlaceholderText("Select signs");
@@ -2308,6 +2382,7 @@ void MainWindow::setupDockLayout() {
 
     defaultDockState_ = saveState();
     refreshProfileToolbar();
+    syncZodiacToolbarControls();
 
     updateTransitLocationAvailability();
     updateTransitTimezoneStatus();
@@ -2444,7 +2519,7 @@ void MainWindow::setupMenuBar() {
     auto* helpMenu = menuBar()->addMenu("&Help");
     auto* aboutAction = helpMenu->addAction("About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
-        QMessageBox::information(this, "About DracoVed", "DracoVed C++ Prototype\nTropical Natal MVP");
+        QMessageBox::information(this, "About DracoVed", "DracoVed C++ Prototype\nNatal + Transit Workstation");
     });
 }
 
@@ -3138,6 +3213,27 @@ void MainWindow::setupConnections() {
             if (profileToolbarDeleteButton_) {
                 profileToolbarDeleteButton_->setEnabled(!selected.isEmpty());
             }
+        });
+    }
+    if (zodiacToolbarTropicalRadio_) {
+        connect(zodiacToolbarTropicalRadio_, &QRadioButton::toggled, this, [this](bool checked) {
+            if (!checked) {
+                return;
+            }
+            applyZodiacToolbarSelection(true);
+        });
+    }
+    if (zodiacToolbarSiderealRadio_) {
+        connect(zodiacToolbarSiderealRadio_, &QRadioButton::toggled, this, [this](bool checked) {
+            if (!checked) {
+                return;
+            }
+            applyZodiacToolbarSelection(true);
+        });
+    }
+    if (zodiacToolbarAyanamsaCombo_) {
+        connect(zodiacToolbarAyanamsaCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            applyZodiacToolbarSelection(true);
         });
     }
     if (transitSubTabBar_) {
@@ -3959,6 +4055,9 @@ void MainWindow::setupConnections() {
     }
     if (lunationDegreeRangeEndSpin_) {
         connect(lunationDegreeRangeEndSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::updateLunationModeAvailability);
+    }
+    if (lunationEclipseRuleCombo_) {
+        connect(lunationEclipseRuleCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateLunationModeAvailability);
     }
     if (lunationAnalysisCombo_) {
         connect(lunationAnalysisCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateLunationAnalysisAvailability);
@@ -5226,6 +5325,8 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
     obj["date"] = currentInput_.date.toString(Qt::ISODate);
     obj["time"] = currentInput_.time.toString("HH:mm:ss");
     obj["timezone"] = currentInput_.timezone;
+    obj["zodiac_system"] = zodiacSystemToString(currentInput_.zodiacSystem);
+    obj["sidereal_ayanamsa"] = siderealAyanamsaToString(currentInput_.siderealAyanamsa);
     obj["gender"] = genderToString(currentInput_.gender);
     obj["location"] = currentLocation_;
     obj["latitude"] = currentInput_.latitude;
@@ -5237,7 +5338,7 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
     }
     obj["fixed_stars"] = fixedStarsJson;
     obj["saved_at_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    obj["version"] = 2;
+    obj["version"] = 3;
 
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -5289,6 +5390,8 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
         input.time = QTime::fromString(obj.value("time").toString(), "HH:mm");
     }
     input.timezone = obj.value("timezone").toString();
+    input.zodiacSystem = zodiacSystemFromString(obj.value("zodiac_system").toString());
+    input.siderealAyanamsa = siderealAyanamsaFromString(obj.value("sidereal_ayanamsa").toString());
     if (!input.date.isValid()) {
         setStatusMessage("Profile date is invalid.");
         return false;
@@ -5314,6 +5417,11 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
             input.fixedStars.push_back(starName);
         }
     }
+
+    // Top-bar zodiac controls are authoritative for all chart calculations.
+    applyZodiacToolbarSelection(false);
+    input.zodiacSystem = currentInput_.zodiacSystem;
+    input.siderealAyanamsa = currentInput_.siderealAyanamsa;
 
     const QString location = obj.value("location").toString();
     if (!computeChart(input, location)) {
@@ -5374,6 +5482,50 @@ void MainWindow::refreshProfileToolbar() {
         } else {
             profileToolbarStateLabel_->clear();
         }
+    }
+}
+
+void MainWindow::syncZodiacToolbarControls() {
+    if (!zodiacToolbarTropicalRadio_ || !zodiacToolbarSiderealRadio_ || !zodiacToolbarAyanamsaCombo_) {
+        return;
+    }
+    syncingZodiacToolbar_ = true;
+    const QSignalBlocker tropicalBlocker(zodiacToolbarTropicalRadio_);
+    const QSignalBlocker siderealBlocker(zodiacToolbarSiderealRadio_);
+    const QSignalBlocker ayanamsaBlocker(zodiacToolbarAyanamsaCombo_);
+
+    const bool sidereal = currentInput_.zodiacSystem == ZodiacSystem::Sidereal;
+    zodiacToolbarSiderealRadio_->setChecked(sidereal);
+    zodiacToolbarTropicalRadio_->setChecked(!sidereal);
+    const int idx = zodiacToolbarAyanamsaCombo_->findData(static_cast<int>(currentInput_.siderealAyanamsa));
+    zodiacToolbarAyanamsaCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
+    zodiacToolbarAyanamsaCombo_->setEnabled(sidereal);
+    syncingZodiacToolbar_ = false;
+}
+
+void MainWindow::applyZodiacToolbarSelection(bool recomputeIfChartLoaded) {
+    if (syncingZodiacToolbar_ || !zodiacToolbarAyanamsaCombo_) {
+        return;
+    }
+    const bool sidereal = zodiacToolbarSiderealRadio_ && zodiacToolbarSiderealRadio_->isChecked();
+    const ZodiacSystem selectedSystem = sidereal ? ZodiacSystem::Sidereal : ZodiacSystem::Tropical;
+    const SiderealAyanamsa selectedAyanamsa =
+        static_cast<SiderealAyanamsa>(zodiacToolbarAyanamsaCombo_->currentData().toInt());
+
+    if (zodiacToolbarAyanamsaCombo_) {
+        zodiacToolbarAyanamsaCombo_->setEnabled(sidereal);
+    }
+
+    const bool changed =
+        currentInput_.zodiacSystem != selectedSystem
+        || currentInput_.siderealAyanamsa != selectedAyanamsa;
+
+    currentInput_.zodiacSystem = selectedSystem;
+    currentInput_.siderealAyanamsa = selectedAyanamsa;
+    updateLunationModeAvailability();
+
+    if (recomputeIfChartLoaded && hasCurrentChart_ && changed) {
+        computeChart(currentInput_, currentLocation_);
     }
 }
 
@@ -5447,7 +5599,9 @@ void MainWindow::openChartSetupDialog(bool newChart) {
         return;
     }
 
-    const auto input = dialog.input();
+    auto input = dialog.input();
+    input.zodiacSystem = currentInput_.zodiacSystem;
+    input.siderealAyanamsa = currentInput_.siderealAyanamsa;
     const QString location = dialog.locationName();
     defaultHouseSystem_ = input.houseSystem;
     if (computeChart(input, location)) {
@@ -5533,6 +5687,7 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     currentLocation_ = location;
     currentChart_ = chart;
     hasCurrentChart_ = true;
+    syncZodiacToolbarControls();
     refreshNatalReport();
     if (transitTimezoneEdit_ && !effectiveInput.timezone.isEmpty()) {
         transitTimezoneEdit_->setText(effectiveInput.timezone);
@@ -6053,6 +6208,8 @@ void MainWindow::handleTransitCalendarRun() {
     params.tzLabel = calendarTzLabel_;
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
+    params.zodiacSystem = currentInput_.zodiacSystem;
+    params.siderealAyanamsa = currentInput_.siderealAyanamsa;
     params.planetNames = selectedCheckableItems(calendarPlanetCombo_);
     if (params.planetNames.isEmpty()) {
         setStatusMessage("Select at least one calendar planet.");
@@ -6331,6 +6488,8 @@ void MainWindow::handleTransitConjunctionRun() {
     params.tzLabel = tzLabel;
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
+    params.zodiacSystem = currentInput_.zodiacSystem;
+    params.siderealAyanamsa = currentInput_.siderealAyanamsa;
     params.planetNames = planets;
     params.minCount = minCount;
     const bool exactPairMode = (minCount == 2 && planets.size() == 2);
@@ -7255,7 +7414,7 @@ QString MainWindow::buildNatalReportText() const {
     if (!modeContext.isEmpty()) {
         addRow({"Mode Context", modeContext});
     }
-    addRow({"Mode", "Tropical"});
+    addRow({"Mode", zodiacModeSummary(input)});
     addRow({"Day/Night", chart.isDayChart ? "Day" : "Night"});
     lines << "";
     lines << "Angles:";
@@ -7955,6 +8114,8 @@ void MainWindow::updateGeodeticOverlays() {
     const double hourDec = utc.time().hour() + utc.time().minute() / 60.0 + utc.time().second() / 3600.0
         + utc.time().msec() / 3600000.0;
     const double jd = swe_.julianDay(utc.date().year(), utc.date().month(), utc.date().day(), hourDec, SE_GREG_CAL);
+    applyZodiacModeToSwe(&swe_, currentInput_);
+    const int calcFlags = calcFlagsForInput(currentInput_);
 
     QStringList bodies = selectedCheckableItems(geodeticPlanetCombo_);
     if (bodies.isEmpty()) {
@@ -8017,7 +8178,7 @@ void MainWindow::updateGeodeticOverlays() {
         }
         QString calcErr;
         double lon = 0.0;
-        if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+        if (!swe_.calcUt(jd, bodyId, calcFlags, &lon, &calcErr)) {
             continue;
         }
         lon = normalizeDegrees(lon);
@@ -8099,6 +8260,7 @@ void MainWindow::setWorldMapOverlays(const QVariantList& lineOverlays, const QVa
 void MainWindow::updateLunationModeAvailability() {
     const bool useRange = lunationModeRangeRadio_ && lunationModeRangeRadio_->isChecked();
     const bool useDegreeRange = lunationDegreeRangeCheck_ && lunationDegreeRangeCheck_->isChecked();
+    const bool siderealMode = (currentInput_.zodiacSystem == ZodiacSystem::Sidereal);
     if (lunationStartYearSpin_) {
         lunationStartYearSpin_->setEnabled(useRange);
     }
@@ -8110,6 +8272,20 @@ void MainWindow::updateLunationModeAvailability() {
     }
     if (lunationDegreeRangeEndSpin_) {
         lunationDegreeRangeEndSpin_->setEnabled(useDegreeRange);
+    }
+    if (lunationEclipseRuleCombo_) {
+        if (!siderealMode) {
+            const QSignalBlocker blocker(lunationEclipseRuleCombo_);
+            const int idx = lunationEclipseRuleCombo_->findData(static_cast<int>(LunationEclipseRule::AstronomicalSwiss));
+            if (idx >= 0) {
+                lunationEclipseRuleCombo_->setCurrentIndex(idx);
+            }
+            lunationEclipseRuleCombo_->setEnabled(false);
+            lunationEclipseRuleCombo_->setToolTip("Strict Vedic eclipse classification is available only in sidereal mode.");
+        } else {
+            lunationEclipseRuleCombo_->setEnabled(true);
+            lunationEclipseRuleCombo_->setToolTip("Choose how Solar/Lunar Eclipse events are classified in sidereal mode.");
+        }
     }
     if (lunationTimezoneLabel_) {
         QString tzLabel = currentInput_.timezone.trimmed();
@@ -8937,6 +9113,8 @@ void MainWindow::runTransitSearch() {
     params.tzLabel = tzLabel;
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
+    params.zodiacSystem = currentInput_.zodiacSystem;
+    params.siderealAyanamsa = currentInput_.siderealAyanamsa;
     params.overlayMode = (transitMode_ == TransitMode::NatalOverlay);
     const QString requestedEventType = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
     const bool requestedDegreeEvent = requestedEventType.contains("Degree", Qt::CaseInsensitive);
@@ -9726,6 +9904,12 @@ void MainWindow::runLunationSearch() {
     params.tzLabel = normLabel;
     params.ephePath = ephePath_;
     params.dllSearchPaths = sweSearchPaths();
+    params.zodiacSystem = currentInput_.zodiacSystem;
+    params.siderealAyanamsa = currentInput_.siderealAyanamsa;
+    params.eclipseRule = LunationEclipseRule::AstronomicalSwiss;
+    if (currentInput_.zodiacSystem == ZodiacSystem::Sidereal && lunationEclipseRuleCombo_) {
+        params.eclipseRule = static_cast<LunationEclipseRule>(lunationEclipseRuleCombo_->currentData().toInt());
+    }
     params.includeNewMoon = includeNew;
     params.includeFullMoon = includeFull;
     params.includeSolarEclipse = includeSolar;
@@ -9968,6 +10152,7 @@ void MainWindow::buildLunationDegreeGroups() {
     }
 
     const bool hasNatal = hasCurrentChart_;
+    const HouseSystem lunationHouseSystem = lunationHouseSystemForInput(currentInput_);
     const int matchIndex = lunationMatchCombo_ ? lunationMatchCombo_->currentIndex() : 0;
     const LunationMatchMode matchMode = static_cast<LunationMatchMode>(matchIndex);
     const bool includeSign = (matchMode == LunationMatchMode::DegreeSign || matchMode == LunationMatchMode::DegreeSignHouse);
@@ -10045,7 +10230,7 @@ void MainWindow::buildLunationDegreeGroups() {
         const double degree = degInSign(res.moonLon);
         int house = 0;
         if (hasNatal) {
-            house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
+            house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, lunationHouseSystem);
         }
         if (!signFilterAllows(signIdx)) {
             continue;
@@ -10181,6 +10366,8 @@ void MainWindow::showLunationAnalysisResults() {
         return;
     }
 
+    const HouseSystem lunationHouseSystem = lunationHouseSystemForInput(currentInput_);
+
     buildLunationDegreeGroups();
 
     if (lunationAnalysisMode_ == LunationAnalysisMode::TargetDegree) {
@@ -10207,7 +10394,7 @@ void MainWindow::showLunationAnalysisResults() {
             rightTopTable_->setItem(row, 4, makeCell(signName(signIndex(res.moonLon))));
             QString houseLabel = "-";
             if (hasCurrentChart_) {
-                const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
+                const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, lunationHouseSystem);
                 if (house > 0) {
                     houseLabel = QString::number(house);
                 }
@@ -10258,7 +10445,7 @@ void MainWindow::showLunationAnalysisResults() {
             const auto& res = lunationResults_[idx];
             signSet.insert(signIndex(res.moonLon));
             if (hasCurrentChart_) {
-                const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
+                const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, lunationHouseSystem);
                 if (house > 0) {
                     houseSet.insert(house);
                 }
@@ -10307,6 +10494,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         updateLunationCopyButtonState();
         return;
     }
+    const HouseSystem lunationHouseSystem = lunationHouseSystemForInput(currentInput_);
     lunationSelectedGroupIndex_ = groupIndex;
     const auto& group = lunationDegreeGroups_[groupIndex];
     lunationBottomEventOrder_.clear();
@@ -10332,7 +10520,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         rightBottomTable_->setItem(row, 4, makeCell(signName(signIndex(res.moonLon))));
         QString houseLabel = "-";
         if (hasCurrentChart_) {
-            const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, currentInput_.houseSystem);
+            const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, lunationHouseSystem);
             if (house > 0) {
                 houseLabel = QString::number(house);
             }
@@ -11679,6 +11867,8 @@ bool MainWindow::solarReturnTimeUtc(int year, const QString& tzLabel, double tar
     }
     const QDateTime baseUtc = baseLocal.toUTC();
     const double target = normalizeDegrees(targetLon);
+    applyZodiacModeToSwe(&swe_, currentInput_);
+    const int calcFlags = calcFlagsForInput(currentInput_);
 
     auto sunLongitudeAtUtc = [&](const QDateTime& utc, double* outLon) -> bool {
         double hourDec = utc.time().hour() + utc.time().minute() / 60.0 + utc.time().second() / 3600.0
@@ -11686,7 +11876,7 @@ bool MainWindow::solarReturnTimeUtc(int year, const QString& tzLabel, double tar
         const double jd = swe_.julianDay(utc.date().year(), utc.date().month(), utc.date().day(), hourDec, SE_GREG_CAL);
         QString calcErr;
         double lon = 0.0;
-        if (!swe_.calcUt(jd, SE_SUN, 0, &lon, &calcErr)) {
+        if (!swe_.calcUt(jd, SE_SUN, calcFlags, &lon, &calcErr)) {
             if (error) {
                 *error = QString("Failed to compute Sun longitude: %1").arg(calcErr);
             }
@@ -13374,7 +13564,7 @@ void MainWindow::populateSummary(const NatalChart& chart, const NatalInput& inpu
     summaryTable_->setItem(r, 0, makeCell("House system"));
     summaryTable_->setItem(r++, 1, makeCell(input.houseSystem == HouseSystem::Placidus ? "Placidus" : "Whole Sign"));
     summaryTable_->setItem(r, 0, makeCell("Mode"));
-    summaryTable_->setItem(r++, 1, makeCell("Tropical"));
+    summaryTable_->setItem(r++, 1, makeCell(zodiacModeSummary(input)));
     summaryTable_->setItem(r, 0, makeCell("Day/Night"));
     summaryTable_->setItem(r++, 1, makeCell(chart.isDayChart ? "Day" : "Night"));
 }
@@ -14242,7 +14432,9 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
     if (s_lastCacheKey == cacheKey && !s_cachedRows.isEmpty()) {
         rows = s_cachedRows;
     } else {
-        auto bodyLongitudeAtUtc = [this](const QString& bodyName, const QDateTime& utc, double* outLon) -> bool {
+        applyZodiacModeToSwe(&swe_, transitInput);
+        const int calcFlags = calcFlagsForInput(transitInput);
+        auto bodyLongitudeAtUtc = [this, calcFlags](const QString& bodyName, const QDateTime& utc, double* outLon) -> bool {
             if (!outLon) {
                 return false;
             }
@@ -14261,7 +14453,7 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
             const double jd = swe_.julianDay(t.date().year(), t.date().month(), t.date().day(), hourDec, SE_GREG_CAL);
             QString calcErr;
             double lon = 0.0;
-            if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+            if (!swe_.calcUt(jd, bodyId, calcFlags, &lon, &calcErr)) {
                 return false;
             }
             *outLon = normalizeDegrees(lon);

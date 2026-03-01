@@ -52,6 +52,11 @@ enum class LunationFindMode {
     Previous,
 };
 
+enum class LunationEclipseRule {
+    AstronomicalSwiss,
+    StrictVedicWholeSign,
+};
+
 enum class AspectMode {
     Exact,
     WithinOrb,
@@ -81,12 +86,15 @@ struct SearchParams {
     QDateTime endUtc;
     QTimeZone tz;
     QString tzLabel;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     QString ephePath;
     QStringList dllSearchPaths;
 };
 
 struct LunationParams {
     LunationFindMode findMode = LunationFindMode::Next;
+    LunationEclipseRule eclipseRule = LunationEclipseRule::AstronomicalSwiss;
     QDateTime startUtc;
     QDateTime endUtc;
     bool includeNewMoon = true;
@@ -98,6 +106,8 @@ struct LunationParams {
     double degreeRangeEnd = 29.99;
     QTimeZone tz;
     QString tzLabel;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     QString ephePath;
     QStringList dllSearchPaths;
 };
@@ -109,6 +119,8 @@ struct CalendarParams {
     QString tzLabel;
     QString ephePath;
     QStringList dllSearchPaths;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     QStringList planetNames;
     bool includeHouses = false;
     bool overlayMode = false;
@@ -126,6 +138,8 @@ struct ConjunctionParams {
     QString tzLabel;
     QString ephePath;
     QStringList dllSearchPaths;
+    ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+    SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
     QStringList planetNames;
     int minCount = 2;
     bool useOrb = false;
@@ -159,6 +173,11 @@ public slots:
         }
         if (!params_.ephePath.isEmpty()) {
             swe_.setEphePath(params_.ephePath);
+        }
+        calcFlags_ = 0;
+        if (params_.zodiacSystem == ZodiacSystem::Sidereal) {
+            swe_.setSidMode(siderealAyanamsaSwissMode(params_.siderealAyanamsa));
+            calcFlags_ = SEFLG_SIDEREAL;
         }
 
         const int totalPlanets = params_.transitPlanets.size();
@@ -283,7 +302,7 @@ private:
         const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
         double lon = 0.0;
         QString calcErr;
-        if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+        if (!swe_.calcUt(jd, bodyId, calcFlags_, &lon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -325,7 +344,7 @@ private:
         double cuspsRaw[13] = {0};
         double ascmc[10] = {0};
         QString houseErr;
-        if (!swe_.houses(jd, params_.latitude, params_.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
+        if (!swe_.housesEx(jd, calcFlags_, params_.latitude, params_.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
             if (error) {
                 *error = houseErr;
             }
@@ -699,6 +718,7 @@ private:
 
     SearchParams params_;
     SwissEph swe_;
+    int calcFlags_ = 0;
     std::atomic<bool> cancelled_{false};
     MainWindow::TransitSearchResult bestResult_;
     bool hasBestResult_ = false;
@@ -724,6 +744,11 @@ public slots:
         }
         if (!params_.ephePath.isEmpty()) {
             swe_.setEphePath(params_.ephePath);
+        }
+        calcFlags_ = 0;
+        if (params_.zodiacSystem == ZodiacSystem::Sidereal) {
+            swe_.setSidMode(siderealAyanamsaSwissMode(params_.siderealAyanamsa));
+            calcFlags_ = SEFLG_SIDEREAL;
         }
         if (params_.planetNames.isEmpty()) {
             emit finished(false, "No planets selected.");
@@ -889,7 +914,7 @@ private:
         const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
         double lon = 0.0;
         QString calcErr;
-        if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+        if (!swe_.calcUt(jd, bodyId, calcFlags_, &lon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -931,7 +956,7 @@ private:
         double cuspsRaw[13] = {0};
         double ascmc[10] = {0};
         QString houseErr;
-        if (!swe_.houses(jd, params_.latitude, params_.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
+        if (!swe_.housesEx(jd, calcFlags_, params_.latitude, params_.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
             if (error) {
                 *error = houseErr;
             }
@@ -1243,6 +1268,7 @@ private:
 
     CalendarParams params_;
     SwissEph swe_;
+    int calcFlags_ = 0;
     std::atomic<bool> cancelled_{false};
     QVector<MainWindow::TransitCalendarEvent> events_;
     QStringList warnings_;
@@ -1267,6 +1293,11 @@ public slots:
         }
         if (!params_.ephePath.isEmpty()) {
             swe_.setEphePath(params_.ephePath);
+        }
+        calcFlags_ = 0;
+        if (params_.zodiacSystem == ZodiacSystem::Sidereal) {
+            swe_.setSidMode(siderealAyanamsaSwissMode(params_.siderealAyanamsa));
+            calcFlags_ = SEFLG_SIDEREAL;
         }
         if (params_.planetNames.isEmpty()) {
             emit finished(false, "No planets selected.");
@@ -1516,7 +1547,7 @@ private:
         const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
         double lon = 0.0;
         QString calcErr;
-        if (!swe_.calcUt(jd, bodyId, 0, &lon, &calcErr)) {
+        if (!swe_.calcUt(jd, bodyId, calcFlags_, &lon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -2158,6 +2189,7 @@ private:
     ConjunctionParams params_;
     QStringList activePlanetNames_;
     SwissEph swe_;
+    int calcFlags_ = 0;
     std::atomic<bool> cancelled_{false};
     QVector<MainWindow::TransitConjunctionWindow> results_;
     QStringList warnings_;
@@ -2181,6 +2213,11 @@ public slots:
         }
         if (!params_.ephePath.isEmpty()) {
             swe_.setEphePath(params_.ephePath);
+        }
+        calcFlags_ = 0;
+        if (params_.zodiacSystem == ZodiacSystem::Sidereal) {
+            swe_.setSidMode(siderealAyanamsaSwissMode(params_.siderealAyanamsa));
+            calcFlags_ = SEFLG_SIDEREAL;
         }
 
         results_.clear();
@@ -2309,13 +2346,13 @@ private:
         double sunLon = 0.0;
         double moonLon = 0.0;
         QString calcErr;
-        if (!swe_.calcUt(jd, SE_SUN, 0, &sunLon, &calcErr)) {
+        if (!swe_.calcUt(jd, SE_SUN, calcFlags_, &sunLon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
             return false;
         }
-        if (!swe_.calcUt(jd, SE_MOON, 0, &moonLon, &calcErr)) {
+        if (!swe_.calcUt(jd, SE_MOON, calcFlags_, &moonLon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -2334,13 +2371,13 @@ private:
         const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
         const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
         QString calcErr;
-        if (!swe_.calcUt(jd, SE_SUN, 0, outSun, &calcErr)) {
+        if (!swe_.calcUt(jd, SE_SUN, calcFlags_, outSun, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
             return false;
         }
-        if (!swe_.calcUt(jd, SE_MOON, 0, outMoon, &calcErr)) {
+        if (!swe_.calcUt(jd, SE_MOON, calcFlags_, outMoon, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -2349,6 +2386,52 @@ private:
         *outSun = normalizeDegrees(*outSun);
         *outMoon = normalizeDegrees(*outMoon);
         return true;
+    }
+
+    bool nodeLonAtUtc(const QDateTime& utc, double* outNorthNode, QString* error) {
+        if (!outNorthNode) {
+            return false;
+        }
+        const QDate date = utc.date();
+        const QTime time = utc.time();
+        const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
+        const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
+        QString calcErr;
+        if (!swe_.calcUt(jd, SE_MEAN_NODE, calcFlags_, outNorthNode, &calcErr)) {
+            if (error) {
+                *error = calcErr;
+            }
+            return false;
+        }
+        *outNorthNode = normalizeDegrees(*outNorthNode);
+        return true;
+    }
+
+    bool passesSiderealWholeSignEclipseRule(bool solar, const QDateTime& eventUtc,
+                                            double sunLon, double moonLon, QString* error) {
+        if (params_.zodiacSystem != ZodiacSystem::Sidereal) {
+            return true;
+        }
+
+        double northNodeLon = 0.0;
+        if (!nodeLonAtUtc(eventUtc, &northNodeLon, error)) {
+            return false;
+        }
+        const double southNodeLon = normalizeDegrees(northNodeLon + 180.0);
+
+        const int sunSign = signIndex(sunLon);
+        const int moonSign = signIndex(moonLon);
+        const int northSign = signIndex(northNodeLon);
+        const int southSign = signIndex(southNodeLon);
+
+        if (solar) {
+            // Sidereal whole-sign eclipse gate: new-moon sign must be exactly on the node axis.
+            return sunSign == moonSign && (sunSign == northSign || sunSign == southSign);
+        }
+
+        // Sidereal whole-sign eclipse gate: full-moon signs must match the node axis signs.
+        return (moonSign == northSign && sunSign == southSign)
+            || (moonSign == southSign && sunSign == northSign);
     }
 
     bool jdToUtc(double jd, QDateTime* outUtc, QString* error) {
@@ -2626,7 +2709,7 @@ private:
             if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
                 return false;
             }
-            if (matchesDegreeRange(moonLon)) {
+            if (matchesDegreeRange(moonLon) && passesSiderealWholeSignEclipseRule(solar, eventUtc, sunLon, moonLon, error)) {
                 if (outUtc) *outUtc = eventUtc;
                 if (outType) *outType = eclipseTypeForFlags(ret, solar);
                 if (outFlags) *outFlags = ret;
@@ -2647,10 +2730,62 @@ private:
         return false;
     }
 
+    bool findMatchingStrictVedicEclipse(const QDateTime& anchor, bool solar, bool forward,
+                                        QDateTime* outUtc, QString* outType, int* outFlags,
+                                        double* outSunLon, double* outMoonLon, QString* error) {
+        if (params_.zodiacSystem != ZodiacSystem::Sidereal) {
+            if (error) {
+                *error = "Strict Vedic eclipse rule is only available in sidereal mode.";
+            }
+            return false;
+        }
+        const double targetAngle = solar ? 0.0 : 180.0;
+        QDateTime cursor = anchor;
+        for (int i = 0; i < 800; ++i) {
+            if (cancelled_.load()) {
+                return false;
+            }
+            QDateTime eventUtc;
+            const bool ok = forward
+                ? findNextPhase(cursor, targetAngle, &eventUtc, error)
+                : findPreviousPhase(cursor, targetAngle, &eventUtc, error);
+            if (!ok) {
+                return false;
+            }
+            double sunLon = 0.0;
+            double moonLon = 0.0;
+            if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+                return false;
+            }
+            if (matchesDegreeRange(moonLon)
+                && passesSiderealWholeSignEclipseRule(solar, eventUtc, sunLon, moonLon, error)) {
+                if (outUtc) *outUtc = eventUtc;
+                if (outType) *outType = "Vedic";
+                if (outFlags) *outFlags = 0;
+                if (outSunLon) *outSunLon = sunLon;
+                if (outMoonLon) *outMoonLon = moonLon;
+                return true;
+            }
+            if (forward) {
+                cursor = eventUtc > cursor ? eventUtc.addSecs(60) : cursor.addSecs(60);
+            } else {
+                cursor = eventUtc < cursor ? eventUtc.addSecs(-60) : cursor.addSecs(-60);
+            }
+        }
+        if (error) {
+            *error = QString("No strict vedic %1 eclipse found in the selected degree range.")
+                .arg(solar ? "solar" : "lunar");
+        }
+        return false;
+    }
+
     bool runSingle(bool forward, QString* error) {
         const QDateTime anchor = params_.startUtc;
         const double newAngle = 0.0;
         const double fullAngle = 180.0;
+        const bool useStrictVedic =
+            params_.zodiacSystem == ZodiacSystem::Sidereal
+            && params_.eclipseRule == LunationEclipseRule::StrictVedicWholeSign;
         if (params_.includeNewMoon) {
             QDateTime eventUtc;
             double sunLon = 0.0;
@@ -2675,7 +2810,10 @@ private:
             int flags = 0;
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!findMatchingEclipse(anchor, true, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)) {
+            const bool eclipseOk = useStrictVedic
+                ? findMatchingStrictVedicEclipse(anchor, true, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)
+                : findMatchingEclipse(anchor, true, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error);
+            if (!eclipseOk) {
                 return false;
             }
             addResult(eventUtc, "Solar Eclipse", type, flags, sunLon, moonLon);
@@ -2686,7 +2824,10 @@ private:
             int flags = 0;
             double sunLon = 0.0;
             double moonLon = 0.0;
-            if (!findMatchingEclipse(anchor, false, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)) {
+            const bool eclipseOk = useStrictVedic
+                ? findMatchingStrictVedicEclipse(anchor, false, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error)
+                : findMatchingEclipse(anchor, false, forward, &eventUtc, &type, &flags, &sunLon, &moonLon, error);
+            if (!eclipseOk) {
                 return false;
             }
             addResult(eventUtc, "Lunar Eclipse", type, flags, sunLon, moonLon);
@@ -2697,6 +2838,9 @@ private:
     bool runRange(QString* error) {
         const double newAngle = 0.0;
         const double fullAngle = 180.0;
+        const bool useStrictVedic =
+            params_.zodiacSystem == ZodiacSystem::Sidereal
+            && params_.eclipseRule == LunationEclipseRule::StrictVedicWholeSign;
         const QDateTime startUtc = params_.startUtc;
         const QDateTime endUtc = params_.endUtc;
         if (!startUtc.isValid() || !endUtc.isValid() || startUtc > endUtc) {
@@ -2771,13 +2915,51 @@ private:
                     if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
                         return false;
                     }
-                    if (matchesDegreeRange(moonLon)) {
+                    if (matchesDegreeRange(moonLon)
+                        && passesSiderealWholeSignEclipseRule(solar, eventUtc, sunLon, moonLon, error)) {
                         const QString type = eclipseTypeForFlags(ret, solar);
                         addResult(eventUtc, solar ? "Solar Eclipse" : "Lunar Eclipse", type, ret, sunLon, moonLon);
                         updateProgress();
                     }
                 }
                 cursor = eventUtc.addSecs(60);
+            }
+            return true;
+        };
+
+        auto strictVedicEclipseLoop = [&](bool solar) -> bool {
+            const double targetAngle = solar ? 0.0 : 180.0;
+            const QString eventLabel = solar ? "Solar Eclipse" : "Lunar Eclipse";
+            QDateTime cursor = startUtc;
+            QDateTime eventUtc;
+            QString localErr;
+            if (!findNextPhase(cursor, targetAngle, &eventUtc, &localErr)) {
+                if (error) {
+                    *error = localErr;
+                }
+                return false;
+            }
+            while (eventUtc <= endUtc) {
+                if (cancelled_.load()) {
+                    return false;
+                }
+                double sunLon = 0.0;
+                double moonLon = 0.0;
+                if (!sunMoonLonAtUtc(eventUtc, &sunLon, &moonLon, error)) {
+                    return false;
+                }
+                if (matchesDegreeRange(moonLon)
+                    && passesSiderealWholeSignEclipseRule(solar, eventUtc, sunLon, moonLon, error)) {
+                    addResult(eventUtc, eventLabel, "Vedic", 0, sunLon, moonLon);
+                    updateProgress();
+                }
+                cursor = eventUtc.addSecs(60);
+                if (!findNextPhase(cursor, targetAngle, &eventUtc, &localErr)) {
+                    if (error) {
+                        *error = localErr;
+                    }
+                    return false;
+                }
             }
             return true;
         };
@@ -2793,12 +2975,20 @@ private:
             }
         }
         if (params_.includeSolarEclipse) {
-            if (!eclipseLoop(true)) {
+            if (useStrictVedic) {
+                if (!strictVedicEclipseLoop(true)) {
+                    return false;
+                }
+            } else if (!eclipseLoop(true)) {
                 return false;
             }
         }
         if (params_.includeLunarEclipse) {
-            if (!eclipseLoop(false)) {
+            if (useStrictVedic) {
+                if (!strictVedicEclipseLoop(false)) {
+                    return false;
+                }
+            } else if (!eclipseLoop(false)) {
                 return false;
             }
         }
@@ -2814,6 +3004,7 @@ private:
 
     LunationParams params_;
     SwissEph swe_;
+    int calcFlags_ = 0;
     std::atomic<bool> cancelled_{false};
     QVector<MainWindow::LunationResult> results_;
 };
@@ -2863,6 +3054,11 @@ public slots:
             return;
         }
         swe_.setEphePath(config_.ephePath);
+        calcFlags_ = 0;
+        if (config_.natalInput.zodiacSystem == ZodiacSystem::Sidereal) {
+            swe_.setSidMode(siderealAyanamsaSwissMode(config_.natalInput.siderealAyanamsa));
+            calcFlags_ = SEFLG_SIDEREAL;
+        }
 
         QTimeZone tz;
         QString normLabel;
@@ -2965,7 +3161,7 @@ public slots:
                 const double jd = swe_.julianDay(utc.date().year(), utc.date().month(), utc.date().day(), hourDec, SE_GREG_CAL);
                 QString calcErr;
                 double lon = 0.0;
-                if (!swe_.calcUt(jd, SE_SUN, 0, &lon, &calcErr)) {
+                if (!swe_.calcUt(jd, SE_SUN, calcFlags_, &lon, &calcErr)) {
                     if (outErr) {
                         *outErr = QString("Failed to compute Sun longitude: %1").arg(calcErr);
                     }
@@ -3509,6 +3705,7 @@ private:
     QVector<MainWindow::DayScanResult> results_;
     QStringList warnings_;
     SwissEph swe_;
+    int calcFlags_ = 0;
     TropicalNatalEngine engine_;
     SecondaryProgressionEngine progressionEngine_;
 };

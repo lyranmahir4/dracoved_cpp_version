@@ -290,6 +290,8 @@ private:
     bool saveProfileByName(const QString& profileName, bool promptOverwrite);
     bool loadProfileByName(const QString& profileName);
     void refreshProfileToolbar();
+    void syncZodiacToolbarControls();
+    void applyZodiacToolbarSelection(bool recomputeIfChartLoaded);
     void loadUiState();
     void saveUiState();
     void showChartSettingsMenu();
@@ -443,6 +445,9 @@ private:
     QToolButton* profileToolbarSaveAsButton_ = nullptr;
     QToolButton* profileToolbarEditButton_ = nullptr;
     QToolButton* profileToolbarDeleteButton_ = nullptr;
+    QRadioButton* zodiacToolbarTropicalRadio_ = nullptr;
+    QRadioButton* zodiacToolbarSiderealRadio_ = nullptr;
+    QComboBox* zodiacToolbarAyanamsaCombo_ = nullptr;
     QLabel* profileToolbarStateLabel_ = nullptr;
     QStackedWidget* dataStack_ = nullptr;
     QSplitter* leftSplitter_ = nullptr;
@@ -554,6 +559,7 @@ private:
     QCheckBox* lunationDegreeRangeCheck_ = nullptr;
     QDoubleSpinBox* lunationDegreeRangeStartSpin_ = nullptr;
     QDoubleSpinBox* lunationDegreeRangeEndSpin_ = nullptr;
+    QComboBox* lunationEclipseRuleCombo_ = nullptr;
     QLabel* lunationTimezoneLabel_ = nullptr;
     QPushButton* lunationRunButton_ = nullptr;
     QPushButton* lunationStopButton_ = nullptr;
@@ -688,6 +694,7 @@ private:
     QPushButton* geodeticRefreshButton_ = nullptr;
     QLabel* geodeticStatusLabel_ = nullptr;
     bool worldMapReady_ = false;
+    bool syncingZodiacToolbar_ = false;
     QByteArray defaultDockState_;
     bool layoutLocked_ = false;
     bool hasCurrentChart_ = false;

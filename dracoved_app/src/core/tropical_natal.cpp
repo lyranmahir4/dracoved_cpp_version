@@ -117,6 +117,11 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
         return false;
     }
     swe_->setEphePath(ephePath_);
+    const bool siderealMode = (input.zodiacSystem == ZodiacSystem::Sidereal);
+    if (siderealMode) {
+        swe_->setSidMode(siderealAyanamsaSwissMode(input.siderealAyanamsa));
+    }
+    const int calcFlags = siderealMode ? SEFLG_SIDEREAL : 0;
 
     QTimeZone tz;
     QString tzLabel;
@@ -143,7 +148,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     double cuspsRaw[13] = {0};
     double ascmc[10] = {0};
     QString houseErr;
-    if (!swe_->houses(jd, input.latitude, input.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
+    if (!swe_->housesEx(jd, calcFlags, input.latitude, input.longitude, 'P', cuspsRaw, ascmc, &houseErr)) {
         if (error) {
             *error = houseErr;
         }
@@ -206,7 +211,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     for (const auto& body : bodies) {
         double lon = 0.0;
         QString calcErr;
-        if (!swe_->calcUt(jd, body.sweId, 0, &lon, &calcErr)) {
+        if (!swe_->calcUt(jd, body.sweId, calcFlags, &lon, &calcErr)) {
             if (isAsteroidBody(body.name)) {
                 warnings.push_back(QString("Skipped %1: %2").arg(body.name, calcErr));
                 continue;
@@ -239,7 +244,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
 
         // Retrograde check: compare with next day.
         double lonNext = 0.0;
-        if (swe_->calcUt(jd + 1.0, body.sweId, 0, &lonNext, nullptr)) {
+        if (swe_->calcUt(jd + 1.0, body.sweId, calcFlags, &lonNext, nullptr)) {
             double delta = std::fmod((lonNext - lon + 540.0), 360.0) - 180.0;
             pos.retrograde = (delta < 0.0);
         }
@@ -408,7 +413,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
         double starLon = 0.0;
         QString resolvedName;
         QString starErr;
-        if (!swe_->fixstarUt(starName, jd, 0, &starLon, &resolvedName, &starErr)) {
+        if (!swe_->fixstarUt(starName, jd, calcFlags, &starLon, &resolvedName, &starErr)) {
             warnings.push_back(QString("Skipped fixed star %1: %2").arg(starName, starErr));
             continue;
         }
@@ -481,6 +486,8 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     out->localDateTime = local;
     out->utcDateTime = utc;
     out->timezoneLabel = tzLabel;
+    out->zodiacSystem = input.zodiacSystem;
+    out->siderealAyanamsa = input.siderealAyanamsa;
     out->angles = angles;
     out->bodies = positions;
     out->fixedStars = fixedStars;

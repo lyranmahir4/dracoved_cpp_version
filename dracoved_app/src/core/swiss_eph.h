@@ -28,7 +28,9 @@ public:
     bool fixstarUt(const QString& starName, double jdUt, int flags,
                    double* outLon, QString* outResolvedName, QString* error) const;
     bool houses(double jdUt, double geoLat, double geoLon, char hsys, double* cusps, double* ascmc, QString* error) const;
+    bool housesEx(double jdUt, int flags, double geoLat, double geoLon, char hsys, double* cusps, double* ascmc, QString* error) const;
     bool housesArmc(double armc, double geoLat, double eps, char hsys, double* cusps, double* ascmc, QString* error) const;
+    bool getAyanamsaUt(double jdUt, double* outAyanamsa, QString* error) const;
     int solEclipseWhenGlob(double jdStart, int flags, int typeFlags, double* tret, int backward, QString* error) const;
     int lunEclipseWhen(double jdStart, int flags, int typeFlags, double* tret, int backward, QString* error) const;
 
@@ -46,7 +48,9 @@ private:
     using SweCalcUt = int (*)(double, int, int, double*, char*);
     using SweFixstarUt = int (*)(char*, double, int, double*, char*);
     using SweHouses = int (*)(double, double, double, int, double*, double*);
+    using SweHousesEx = int (*)(double, int, double, double, int, double*, double*);
     using SweHousesArmc = int (*)(double, double, double, int, double*, double*);
+    using SweGetAyanamsaUt = double (*)(double);
     using SweSolEclipseWhenGlob = int (*)(double, int, int, double*, int, char*);
     using SweLunEclipseWhen = int (*)(double, int, int, double*, int, char*);
 
@@ -58,13 +62,16 @@ private:
     SweFixstarUt sweFixstarUt_ = nullptr;
     SweFixstarUt sweFixstar2Ut_ = nullptr;
     SweHouses sweHouses_ = nullptr;
+    SweHousesEx sweHousesEx_ = nullptr;
     SweHousesArmc sweHousesArmc_ = nullptr;
+    SweGetAyanamsaUt sweGetAyanamsaUt_ = nullptr;
     SweSolEclipseWhenGlob sweSolEclipseWhenGlob_ = nullptr;
     SweLunEclipseWhen sweLunEclipseWhen_ = nullptr;
 };
 
 // Minimal constants needed for tropical natal calculations.
 constexpr int SE_GREG_CAL = 1;
+constexpr int SEFLG_SIDEREAL = (64 * 1024);
 constexpr int SE_ECL_NUT = -1;
 constexpr int SE_SUN = 0;
 constexpr int SE_MOON = 1;

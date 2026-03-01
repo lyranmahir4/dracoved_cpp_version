@@ -127,6 +127,11 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         return false;
     }
     swe_->setEphePath(ephePath_);
+    const bool siderealMode = (natalInput.zodiacSystem == ZodiacSystem::Sidereal);
+    if (siderealMode) {
+        swe_->setSidMode(siderealAyanamsaSwissMode(natalInput.siderealAyanamsa));
+    }
+    const int calcFlags = siderealMode ? SEFLG_SIDEREAL : 0;
 
     QTimeZone natalTz;
     QString natalTzLabel;
@@ -204,6 +209,22 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         }
         return false;
     }
+    if (siderealMode) {
+        double ayanamsa = 0.0;
+        QString ayanErr;
+        if (!swe_->getAyanamsaUt(jdProg, &ayanamsa, &ayanErr)) {
+            if (error) {
+                *error = ayanErr;
+            }
+            return false;
+        }
+        for (int i = 1; i <= 12; ++i) {
+            cuspsRaw[i] = normalizeDegrees(cuspsRaw[i] - ayanamsa);
+        }
+        ascmc[0] = normalizeDegrees(ascmc[0] - ayanamsa);
+        ascmc[1] = normalizeDegrees(ascmc[1] - ayanamsa);
+        ascmc[3] = normalizeDegrees(ascmc[3] - ayanamsa);
+    }
 
     AnglePositions angles;
     angles.asc = normalizeDegrees(ascmc[0]);
@@ -259,7 +280,7 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     for (const auto& body : bodies) {
         double lon = 0.0;
         QString calcErr;
-        if (!swe_->calcUt(jdProg, body.sweId, 0, &lon, &calcErr)) {
+        if (!swe_->calcUt(jdProg, body.sweId, calcFlags, &lon, &calcErr)) {
             if (isAsteroidBody(body.name)) {
                 warnings.push_back(QString("Skipped %1: %2").arg(body.name, calcErr));
                 continue;
@@ -291,7 +312,7 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         pos.dignity = dignityLabel(body.name, sname);
 
         double lonNext = 0.0;
-        if (swe_->calcUt(jdProg + 1.0, body.sweId, 0, &lonNext, nullptr)) {
+        if (swe_->calcUt(jdProg + 1.0, body.sweId, calcFlags, &lonNext, nullptr)) {
             double delta = std::fmod((lonNext - lon + 540.0), 360.0) - 180.0;
             pos.retrograde = (delta < 0.0);
         }
@@ -456,7 +477,7 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         double starLon = 0.0;
         QString resolvedName;
         QString starErr;
-        if (!swe_->fixstarUt(starName, jdProg, 0, &starLon, &resolvedName, &starErr)) {
+        if (!swe_->fixstarUt(starName, jdProg, calcFlags, &starLon, &resolvedName, &starErr)) {
             warnings.push_back(QString("Skipped fixed star %1: %2").arg(starName, starErr));
             continue;
         }
@@ -528,6 +549,8 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     out->localDateTime = progLocal;
     out->utcDateTime = progUtc;
     out->timezoneLabel = natalTzLabel;
+    out->zodiacSystem = natalInput.zodiacSystem;
+    out->siderealAyanamsa = natalInput.siderealAyanamsa;
     out->angles = angles;
     out->bodies = positions;
     out->fixedStars = fixedStars;

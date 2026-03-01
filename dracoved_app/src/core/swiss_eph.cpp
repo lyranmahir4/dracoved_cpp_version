@@ -7,6 +7,7 @@
 #include <QByteArray>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #ifdef _WIN32
@@ -37,7 +38,9 @@ void SwissEph::unload() {
     sweFixstarUt_ = nullptr;
     sweFixstar2Ut_ = nullptr;
     sweHouses_ = nullptr;
+    sweHousesEx_ = nullptr;
     sweHousesArmc_ = nullptr;
+    sweGetAyanamsaUt_ = nullptr;
     sweSolEclipseWhenGlob_ = nullptr;
     sweLunEclipseWhen_ = nullptr;
 }
@@ -55,13 +58,16 @@ bool SwissEph::bind(QString* error) {
     sweFixstarUt_ = reinterpret_cast<SweFixstarUt>(loadSym("swe_fixstar_ut"));
     sweFixstar2Ut_ = reinterpret_cast<SweFixstarUt>(loadSym("swe_fixstar2_ut"));
     sweHouses_ = reinterpret_cast<SweHouses>(loadSym("swe_houses"));
+    sweHousesEx_ = reinterpret_cast<SweHousesEx>(loadSym("swe_houses_ex"));
     sweHousesArmc_ = reinterpret_cast<SweHousesArmc>(loadSym("swe_houses_armc"));
+    sweGetAyanamsaUt_ = reinterpret_cast<SweGetAyanamsaUt>(loadSym("swe_get_ayanamsa_ut"));
     sweSolEclipseWhenGlob_ = reinterpret_cast<SweSolEclipseWhenGlob>(loadSym("swe_sol_eclipse_when_glob"));
     sweLunEclipseWhen_ = reinterpret_cast<SweLunEclipseWhen>(loadSym("swe_lun_eclipse_when"));
 
     if (!sweSetEphePath_ || !sweSetSidMode_ || !sweJulDay_ || !sweRevJul_
         || !sweCalcUt_ || (!sweFixstarUt_ && !sweFixstar2Ut_)
-        || !sweHouses_ || !sweHousesArmc_ || !sweSolEclipseWhenGlob_ || !sweLunEclipseWhen_) {
+        || !sweHouses_ || !sweHousesEx_ || !sweHousesArmc_ || !sweGetAyanamsaUt_
+        || !sweSolEclipseWhenGlob_ || !sweLunEclipseWhen_) {
         if (error) {
             *error = "Failed to bind one or more Swiss Ephemeris symbols.";
         }
@@ -239,6 +245,21 @@ bool SwissEph::houses(double jdUt, double geoLat, double geoLon, char hsys, doub
     return true;
 }
 
+bool SwissEph::housesEx(double jdUt, int flags, double geoLat, double geoLon, char hsys,
+                        double* cusps, double* ascmc, QString* error) const {
+    if (!sweHousesEx_ || !cusps || !ascmc) {
+        return false;
+    }
+    int ret = sweHousesEx_(jdUt, flags, geoLat, geoLon, static_cast<int>(hsys), cusps, ascmc);
+    if (ret < 0) {
+        if (error) {
+            *error = "swe_houses_ex failed.";
+        }
+        return false;
+    }
+    return true;
+}
+
 bool SwissEph::housesArmc(double armc, double geoLat, double eps, char hsys, double* cusps, double* ascmc, QString* error) const {
     if (!sweHousesArmc_ || !cusps || !ascmc) {
         return false;
@@ -250,6 +271,24 @@ bool SwissEph::housesArmc(double armc, double geoLat, double eps, char hsys, dou
         }
         return false;
     }
+    return true;
+}
+
+bool SwissEph::getAyanamsaUt(double jdUt, double* outAyanamsa, QString* error) const {
+    if (!sweGetAyanamsaUt_ || !outAyanamsa) {
+        if (error) {
+            *error = "swe_get_ayanamsa_ut unavailable.";
+        }
+        return false;
+    }
+    const double ayanamsa = sweGetAyanamsaUt_(jdUt);
+    if (!std::isfinite(ayanamsa)) {
+        if (error) {
+            *error = "swe_get_ayanamsa_ut returned invalid value.";
+        }
+        return false;
+    }
+    *outAyanamsa = ayanamsa;
     return true;
 }
 
