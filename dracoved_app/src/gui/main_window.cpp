@@ -54,6 +54,7 @@
 #include <limits>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
@@ -136,6 +137,12 @@ static double angularDiffAbs(double a, double b) {
 
 static bool isNodeName(const QString& name) {
     return name == "North Node" || name == "South Node";
+}
+
+static bool isSolarTechniquePlanetName(const QString& name) {
+    return name == "Sun" || name == "Moon" || name == "Mercury" || name == "Venus"
+        || name == "Mars" || name == "Jupiter" || name == "Saturn" || name == "Uranus"
+        || name == "Neptune" || name == "Pluto";
 }
 
 static bool isAngleName(const QString& name) {
@@ -893,21 +900,40 @@ void MainWindow::setupDockLayout() {
     reportLayout->addWidget(reportText_, 1);
     tabs_->addTab(reportPanel_, "Report");
 
-    solarTechniquePanel_ = new QWidget(tabs_);
-    auto* techniqueLayout = new QVBoxLayout(solarTechniquePanel_);
+    auto* solarTechniquePage = new QWidget();
+    solarTechniquePanel_ = solarTechniquePage;
+    auto* techniqueLayout = new QVBoxLayout(solarTechniquePage);
     techniqueLayout->setContentsMargins(0, 0, 0, 0);
     techniqueLayout->setSpacing(8);
+    techniqueLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
     auto* techniqueIntro = new QLabel("SR Ascendant = Day 1. Move 1° per day from the SR date to the next SR date.", solarTechniquePanel_);
     techniqueIntro->setWordWrap(true);
     techniqueIntro->setObjectName("hintLabel");
+    techniqueIntro->setText("Move the SR Ascendant 1 degree per day through the selected technique range.");
     techniqueLayout->addWidget(techniqueIntro);
 
-    auto* techniqueRangeGroup = new QGroupBox("Solar Return Year Range", solarTechniquePanel_);
+    auto* techniqueRangeGroup = new QGroupBox("Technique Range", solarTechniquePanel_);
     auto* techniqueRangeLayout = new QVBoxLayout(techniqueRangeGroup);
-    solarTechniqueRangeLabel_ = new QLabel("Calculate Solar Return to load the SR year range.", techniqueRangeGroup);
+    solarTechniqueRangeLabel_ = new QLabel("Calculate Solar Return to load the technique range.", techniqueRangeGroup);
     solarTechniqueRangeLabel_->setObjectName("hintLabel");
     techniqueRangeLayout->addWidget(solarTechniqueRangeLabel_);
     techniqueLayout->addWidget(techniqueRangeGroup);
+
+    auto* techniqueModeGroup = new QGroupBox("Tick Counting", solarTechniquePanel_);
+    auto* techniqueModeLayout = new QGridLayout(techniqueModeGroup);
+    techniqueModeLayout->setHorizontalSpacing(8);
+    techniqueModeLayout->setVerticalSpacing(6);
+    solarTechniqueModeCombo_ = new QComboBox(techniqueModeGroup);
+    solarTechniqueModeCombo_->addItem("SR Start Date (Loaded Chart)",
+                                      static_cast<int>(SolarTechniqueCountingMode::SRStartDate));
+    solarTechniqueModeCombo_->addItem("Symbolic January 1",
+                                      static_cast<int>(SolarTechniqueCountingMode::SymbolicJanuaryFirst));
+    solarTechniqueModeCombo_->setToolTip(
+        "SR Start Date begins from the loaded Solar Return's local date. "
+        "Symbolic January 1 treats the SR Ascendant as January 1 of the selected year.");
+    techniqueModeLayout->addWidget(new QLabel("Mode", techniqueModeGroup), 0, 0);
+    techniqueModeLayout->addWidget(solarTechniqueModeCombo_, 0, 1);
+    techniqueLayout->addWidget(techniqueModeGroup);
 
     auto* techniqueDateGroup = new QGroupBox("Date", solarTechniquePanel_);
     auto* techniqueDateLayout = new QGridLayout(techniqueDateGroup);
@@ -931,6 +957,48 @@ void MainWindow::setupDockLayout() {
     techniqueTargetLayout->addWidget(solarTechniqueSolarCheck_);
     techniqueTargetLayout->addStretch();
     techniqueLayout->addWidget(techniqueTargetGroup);
+
+    auto* techniqueBodyGroup = new QGroupBox("Technique Bodies", solarTechniquePanel_);
+    auto* techniqueBodyLayout = new QGridLayout(techniqueBodyGroup);
+    techniqueBodyLayout->setHorizontalSpacing(8);
+    techniqueBodyLayout->setVerticalSpacing(6);
+    techniqueBodyLayout->setColumnStretch(1, 1);
+    solarTechniqueBodyPresetCombo_ = new QComboBox(techniqueBodyGroup);
+    solarTechniqueBodyPresetCombo_->addItem("Core (Planets + Nodes + Angles)",
+        static_cast<int>(SolarTechniqueBodyPreset::Core));
+    solarTechniqueBodyPresetCombo_->addItem("Core + Lots",
+        static_cast<int>(SolarTechniqueBodyPreset::CoreWithLots));
+    solarTechniqueBodyPresetCombo_->addItem("Full Chart Bodies",
+        static_cast<int>(SolarTechniqueBodyPreset::FullChartBodies));
+    solarTechniqueBodyPresetCombo_->addItem("Custom",
+        static_cast<int>(SolarTechniqueBodyPreset::Custom));
+    solarTechniqueBodyPresetCombo_->setToolTip(
+        "Core uses the main planets, lunar nodes, and the four angles. "
+        "Use Full Chart Bodies to reproduce the broader chart-wide scoring.");
+    auto* techniqueBodyChecks = new QWidget(techniqueBodyGroup);
+    auto* techniqueBodyChecksLayout = new QGridLayout(techniqueBodyChecks);
+    techniqueBodyChecksLayout->setContentsMargins(0, 0, 0, 0);
+    techniqueBodyChecksLayout->setHorizontalSpacing(12);
+    techniqueBodyChecksLayout->setVerticalSpacing(4);
+    solarTechniqueBodyPlanetsCheck_ = new QCheckBox("Planets", techniqueBodyChecks);
+    solarTechniqueBodyNodesCheck_ = new QCheckBox("Nodes", techniqueBodyChecks);
+    solarTechniqueBodyAnglesCheck_ = new QCheckBox("Angles", techniqueBodyChecks);
+    solarTechniqueBodyLotsCheck_ = new QCheckBox("Arabic Lots", techniqueBodyChecks);
+    solarTechniqueBodyAsteroidsCheck_ = new QCheckBox("Asteroids", techniqueBodyChecks);
+    solarTechniqueBodyLilithCheck_ = new QCheckBox("Lilith", techniqueBodyChecks);
+    solarTechniqueBodyVertexCheck_ = new QCheckBox("Vertex", techniqueBodyChecks);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyPlanetsCheck_, 0, 0);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyLotsCheck_, 0, 1);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyNodesCheck_, 1, 0);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyAsteroidsCheck_, 1, 1);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyAnglesCheck_, 2, 0);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyLilithCheck_, 2, 1);
+    techniqueBodyChecksLayout->addWidget(solarTechniqueBodyVertexCheck_, 3, 0);
+    techniqueBodyLayout->addWidget(new QLabel("Preset", techniqueBodyGroup), 0, 0);
+    techniqueBodyLayout->addWidget(solarTechniqueBodyPresetCombo_, 0, 1);
+    techniqueBodyLayout->addWidget(techniqueBodyChecks, 1, 0, 1, 2);
+    techniqueLayout->addWidget(techniqueBodyGroup);
+    applySolarTechniqueBodyPreset(SolarTechniqueBodyPreset::Core, false);
 
     auto* techniqueOrbGroup = new QGroupBox("Aspect Orb", solarTechniquePanel_);
     auto* techniqueOrbLayout = new QHBoxLayout(techniqueOrbGroup);
@@ -965,13 +1033,21 @@ void MainWindow::setupDockLayout() {
     techniqueLayout->addWidget(techniqueRankGroup);
     techniqueLayout->addStretch();
 
+    auto* solarTechniqueScroll = new QScrollArea(tabs_);
+    solarTechniqueScroll->setWidgetResizable(true);
+    solarTechniqueScroll->setFrameShape(QFrame::NoFrame);
+    solarTechniqueScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    solarTechniqueScroll->setWidget(solarTechniquePage);
+    solarTechniquePanel_ = solarTechniqueScroll;
     tabs_->addTab(solarTechniquePanel_, "Technique");
     tabs_->setTabVisible(tabs_->indexOf(solarTechniquePanel_), false);
 
-    solarPlacementFinderPanel_ = new QWidget(tabs_);
-    auto* finderLayout = new QVBoxLayout(solarPlacementFinderPanel_);
+    auto* solarPlacementFinderPage = new QWidget();
+    solarPlacementFinderPanel_ = solarPlacementFinderPage;
+    auto* finderLayout = new QVBoxLayout(solarPlacementFinderPage);
     finderLayout->setContentsMargins(0, 0, 0, 0);
     finderLayout->setSpacing(8);
+    finderLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
     auto* finderRangeGroup = new QGroupBox("Year Range", solarPlacementFinderPanel_);
     auto* finderRangeLayout = new QGridLayout(finderRangeGroup);
@@ -1042,6 +1118,12 @@ void MainWindow::setupDockLayout() {
     finderLayout->addWidget(finderRunGroup);
     finderLayout->addStretch();
 
+    auto* solarPlacementFinderScroll = new QScrollArea(tabs_);
+    solarPlacementFinderScroll->setWidgetResizable(true);
+    solarPlacementFinderScroll->setFrameShape(QFrame::NoFrame);
+    solarPlacementFinderScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    solarPlacementFinderScroll->setWidget(solarPlacementFinderPage);
+    solarPlacementFinderPanel_ = solarPlacementFinderScroll;
     tabs_->addTab(solarPlacementFinderPanel_, "Placement Finder");
     tabs_->setTabVisible(tabs_->indexOf(solarPlacementFinderPanel_), false);
 
@@ -1111,6 +1193,7 @@ void MainWindow::setupDockLayout() {
     progressionLayout->addWidget(progressionTargetGroup);
     progressionLayout->addWidget(progressionRunGroup);
     progressionLayout->addStretch();
+    progressionControls_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     progressionControls_->setVisible(false);
 
     solarControls_ = new QWidget(dataPanel);
@@ -1182,6 +1265,7 @@ void MainWindow::setupDockLayout() {
     solarLayout->addWidget(solarLocationGroup);
     solarLayout->addWidget(solarRunGroup);
     solarLayout->addStretch();
+    solarControls_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     solarControls_->setVisible(false);
 
     relocationControls_ = new QWidget(dataPanel);
@@ -1261,12 +1345,14 @@ void MainWindow::setupDockLayout() {
     relocationLayout->addWidget(relocationViewGroup);
     relocationLayout->addWidget(relocationRunGroup);
     relocationLayout->addStretch();
+    relocationControls_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     relocationControls_->setVisible(false);
 
     dataLayout->addWidget(progressionControls_);
     dataLayout->addWidget(solarControls_);
     dataLayout->addWidget(relocationControls_);
-    dataLayout->addWidget(tabs_);
+    tabs_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    dataLayout->addWidget(tabs_, 1);
 
     transitPanel_ = new QFrame(this);
     transitPanel_->setObjectName("dataPanel");
@@ -3537,9 +3623,56 @@ void MainWindow::setupConnections() {
     if (solarTechniqueDateEdit_) {
         connect(solarTechniqueDateEdit_, &QDateEdit::dateChanged, this, &MainWindow::refreshSolarTechniqueView);
     }
+    if (solarTechniqueModeCombo_) {
+        connect(solarTechniqueModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &MainWindow::refreshSolarTechniqueView);
+    }
+    if (solarTechniqueBodyPresetCombo_) {
+        connect(solarTechniqueBodyPresetCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int) {
+                    if (solarTechniqueUpdatingBodyControls_ || !solarTechniqueBodyPresetCombo_) {
+                        return;
+                    }
+                    const int presetValue = solarTechniqueBodyPresetCombo_->currentData().toInt();
+                    const auto preset = static_cast<SolarTechniqueBodyPreset>(presetValue);
+                    if (preset == SolarTechniqueBodyPreset::Custom) {
+                        syncSolarTechniqueBodyPresetSelection(true);
+                        return;
+                    }
+                    applySolarTechniqueBodyPreset(preset, true);
+                });
+    }
     if (solarTechniqueOrbSpin_) {
         connect(solarTechniqueOrbSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                 this, &MainWindow::refreshSolarTechniqueView);
+    }
+    if (solarTechniqueBodyPlanetsCheck_) {
+        connect(solarTechniqueBodyPlanetsCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyNodesCheck_) {
+        connect(solarTechniqueBodyNodesCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyAnglesCheck_) {
+        connect(solarTechniqueBodyAnglesCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyLotsCheck_) {
+        connect(solarTechniqueBodyLotsCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyAsteroidsCheck_) {
+        connect(solarTechniqueBodyAsteroidsCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyLilithCheck_) {
+        connect(solarTechniqueBodyLilithCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
+    }
+    if (solarTechniqueBodyVertexCheck_) {
+        connect(solarTechniqueBodyVertexCheck_, &QCheckBox::toggled, this,
+                [this](bool) { syncSolarTechniqueBodyPresetSelection(true); });
     }
     if (solarTechniqueNatalCheck_) {
         connect(solarTechniqueNatalCheck_, &QCheckBox::toggled, this, &MainWindow::refreshSolarTechniqueView);
@@ -4545,6 +4678,70 @@ void MainWindow::loadUiState() {
     if (solarView >= 0 && solarView <= 1) {
         solarAspectView_ = static_cast<SolarAspectView>(solarView);
     }
+    if (solarTechniqueModeCombo_) {
+        int techniqueCountingMode = settings.value("solar/technique_count_mode",
+            static_cast<int>(SolarTechniqueCountingMode::SRStartDate)).toInt();
+        if (techniqueCountingMode < static_cast<int>(SolarTechniqueCountingMode::SRStartDate)
+            || techniqueCountingMode > static_cast<int>(SolarTechniqueCountingMode::SymbolicJanuaryFirst)) {
+            techniqueCountingMode = static_cast<int>(SolarTechniqueCountingMode::SRStartDate);
+        }
+        const int idx = solarTechniqueModeCombo_->findData(techniqueCountingMode);
+        if (idx >= 0) {
+            const QSignalBlocker blocker(solarTechniqueModeCombo_);
+            solarTechniqueModeCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarTechniqueBodyPresetCombo_) {
+        int techniqueBodyPreset = settings.value("solar/technique_body_preset",
+            static_cast<int>(SolarTechniqueBodyPreset::Core)).toInt();
+        if (techniqueBodyPreset < static_cast<int>(SolarTechniqueBodyPreset::Core)
+            || techniqueBodyPreset > static_cast<int>(SolarTechniqueBodyPreset::Custom)) {
+            techniqueBodyPreset = static_cast<int>(SolarTechniqueBodyPreset::Core);
+        }
+        const auto preset = static_cast<SolarTechniqueBodyPreset>(techniqueBodyPreset);
+        if (preset == SolarTechniqueBodyPreset::Custom) {
+            solarTechniqueUpdatingBodyControls_ = true;
+            if (solarTechniqueBodyPlanetsCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyPlanetsCheck_);
+                solarTechniqueBodyPlanetsCheck_->setChecked(
+                    settings.value("solar/technique_body_planets", true).toBool());
+            }
+            if (solarTechniqueBodyNodesCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyNodesCheck_);
+                solarTechniqueBodyNodesCheck_->setChecked(
+                    settings.value("solar/technique_body_nodes", true).toBool());
+            }
+            if (solarTechniqueBodyAnglesCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyAnglesCheck_);
+                solarTechniqueBodyAnglesCheck_->setChecked(
+                    settings.value("solar/technique_body_angles", true).toBool());
+            }
+            if (solarTechniqueBodyLotsCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyLotsCheck_);
+                solarTechniqueBodyLotsCheck_->setChecked(
+                    settings.value("solar/technique_body_lots", false).toBool());
+            }
+            if (solarTechniqueBodyAsteroidsCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyAsteroidsCheck_);
+                solarTechniqueBodyAsteroidsCheck_->setChecked(
+                    settings.value("solar/technique_body_asteroids", false).toBool());
+            }
+            if (solarTechniqueBodyLilithCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyLilithCheck_);
+                solarTechniqueBodyLilithCheck_->setChecked(
+                    settings.value("solar/technique_body_lilith", false).toBool());
+            }
+            if (solarTechniqueBodyVertexCheck_) {
+                const QSignalBlocker blocker(solarTechniqueBodyVertexCheck_);
+                solarTechniqueBodyVertexCheck_->setChecked(
+                    settings.value("solar/technique_body_vertex", false).toBool());
+            }
+            solarTechniqueUpdatingBodyControls_ = false;
+            syncSolarTechniqueBodyPresetSelection(false);
+        } else {
+            applySolarTechniqueBodyPreset(preset, false);
+        }
+    }
     if (solarFinderStartYearSpin_) {
         solarFinderStartYearSpin_->setValue(settings.value("solar/finder_start_year", solarFinderStartYearSpin_->value()).toInt());
     }
@@ -4715,6 +4912,33 @@ void MainWindow::saveUiState() {
         settings.setValue("solar/timezone", solarTimezoneEdit_->text());
     }
     settings.setValue("solar/aspect_view", static_cast<int>(solarAspectView_));
+    if (solarTechniqueModeCombo_) {
+        settings.setValue("solar/technique_count_mode", solarTechniqueModeCombo_->currentData().toInt());
+    }
+    if (solarTechniqueBodyPresetCombo_) {
+        settings.setValue("solar/technique_body_preset", solarTechniqueBodyPresetCombo_->currentData().toInt());
+    }
+    if (solarTechniqueBodyPlanetsCheck_) {
+        settings.setValue("solar/technique_body_planets", solarTechniqueBodyPlanetsCheck_->isChecked());
+    }
+    if (solarTechniqueBodyNodesCheck_) {
+        settings.setValue("solar/technique_body_nodes", solarTechniqueBodyNodesCheck_->isChecked());
+    }
+    if (solarTechniqueBodyAnglesCheck_) {
+        settings.setValue("solar/technique_body_angles", solarTechniqueBodyAnglesCheck_->isChecked());
+    }
+    if (solarTechniqueBodyLotsCheck_) {
+        settings.setValue("solar/technique_body_lots", solarTechniqueBodyLotsCheck_->isChecked());
+    }
+    if (solarTechniqueBodyAsteroidsCheck_) {
+        settings.setValue("solar/technique_body_asteroids", solarTechniqueBodyAsteroidsCheck_->isChecked());
+    }
+    if (solarTechniqueBodyLilithCheck_) {
+        settings.setValue("solar/technique_body_lilith", solarTechniqueBodyLilithCheck_->isChecked());
+    }
+    if (solarTechniqueBodyVertexCheck_) {
+        settings.setValue("solar/technique_body_vertex", solarTechniqueBodyVertexCheck_->isChecked());
+    }
     if (solarFinderStartYearSpin_) {
         settings.setValue("solar/finder_start_year", solarFinderStartYearSpin_->value());
     }
@@ -10758,6 +10982,192 @@ bool MainWindow::isSolarPlacementFinderTabActive() const {
     return tabs_->currentWidget() == solarPlacementFinderPanel_;
 }
 
+MainWindow::SolarTechniqueBodyFilter MainWindow::solarTechniqueBodyFilter() const {
+    SolarTechniqueBodyFilter filter;
+    filter.planets = solarTechniqueBodyPlanetsCheck_ ? solarTechniqueBodyPlanetsCheck_->isChecked() : true;
+    filter.nodes = solarTechniqueBodyNodesCheck_ ? solarTechniqueBodyNodesCheck_->isChecked() : true;
+    filter.angles = solarTechniqueBodyAnglesCheck_ ? solarTechniqueBodyAnglesCheck_->isChecked() : true;
+    filter.lots = solarTechniqueBodyLotsCheck_ ? solarTechniqueBodyLotsCheck_->isChecked() : false;
+    filter.asteroids = solarTechniqueBodyAsteroidsCheck_ ? solarTechniqueBodyAsteroidsCheck_->isChecked() : false;
+    filter.lilith = solarTechniqueBodyLilithCheck_ ? solarTechniqueBodyLilithCheck_->isChecked() : false;
+    filter.vertex = solarTechniqueBodyVertexCheck_ ? solarTechniqueBodyVertexCheck_->isChecked() : false;
+    return filter;
+}
+
+MainWindow::SolarTechniqueBodyPreset MainWindow::solarTechniqueBodyPresetFromFilter(
+    const SolarTechniqueBodyFilter& filter) const {
+    const SolarTechniqueBodyFilter core;
+    if (filter == core) {
+        return SolarTechniqueBodyPreset::Core;
+    }
+
+    SolarTechniqueBodyFilter coreWithLots = core;
+    coreWithLots.lots = true;
+    if (filter == coreWithLots) {
+        return SolarTechniqueBodyPreset::CoreWithLots;
+    }
+
+    SolarTechniqueBodyFilter fullChartBodies;
+    fullChartBodies.planets = true;
+    fullChartBodies.nodes = true;
+    fullChartBodies.angles = true;
+    fullChartBodies.lots = true;
+    fullChartBodies.asteroids = true;
+    fullChartBodies.lilith = true;
+    fullChartBodies.vertex = true;
+    if (filter == fullChartBodies) {
+        return SolarTechniqueBodyPreset::FullChartBodies;
+    }
+
+    return SolarTechniqueBodyPreset::Custom;
+}
+
+void MainWindow::applySolarTechniqueBodyPreset(SolarTechniqueBodyPreset preset, bool refreshView) {
+    if (preset == SolarTechniqueBodyPreset::Custom) {
+        syncSolarTechniqueBodyPresetSelection(refreshView);
+        return;
+    }
+
+    SolarTechniqueBodyFilter filter;
+    switch (preset) {
+        case SolarTechniqueBodyPreset::CoreWithLots:
+            filter.lots = true;
+            break;
+        case SolarTechniqueBodyPreset::FullChartBodies:
+            filter.lots = true;
+            filter.asteroids = true;
+            filter.lilith = true;
+            filter.vertex = true;
+            break;
+        case SolarTechniqueBodyPreset::Core:
+        case SolarTechniqueBodyPreset::Custom:
+        default:
+            break;
+    }
+
+    solarTechniqueUpdatingBodyControls_ = true;
+    if (solarTechniqueBodyPresetCombo_) {
+        const QSignalBlocker blocker(solarTechniqueBodyPresetCombo_);
+        const int index = solarTechniqueBodyPresetCombo_->findData(static_cast<int>(preset));
+        if (index >= 0) {
+            solarTechniqueBodyPresetCombo_->setCurrentIndex(index);
+        }
+    }
+    if (solarTechniqueBodyPlanetsCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyPlanetsCheck_);
+        solarTechniqueBodyPlanetsCheck_->setChecked(filter.planets);
+    }
+    if (solarTechniqueBodyNodesCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyNodesCheck_);
+        solarTechniqueBodyNodesCheck_->setChecked(filter.nodes);
+    }
+    if (solarTechniqueBodyAnglesCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyAnglesCheck_);
+        solarTechniqueBodyAnglesCheck_->setChecked(filter.angles);
+    }
+    if (solarTechniqueBodyLotsCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyLotsCheck_);
+        solarTechniqueBodyLotsCheck_->setChecked(filter.lots);
+    }
+    if (solarTechniqueBodyAsteroidsCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyAsteroidsCheck_);
+        solarTechniqueBodyAsteroidsCheck_->setChecked(filter.asteroids);
+    }
+    if (solarTechniqueBodyLilithCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyLilithCheck_);
+        solarTechniqueBodyLilithCheck_->setChecked(filter.lilith);
+    }
+    if (solarTechniqueBodyVertexCheck_) {
+        const QSignalBlocker blocker(solarTechniqueBodyVertexCheck_);
+        solarTechniqueBodyVertexCheck_->setChecked(filter.vertex);
+    }
+    solarTechniqueUpdatingBodyControls_ = false;
+
+    if (refreshView) {
+        refreshSolarTechniqueView();
+    }
+}
+
+void MainWindow::syncSolarTechniqueBodyPresetSelection(bool refreshView) {
+    if (solarTechniqueUpdatingBodyControls_) {
+        return;
+    }
+
+    const SolarTechniqueBodyPreset preset = solarTechniqueBodyPresetFromFilter(solarTechniqueBodyFilter());
+    solarTechniqueUpdatingBodyControls_ = true;
+    if (solarTechniqueBodyPresetCombo_) {
+        const QSignalBlocker blocker(solarTechniqueBodyPresetCombo_);
+        const int index = solarTechniqueBodyPresetCombo_->findData(static_cast<int>(preset));
+        if (index >= 0) {
+            solarTechniqueBodyPresetCombo_->setCurrentIndex(index);
+        }
+    }
+    solarTechniqueUpdatingBodyControls_ = false;
+
+    if (refreshView) {
+        refreshSolarTechniqueView();
+    }
+}
+
+QString MainWindow::solarTechniqueBodyPresetLabel(SolarTechniqueBodyPreset preset) const {
+    switch (preset) {
+        case SolarTechniqueBodyPreset::Core:
+            return "Core (Planets + Nodes + Angles)";
+        case SolarTechniqueBodyPreset::CoreWithLots:
+            return "Core + Lots";
+        case SolarTechniqueBodyPreset::FullChartBodies:
+            return "Full Chart Bodies";
+        case SolarTechniqueBodyPreset::Custom:
+        default:
+            return "Custom";
+    }
+}
+
+QString MainWindow::solarTechniqueBodySummary(const SolarTechniqueBodyFilter& filter) const {
+    QStringList enabled;
+    if (filter.planets) {
+        enabled.push_back("Planets");
+    }
+    if (filter.nodes) {
+        enabled.push_back("Nodes");
+    }
+    if (filter.angles) {
+        enabled.push_back("Angles");
+    }
+    if (filter.lots) {
+        enabled.push_back("Arabic Lots");
+    }
+    if (filter.asteroids) {
+        enabled.push_back("Asteroids");
+    }
+    if (filter.lilith) {
+        enabled.push_back("Lilith");
+    }
+    if (filter.vertex) {
+        enabled.push_back("Vertex");
+    }
+    return enabled.isEmpty() ? "None" : enabled.join(", ");
+}
+
+bool MainWindow::solarTechniqueIncludesBodyName(const QString& name, const SolarTechniqueBodyFilter& filter) const {
+    if (isSolarTechniquePlanetName(name)) {
+        return filter.planets;
+    }
+    if (isNodeName(name)) {
+        return filter.nodes;
+    }
+    if (isArabicLotName(name)) {
+        return filter.lots;
+    }
+    if (isAsteroidBody(name)) {
+        return filter.asteroids;
+    }
+    if (name == "Lilith") {
+        return filter.lilith;
+    }
+    return false;
+}
+
 void MainWindow::updateSolarTechniqueDockTitles() {
     if (!rightTopDock_ || !rightBottomDock_) {
         return;
@@ -12411,6 +12821,16 @@ void MainWindow::refreshSolarTechniqueView() {
         return;
     }
 
+    const SolarTechniqueBodyFilter bodyFilter = solarTechniqueBodyFilter();
+    if (!bodyFilter.planets && !bodyFilter.nodes && !bodyFilter.angles && !bodyFilter.lots
+        && !bodyFilter.asteroids && !bodyFilter.lilith && !bodyFilter.vertex) {
+        setInfo("Enable at least one Technique Bodies category.");
+        return;
+    }
+    const SolarTechniqueBodyPreset bodyPreset = solarTechniqueBodyPresetFromFilter(bodyFilter);
+    const QString bodyPresetLabel = solarTechniqueBodyPresetLabel(bodyPreset);
+    const QString bodySummary = solarTechniqueBodySummary(bodyFilter);
+
     double natalSunLon = 0.0;
     if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
         setInfo("Natal Sun longitude not found.");
@@ -12425,27 +12845,51 @@ void MainWindow::refreshSolarTechniqueView() {
         tzLabel = "UTC";
     }
 
-    const int solarYear = solarYearSpin_ ? solarYearSpin_->value() : currentSolarInput_.date.year();
-    QDateTime startLocal;
-    QDateTime nextLocal;
-    QString err;
-    if (!solarReturnTimeUtc(solarYear, tzLabel, natalSunLon, nullptr, &startLocal, &err)) {
-        setInfo(err.isEmpty() ? "Unable to compute solar return date." : err);
-        return;
-    }
-    if (!solarReturnTimeUtc(solarYear + 1, tzLabel, natalSunLon, nullptr, &nextLocal, &err)) {
-        setInfo(err.isEmpty() ? "Unable to compute next solar return date." : err);
-        return;
-    }
+    auto currentSolarTechniqueCountingMode = [this]() {
+        if (!solarTechniqueModeCombo_) {
+            return SolarTechniqueCountingMode::SRStartDate;
+        }
+        const int modeValue = solarTechniqueModeCombo_->currentData().toInt();
+        if (modeValue == static_cast<int>(SolarTechniqueCountingMode::SymbolicJanuaryFirst)) {
+            return SolarTechniqueCountingMode::SymbolicJanuaryFirst;
+        }
+        return SolarTechniqueCountingMode::SRStartDate;
+    };
+    const SolarTechniqueCountingMode countingMode = currentSolarTechniqueCountingMode();
+    const QString countingModeLabel =
+        countingMode == SolarTechniqueCountingMode::SymbolicJanuaryFirst
+            ? "Symbolic January 1"
+            : "SR Start Date";
 
-    QDate startDate = startLocal.date();
-    QDate endDate = nextLocal.date().addDays(-1);
-    if (!endDate.isValid() || endDate < startDate) {
-        endDate = startDate;
+    const int solarYear = solarYearSpin_ ? solarYearSpin_->value() : currentSolarInput_.date.year();
+    QDate startDate;
+    QDate endDate;
+    if (countingMode == SolarTechniqueCountingMode::SymbolicJanuaryFirst) {
+        startDate = QDate(solarYear, 1, 1);
+        endDate = QDate(solarYear, 12, 31);
+    } else {
+        QDateTime startLocal;
+        QDateTime nextLocal;
+        QString err;
+        if (!solarReturnTimeUtc(solarYear, tzLabel, natalSunLon, nullptr, &startLocal, &err)) {
+            setInfo(err.isEmpty() ? "Unable to compute solar return date." : err);
+            return;
+        }
+        if (!solarReturnTimeUtc(solarYear + 1, tzLabel, natalSunLon, nullptr, &nextLocal, &err)) {
+            setInfo(err.isEmpty() ? "Unable to compute next solar return date." : err);
+            return;
+        }
+
+        startDate = startLocal.date();
+        endDate = nextLocal.date().addDays(-1);
+        if (!endDate.isValid() || endDate < startDate) {
+            endDate = startDate;
+        }
     }
     const qint64 totalDays = std::max<qint64>(1, static_cast<qint64>(startDate.daysTo(endDate)) + 1);
     if (solarTechniqueRangeLabel_) {
-        solarTechniqueRangeLabel_->setText(QString("%1 -> %2 (%3 days)")
+        solarTechniqueRangeLabel_->setText(QString("%1 | %2 -> %3 (%4 days)")
+                                               .arg(countingModeLabel)
                                                .arg(startDate.toString("yyyy-MM-dd"))
                                                .arg(endDate.toString("yyyy-MM-dd"))
                                                .arg(totalDays));
@@ -12525,13 +12969,28 @@ void MainWindow::refreshSolarTechniqueView() {
                 hits.push_back({text, orb, supportive, challenging});
             };
 
+            bool hasPartOfFortuneBody = false;
             for (const auto& body : chart.bodies) {
+                if (!solarTechniqueIncludesBodyName(body.name, bodyFilter)) {
+                    continue;
+                }
+                if (body.name == "Part of Fortune") {
+                    hasPartOfFortuneBody = true;
+                }
                 handleTarget(body.name, body.longitude);
             }
-            handleTarget("Ascendant", chart.angles.asc);
-            handleTarget("Midheaven", chart.angles.mc);
-            handleTarget("Descendant", chart.angles.desc);
-            handleTarget("IC", chart.angles.ic);
+            if (bodyFilter.lots && chart.hasPartOfFortune && !hasPartOfFortuneBody) {
+                handleTarget("Part of Fortune", chart.partOfFortune);
+            }
+            if (bodyFilter.angles) {
+                handleTarget("Ascendant", chart.angles.asc);
+                handleTarget("Midheaven", chart.angles.mc);
+                handleTarget("Descendant", chart.angles.desc);
+                handleTarget("IC", chart.angles.ic);
+            }
+            if (bodyFilter.vertex) {
+                handleTarget("Vertex", chart.angles.vertex);
+            }
         };
 
         if (includeNatal) {
@@ -12638,14 +13097,23 @@ void MainWindow::refreshSolarTechniqueView() {
         const QString rangeText = QString("%1 -> %2")
             .arg(startDate.toString("yyyy-MM-dd"))
             .arg(endDate.toString("yyyy-MM-dd"));
+        const bool showBodySummary = bodyPreset == SolarTechniqueBodyPreset::Custom;
         const int topN = std::min<int>(solarTechniqueTopSpin_ ? solarTechniqueTopSpin_->value() : 20, days.size());
         const int rankingRows = topN + 1;
-        const int rows = 12 + rankingRows;
+        const int rows = 14 + (showBodySummary ? 1 : 0) + rankingRows;
         setupTable(rightBottomTable_, {"Item", "Value"}, rows);
         int row = 0;
         rightBottomTable_->setItem(row, 0, makeCell("Date"));
         rightBottomTable_->setItem(row++, 1, makeCell(selected.date.isValid() ? selected.date.toString("yyyy-MM-dd") : "-"));
-        rightBottomTable_->setItem(row, 0, makeCell("SR Year Range"));
+        rightBottomTable_->setItem(row, 0, makeCell("Counting Mode"));
+        rightBottomTable_->setItem(row++, 1, makeCell(countingModeLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("Technique Bodies"));
+        rightBottomTable_->setItem(row++, 1, makeCell(bodyPresetLabel));
+        if (showBodySummary) {
+            rightBottomTable_->setItem(row, 0, makeCell("Body Categories"));
+            rightBottomTable_->setItem(row++, 1, makeCell(bodySummary));
+        }
+        rightBottomTable_->setItem(row, 0, makeCell("Technique Range"));
         rightBottomTable_->setItem(row++, 1, makeCell(rangeText));
         rightBottomTable_->setItem(row, 0, makeCell("Day #"));
         rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 / %2").arg(dayNumber).arg(totalDays)));

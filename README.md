@@ -11,7 +11,11 @@ DracoVed C++ is a desktop astrology workstation built with Qt 6 and Swiss Epheme
 
 ## Current Features
 
-- Tropical natal charts (Swiss Ephemeris), Whole Sign or Placidus houses.
+- Tropical and Sidereal natal charts (Swiss Ephemeris), Whole Sign or Placidus houses.
+- Global zodiac mode controls in the top bar:
+  - `Tropical` or `Sidereal` toggle.
+  - Sidereal ayanamsa selection (`Lahiri`, `Raman`, `Krishnamurti`, `Fagan/Bradley`, `Yukteshwar`, `True Citra`, `True Revati`).
+  - Selected mode applies app-wide to placements/transits calculations.
 - Chart wheel with zoom/pan/reset, aspect lines, tooltips, and overlay modes.
 - Fixed stars support with display toggle and collision-aware label placement.
 - Arabic Lots and derived points support with chart visibility toggles:
@@ -27,7 +31,10 @@ DracoVed C++ is a desktop astrology workstation built with Qt 6 and Swiss Epheme
   - Transit Calendar.
   - Conjunction finder (including exact 0 degree two-planet mode when `N=2` and two planets selected).
   - Best Days scan.
-  - Lunation search.
+  - Lunation search with sidereal-aware eclipse rule selection:
+    - `Astronomical (Swiss)` rule (physical eclipse events from Swiss Ephemeris).
+    - `Strict Vedic (whole-sign nodes)` rule (sidereal-only): classifies eclipses from exact new/full moon instants using whole-sign Rahu/Ketu axis conditions.
+  - In sidereal mode, lunation house-based analysis/filtering uses whole-sign logic.
 - Transit detail/report parity:
   - Search, Calendar, Conjunction, Scan, and Lunation all support right-bottom detail reporting and copy-to-clipboard output when selection is active.
   - Calendar and Scan detail panes show Placements + Summary for selected moments.
@@ -35,6 +42,7 @@ DracoVed C++ is a desktop astrology workstation built with Qt 6 and Swiss Epheme
 - Solar Return, Progression, and Relocation workflows.
 - Location geocoding (OpenStreetMap Nominatim) and timezone lookup (Open-Meteo).
 - Profile save/load/delete (JSON) with settings persisted via QSettings.
+  - Profiles include zodiac system and sidereal ayanamsa fields.
 
 ## Tech Stack
 

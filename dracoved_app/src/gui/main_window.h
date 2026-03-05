@@ -151,6 +151,16 @@ private:
         SolarReturn,
         SolarNatal,
     };
+    enum class SolarTechniqueCountingMode {
+        SRStartDate,
+        SymbolicJanuaryFirst,
+    };
+    enum class SolarTechniqueBodyPreset {
+        Core,
+        CoreWithLots,
+        FullChartBodies,
+        Custom,
+    };
     enum class SolarPlacementFinderHouseMode {
         WholeSign,
         Placidus,
@@ -213,6 +223,18 @@ private:
         bool showDerivedPoints = false;
         bool showAsteroids = false;
         bool showAngles = true;
+    };
+
+    struct SolarTechniqueBodyFilter {
+        bool planets = true;
+        bool nodes = true;
+        bool angles = true;
+        bool lots = false;
+        bool asteroids = false;
+        bool lilith = false;
+        bool vertex = false;
+
+        bool operator==(const SolarTechniqueBodyFilter& other) const = default;
     };
 
     struct LunationDegreeGroup {
@@ -353,6 +375,13 @@ private:
     void updateAspectScopeTabs();
     void updateChartLegend();
     void refreshSolarTechniqueView();
+    SolarTechniqueBodyFilter solarTechniqueBodyFilter() const;
+    SolarTechniqueBodyPreset solarTechniqueBodyPresetFromFilter(const SolarTechniqueBodyFilter& filter) const;
+    void applySolarTechniqueBodyPreset(SolarTechniqueBodyPreset preset, bool refreshView = true);
+    void syncSolarTechniqueBodyPresetSelection(bool refreshView = true);
+    QString solarTechniqueBodyPresetLabel(SolarTechniqueBodyPreset preset) const;
+    QString solarTechniqueBodySummary(const SolarTechniqueBodyFilter& filter) const;
+    bool solarTechniqueIncludesBodyName(const QString& name, const SolarTechniqueBodyFilter& filter) const;
     bool isSolarTechniqueTabActive() const;
     bool isSolarPlacementFinderTabActive() const;
     void updateSolarTechniqueDockTitles();
@@ -647,14 +676,24 @@ private:
     QPushButton* solarCalculateButton_ = nullptr;
     QLabel* solarStatusLabel_ = nullptr;
     QLabel* solarLastLabel_ = nullptr;
+    QComboBox* solarTechniqueModeCombo_ = nullptr;
+    QComboBox* solarTechniqueBodyPresetCombo_ = nullptr;
     QDateEdit* solarTechniqueDateEdit_ = nullptr;
     QDoubleSpinBox* solarTechniqueOrbSpin_ = nullptr;
+    QCheckBox* solarTechniqueBodyPlanetsCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyNodesCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyAnglesCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyLotsCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyAsteroidsCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyLilithCheck_ = nullptr;
+    QCheckBox* solarTechniqueBodyVertexCheck_ = nullptr;
     QCheckBox* solarTechniqueNatalCheck_ = nullptr;
     QCheckBox* solarTechniqueSolarCheck_ = nullptr;
     QLabel* solarTechniqueRangeLabel_ = nullptr;
     QComboBox* solarTechniqueRankMetricCombo_ = nullptr;
     QComboBox* solarTechniqueRankOrderCombo_ = nullptr;
     QSpinBox* solarTechniqueTopSpin_ = nullptr;
+    bool solarTechniqueUpdatingBodyControls_ = false;
     QSpinBox* solarFinderStartYearSpin_ = nullptr;
     QSpinBox* solarFinderEndYearSpin_ = nullptr;
     QComboBox* solarFinderPlanetCombo_ = nullptr;
