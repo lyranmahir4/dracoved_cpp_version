@@ -12926,6 +12926,7 @@ void MainWindow::refreshSolarTechniqueView() {
 
     struct Hit {
         QString text;
+        QString preview;
         double orb = 0.0;
         bool supportive = false;
         bool challenging = false;
@@ -12933,6 +12934,7 @@ void MainWindow::refreshSolarTechniqueView() {
 
     struct DayRow {
         QDate date;
+        int dayNumber = 0;
         double dailyLon = 0.0;
         QString dailyLabel;
         QStringList support;
@@ -12940,19 +12942,44 @@ void MainWindow::refreshSolarTechniqueView() {
         QStringList neutral;
         int supportCount = 0;
         int challengeCount = 0;
+        int neutralCount = 0;
         int netScore = 0;
+        QString strongestHit;
+        QString strongestPreview;
+        int strongestTone = 0;
     };
 
-    auto formatHit = [&](const QString& aspectLabel, const QString& scopeLabel, const QString& targetLabel, double orb) {
-        return QString("%1 %2 %3 (%4°)")
+    struct MonthRow {
+        QDate monthStart;
+        int positiveDays = 0;
+        int negativeDays = 0;
+        int neutralDays = 0;
+        int dayBalance = 0;
+        int totalSupport = 0;
+        int totalChallenge = 0;
+        int totalNeutral = 0;
+        int totalNet = 0;
+        QString strongestPreview;
+        int strongestTone = 0;
+        int strongestNetMagnitude = -1;
+        int strongestHitCount = -1;
+        QDate strongestDate;
+    };
+
+    auto formatHitPreview = [&](const QString& aspectLabel, const QString& scopeLabel, const QString& targetLabel) {
+        return QString("%1 %2 %3")
             .arg(aspectLabel)
             .arg(scopeLabel)
-            .arg(targetLabel)
+            .arg(targetLabel);
+    };
+
+    auto formatHitText = [&](const QString& preview, double orb) {
+        return QString("%1 (%2°)")
+            .arg(preview)
             .arg(QString::number(orb, 'f', 2));
     };
 
-    auto collectHitsForLon = [&](double lon, QStringList* supportOut, QStringList* challengeOut,
-                                 QStringList* neutralOut, int* supportOutCount, int* challengeOutCount) {
+    auto collectHitsForLon = [&](double lon) {
         QVector<Hit> hits;
         auto addHitsFromChart = [&](const NatalChart& chart, const QString& scopeLabel) {
             auto handleTarget = [&](const QString& name, double targetLon) {
@@ -12965,8 +12992,9 @@ void MainWindow::refreshSolarTechniqueView() {
                 }
                 const bool supportive = (label == "Trine" || label == "Sextile");
                 const bool challenging = (label == "Square" || label == "Opposition");
-                const QString text = formatHit(label, scopeLabel, aspectHeaderLabel(name), orb);
-                hits.push_back({text, orb, supportive, challenging});
+                const QString preview = formatHitPreview(label, scopeLabel, name);
+                const QString text = formatHitText(preview, orb);
+                hits.push_back({text, preview, orb, supportive, challenging});
             };
 
             bool hasPartOfFortuneBody = false;
@@ -13007,25 +13035,7 @@ void MainWindow::refreshSolarTechniqueView() {
             return a.text < b.text;
         });
 
-        int supportCount = 0;
-        int challengeCount = 0;
-        for (const auto& hit : hits) {
-            if (hit.supportive) {
-                ++supportCount;
-                supportOut->push_back(hit.text);
-            } else if (hit.challenging) {
-                ++challengeCount;
-                challengeOut->push_back(hit.text);
-            } else {
-                neutralOut->push_back(hit.text);
-            }
-        }
-        if (supportOutCount) {
-            *supportOutCount = supportCount;
-        }
-        if (challengeOutCount) {
-            *challengeOutCount = challengeCount;
-        }
+        return hits;
     };
 
     QVector<DayRow> days;
@@ -13033,54 +13043,193 @@ void MainWindow::refreshSolarTechniqueView() {
     for (qint64 i = 0; i < totalDays; ++i) {
         DayRow row;
         row.date = startDate.addDays(static_cast<int>(i));
+        row.dayNumber = static_cast<int>(i) + 1;
         row.dailyLon = normalizeDegrees(srAsc + static_cast<double>(i));
-        row.dailyLabel = formatDegOnly(row.dailyLon);
-        collectHitsForLon(row.dailyLon, &row.support, &row.challenge, &row.neutral,
-                          &row.supportCount, &row.challengeCount);
+        row.dailyLabel = formatDegInSign(row.dailyLon);
+        const QVector<Hit> hits = collectHitsForLon(row.dailyLon);
+        if (!hits.isEmpty()) {
+            row.strongestHit = hits.first().text;
+            row.strongestPreview = hits.first().preview;
+            row.strongestTone = hits.first().supportive ? 1 : (hits.first().challenging ? -1 : 0);
+        }
+        for (const auto& hit : hits) {
+            if (hit.supportive) {
+                ++row.supportCount;
+                row.support.push_back(hit.text);
+            } else if (hit.challenging) {
+                ++row.challengeCount;
+                row.challenge.push_back(hit.text);
+            } else {
+                ++row.neutralCount;
+                row.neutral.push_back(hit.text);
+            }
+        }
         row.netScore = row.supportCount - row.challengeCount;
         days.push_back(row);
     }
 
-    auto summarizeList = [](const QStringList& items) {
-        if (items.isEmpty()) {
-            return QString("-");
+    QMap<QDate, MonthRow> monthMap;
+    for (const auto& day : days) {
+        if (!day.date.isValid()) {
+            continue;
         }
-        const int maxItems = 3;
-        if (items.size() <= maxItems) {
-            return items.join(", ");
+        const QDate monthStart(day.date.year(), day.date.month(), 1);
+        MonthRow& month = monthMap[monthStart];
+        month.monthStart = monthStart;
+        if (day.netScore > 0) {
+            ++month.positiveDays;
+        } else if (day.netScore < 0) {
+            ++month.negativeDays;
+        } else {
+            ++month.neutralDays;
         }
-        return QString("%1 (+%2 more)").arg(items.mid(0, maxItems).join(", ")).arg(items.size() - maxItems);
+        month.dayBalance = month.positiveDays - month.negativeDays;
+        month.totalSupport += day.supportCount;
+        month.totalChallenge += day.challengeCount;
+        month.totalNeutral += day.neutralCount;
+        month.totalNet += day.netScore;
+
+        const int netMagnitude = std::abs(day.netScore);
+        const int hitCount = day.supportCount + day.challengeCount + day.neutralCount;
+        if (!day.strongestPreview.isEmpty()
+            && (month.strongestPreview.isEmpty()
+                || netMagnitude > month.strongestNetMagnitude
+                || (netMagnitude == month.strongestNetMagnitude && hitCount > month.strongestHitCount)
+                || (netMagnitude == month.strongestNetMagnitude && hitCount == month.strongestHitCount
+                    && (!month.strongestDate.isValid() || day.date < month.strongestDate)))) {
+            month.strongestPreview = day.strongestPreview;
+            month.strongestTone = day.strongestTone;
+            month.strongestNetMagnitude = netMagnitude;
+            month.strongestHitCount = hitCount;
+            month.strongestDate = day.date;
+        }
+    }
+
+    QVector<MonthRow> months;
+    months.reserve(monthMap.size());
+    for (auto it = monthMap.cbegin(); it != monthMap.cend(); ++it) {
+        months.push_back(it.value());
+    }
+
+    const auto signedCountLabel = [](int value) {
+        return value > 0 ? QString("+%1").arg(value) : QString::number(value);
     };
+    const auto shortDateLabel = [](const QDate& date) {
+        return date.isValid() ? date.toString("ddd, MMM d") : QString("-");
+    };
+    const auto longDateLabel = [](const QDate& date) {
+        return date.isValid() ? date.toString("ddd, MMM d, yyyy") : QString("-");
+    };
+    const auto monthLabel = [](const QDate& date) {
+        return date.isValid() ? date.toString("MMMM yyyy") : QString("-");
+    };
+    const auto listTextOrNone = [](const QStringList& items) {
+        return items.isEmpty() ? QString("None") : items.join("\n");
+    };
+    const auto toneColor = [](int tone) {
+        if (tone > 0) {
+            return QColor("#147a67");
+        }
+        if (tone < 0) {
+            return QColor("#c4543b");
+        }
+        return QColor("#7b725f");
+    };
+    const QColor goodColor("#147a67");
+    const QColor badColor("#c4543b");
+    const QColor neutralColor("#7b725f");
+    const QColor monthBreakColor("#efe5d2");
 
     if (rightTopTable_) {
         const int rows = days.size();
-        setupTable(rightTopTable_, {"Date", "Daily Degree", "Support", "Challenge", "Neutral"}, rows);
-        const QColor goodColor("#1f8c78");
-        const QColor badColor("#d24b4b");
+        setupTable(rightTopTable_, {"Date", "Day #", "Degree", "Net", "+", "-", "0", "Strongest Hit"}, rows);
+        rightTopTable_->setWordWrap(false);
+        rightTopTable_->setTextElideMode(Qt::ElideRight);
+        rightTopTable_->verticalHeader()->setDefaultSectionSize(28);
+        if (auto* header = rightTopTable_->horizontalHeader()) {
+            header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(6, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(7, QHeaderView::Stretch);
+        }
         for (int i = 0; i < rows; ++i) {
             const auto& day = days[i];
-            auto* dateItem = makeCell(day.date.toString("yyyy-MM-dd"));
-            dateItem->setData(Qt::UserRole, day.date);
-            rightTopTable_->setItem(i, 0, dateItem);
-            rightTopTable_->setItem(i, 1, makeCell(day.dailyLabel));
+            const bool monthBreak = (i == 0)
+                || day.date.month() != days[i - 1].date.month()
+                || day.date.year() != days[i - 1].date.year();
 
-            const QString supportText = summarizeList(day.support);
-            const QString challengeText = summarizeList(day.challenge);
-            const QString neutralText = summarizeList(day.neutral);
-            auto* supportItem = makeCell(supportText);
-            auto* challengeItem = makeCell(challengeText);
-            auto* neutralItem = makeCell(neutralText);
-            supportItem->setForeground(goodColor);
-            challengeItem->setForeground(badColor);
-            supportItem->setToolTip(day.support.join("\n"));
-            challengeItem->setToolTip(day.challenge.join("\n"));
-            neutralItem->setToolTip(day.neutral.join("\n"));
-            rightTopTable_->setItem(i, 2, supportItem);
-            rightTopTable_->setItem(i, 3, challengeItem);
-            rightTopTable_->setItem(i, 4, neutralItem);
+            auto* dateItem = makeCell(shortDateLabel(day.date));
+            dateItem->setData(Qt::UserRole, day.date);
+            dateItem->setToolTip(longDateLabel(day.date));
+
+            auto* dayNumberItem = makeCell(QString::number(day.dayNumber), Qt::AlignCenter);
+            auto* degreeItem = makeCell(day.dailyLabel, Qt::AlignCenter);
+
+            auto* netItem = makeCell(signedCountLabel(day.netScore), Qt::AlignCenter);
+            QFont scoreFont = netItem->font();
+            scoreFont.setBold(true);
+            netItem->setFont(scoreFont);
+            netItem->setForeground(toneColor(day.netScore));
+            if (day.netScore > 0) {
+                netItem->setBackground(QColor("#dcefe9"));
+            } else if (day.netScore < 0) {
+                netItem->setBackground(QColor("#f6dfda"));
+            } else {
+                netItem->setBackground(QColor("#ece7de"));
+            }
+
+            auto* supportItem = makeCell(QString::number(day.supportCount), Qt::AlignCenter);
+            supportItem->setForeground(day.supportCount > 0 ? goodColor : neutralColor);
+            supportItem->setToolTip(day.support.isEmpty() ? "No supportive hits." : day.support.join("\n"));
+
+            auto* challengeItem = makeCell(QString::number(day.challengeCount), Qt::AlignCenter);
+            challengeItem->setForeground(day.challengeCount > 0 ? badColor : neutralColor);
+            challengeItem->setToolTip(day.challenge.isEmpty() ? "No challenging hits." : day.challenge.join("\n"));
+
+            auto* neutralItem = makeCell(QString::number(day.neutralCount), Qt::AlignCenter);
+            neutralItem->setForeground(day.neutralCount > 0 ? neutralColor : QColor("#a19684"));
+            neutralItem->setToolTip(day.neutral.isEmpty() ? "No neutral hits." : day.neutral.join("\n"));
+
+            auto* strongestItem = makeCell(day.strongestPreview.isEmpty() ? "No exact hits" : day.strongestPreview);
+            strongestItem->setForeground(day.strongestPreview.isEmpty() ? QColor("#a19684") : toneColor(day.strongestTone));
+            QStringList strongestTooltip;
+            strongestTooltip << longDateLabel(day.date)
+                             << QString("Degree: %1").arg(day.dailyLabel)
+                             << QString("Net %1 | +%2 / -%3 / 0 %4")
+                                    .arg(signedCountLabel(day.netScore))
+                                    .arg(day.supportCount)
+                                    .arg(day.challengeCount)
+                                    .arg(day.neutralCount);
+            if (!day.strongestHit.isEmpty()) {
+                strongestTooltip << "" << QString("Strongest: %1").arg(day.strongestHit);
+            }
+            strongestItem->setToolTip(strongestTooltip.join("\n"));
+
+            QVector<QTableWidgetItem*> rowItems = {
+                dateItem, dayNumberItem, degreeItem, netItem,
+                supportItem, challengeItem, neutralItem, strongestItem
+            };
+            if (monthBreak) {
+                QFont dateFont = dateItem->font();
+                dateFont.setBold(true);
+                dateItem->setFont(dateFont);
+                for (auto* item : rowItems) {
+                    if (item) {
+                        item->setBackground(monthBreakColor);
+                    }
+                }
+                netItem->setBackground(day.netScore > 0 ? QColor("#dcefe9")
+                    : (day.netScore < 0 ? QColor("#f6dfda") : QColor("#ece7de")));
+            }
+
+            for (int col = 0; col < rowItems.size(); ++col) {
+                rightTopTable_->setItem(i, col, rowItems[col]);
+            }
         }
-        rightTopTable_->setWordWrap(true);
-        rightTopTable_->resizeRowsToContents();
         if (dayIndex >= 0 && dayIndex < rows) {
             rightTopTable_->selectRow(dayIndex);
         }
@@ -13090,8 +13239,6 @@ void MainWindow::refreshSolarTechniqueView() {
         const int maxIndex = days.isEmpty() ? 0 : static_cast<int>(days.size() - 1);
         const int safeIndex = std::clamp(dayIndex, 0, maxIndex);
         const DayRow& selected = days.isEmpty() ? DayRow{} : days[safeIndex];
-        const int totalHits = selected.support.size() + selected.challenge.size() + selected.neutral.size();
-        const int dayNumber = safeIndex + 1;
         const QString targetLabel = includeNatal && includeSolar ? "Natal + Solar"
             : (includeNatal ? "Natal" : "Solar Return");
         const QString rangeText = QString("%1 -> %2")
@@ -13099,66 +13246,79 @@ void MainWindow::refreshSolarTechniqueView() {
             .arg(endDate.toString("yyyy-MM-dd"));
         const bool showBodySummary = bodyPreset == SolarTechniqueBodyPreset::Custom;
         const int topN = std::min<int>(solarTechniqueTopSpin_ ? solarTechniqueTopSpin_->value() : 20, days.size());
-        const int rankingRows = topN + 1;
-        const int rows = 14 + (showBodySummary ? 1 : 0) + rankingRows;
-        setupTable(rightBottomTable_, {"Item", "Value"}, rows);
+        const int topMonthN = months.size();
+        const int rows = 10 + (showBodySummary ? 1 : 0) + topN + topMonthN;
+        setupDetailTable(rightBottomTable_, {"Item", "Value"}, rows);
+        if (auto* header = rightBottomTable_->horizontalHeader()) {
+            header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(1, QHeaderView::Stretch);
+        }
         int row = 0;
-        rightBottomTable_->setItem(row, 0, makeCell("Date"));
-        rightBottomTable_->setItem(row++, 1, makeCell(selected.date.isValid() ? selected.date.toString("yyyy-MM-dd") : "-"));
-        rightBottomTable_->setItem(row, 0, makeCell("Counting Mode"));
-        rightBottomTable_->setItem(row++, 1, makeCell(countingModeLabel));
-        rightBottomTable_->setItem(row, 0, makeCell("Technique Bodies"));
-        rightBottomTable_->setItem(row++, 1, makeCell(bodyPresetLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("Selected Day"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 | Day %2 / %3 | %4")
+            .arg(longDateLabel(selected.date))
+            .arg(selected.dayNumber > 0 ? selected.dayNumber : 1)
+            .arg(totalDays)
+            .arg(selected.dailyLabel.isEmpty() ? "-" : selected.dailyLabel)));
+        rightBottomTable_->setItem(row, 0, makeCell("Technique Range"));
+        rightBottomTable_->setItem(row++, 1, makeCell(rangeText));
+        rightBottomTable_->setItem(row, 0, makeCell("Setup"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 | %2 | %3 | Orb %4°")
+            .arg(countingModeLabel)
+            .arg(bodyPresetLabel)
+            .arg(targetLabel)
+            .arg(QString::number(orbValue, 'f', 2))));
         if (showBodySummary) {
             rightBottomTable_->setItem(row, 0, makeCell("Body Categories"));
             rightBottomTable_->setItem(row++, 1, makeCell(bodySummary));
         }
-        rightBottomTable_->setItem(row, 0, makeCell("Technique Range"));
-        rightBottomTable_->setItem(row++, 1, makeCell(rangeText));
-        rightBottomTable_->setItem(row, 0, makeCell("Day #"));
-        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 / %2").arg(dayNumber).arg(totalDays)));
-        rightBottomTable_->setItem(row, 0, makeCell("Daily Degree"));
-        rightBottomTable_->setItem(row++, 1, makeCell(selected.dailyLabel.isEmpty() ? "-" : selected.dailyLabel));
-        rightBottomTable_->setItem(row, 0, makeCell("SR Asc Start"));
-        rightBottomTable_->setItem(row++, 1, makeCell(formatDegOnly(srAsc)));
-        rightBottomTable_->setItem(row, 0, makeCell("Orb"));
-        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(orbValue, 'f', 2) + "°"));
-        rightBottomTable_->setItem(row, 0, makeCell("Targets"));
-        rightBottomTable_->setItem(row++, 1, makeCell(targetLabel));
-        rightBottomTable_->setItem(row, 0, makeCell("Support Aspects"));
-        rightBottomTable_->setItem(row++, 1, makeCell(selected.support.isEmpty() ? "-" : selected.support.join("\n")));
-        rightBottomTable_->setItem(row, 0, makeCell("Challenge Aspects"));
-        rightBottomTable_->setItem(row++, 1, makeCell(selected.challenge.isEmpty() ? "-" : selected.challenge.join("\n")));
-        rightBottomTable_->setItem(row, 0, makeCell("Neutral Aspects"));
-        rightBottomTable_->setItem(row++, 1, makeCell(selected.neutral.isEmpty() ? "-" : selected.neutral.join("\n")));
-        rightBottomTable_->setItem(row, 0, makeCell("Hits (Support/Challenge)"));
-        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 (%2 / %3)").arg(totalHits).arg(selected.supportCount).arg(selected.challengeCount)));
-        rightBottomTable_->setItem(row, 0, makeCell("Net Tone"));
-        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(selected.netScore)));
+        rightBottomTable_->setItem(row, 0, makeCell("Summary"));
+        auto* summaryItem = makeCell(QString("Net %1 | Support %2 | Challenge %3 | Neutral %4")
+            .arg(signedCountLabel(selected.netScore))
+            .arg(selected.supportCount)
+            .arg(selected.challengeCount)
+            .arg(selected.neutralCount));
+        summaryItem->setForeground(toneColor(selected.netScore));
+        rightBottomTable_->setItem(row++, 1, summaryItem);
+        rightBottomTable_->setItem(row, 0, makeCell("Strongest Hit"));
+        auto* strongestDetailItem = makeCell(
+            selected.strongestHit.isEmpty() ? "No exact hits for this day." : selected.strongestHit);
+        strongestDetailItem->setForeground(
+            selected.strongestHit.isEmpty() ? QColor("#a19684") : toneColor(selected.strongestTone));
+        rightBottomTable_->setItem(row++, 1, strongestDetailItem);
+        rightBottomTable_->setItem(row, 0, makeCell("Support Hits"));
+        auto* supportListItem = makeCell(listTextOrNone(selected.support));
+        supportListItem->setForeground(goodColor);
+        rightBottomTable_->setItem(row++, 1, supportListItem);
+        rightBottomTable_->setItem(row, 0, makeCell("Challenge Hits"));
+        auto* challengeListItem = makeCell(listTextOrNone(selected.challenge));
+        challengeListItem->setForeground(badColor);
+        rightBottomTable_->setItem(row++, 1, challengeListItem);
+        rightBottomTable_->setItem(row, 0, makeCell("Neutral Hits"));
+        auto* neutralListItem = makeCell(listTextOrNone(selected.neutral));
+        neutralListItem->setForeground(neutralColor);
+        rightBottomTable_->setItem(row++, 1, neutralListItem);
 
-        rightBottomTable_->setItem(row, 0, makeCell("Top Results"));
+        const int metricIndex = solarTechniqueRankMetricCombo_ ? solarTechniqueRankMetricCombo_->currentIndex() : 0;
         QString metricLabel = "Net";
-        if (solarTechniqueRankMetricCombo_) {
-            const int metricIndex = solarTechniqueRankMetricCombo_->currentIndex();
-            if (metricIndex == 1) {
-                metricLabel = "Support";
-            } else if (metricIndex == 2) {
-                metricLabel = "Challenge";
-            }
+        if (metricIndex == 1) {
+            metricLabel = "Support";
+        } else if (metricIndex == 2) {
+            metricLabel = "Challenge";
         }
         QString orderLabel = "High -> Low";
-        if (solarTechniqueRankOrderCombo_ && solarTechniqueRankOrderCombo_->currentIndex() == 1) {
+        const bool ascending = solarTechniqueRankOrderCombo_ && solarTechniqueRankOrderCombo_->currentIndex() == 1;
+        if (ascending) {
             orderLabel = "Low -> High";
         }
-        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 (%2)").arg(metricLabel, orderLabel)));
+        rightBottomTable_->setItem(row, 0, makeCell("Day Ranking"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 ranked %2").arg(metricLabel, orderLabel)));
 
         QVector<int> indices;
         indices.reserve(days.size());
         for (int i = 0; i < days.size(); ++i) {
             indices.push_back(i);
         }
-        const int metricIndex = solarTechniqueRankMetricCombo_ ? solarTechniqueRankMetricCombo_->currentIndex() : 0;
-        const bool ascending = solarTechniqueRankOrderCombo_ && solarTechniqueRankOrderCombo_->currentIndex() == 1;
         auto metricValue = [&](const DayRow& day) {
             if (metricIndex == 1) {
                 return day.supportCount;
@@ -13177,25 +13337,78 @@ void MainWindow::refreshSolarTechniqueView() {
             return days[a].date < days[b].date;
         });
 
-        const QColor goodColor("#1f8c78");
-        const QColor badColor("#d24b4b");
         for (int i = 0; i < topN; ++i) {
             const DayRow& day = days[indices[i]];
-            const QString value = QString("%1 | Net %2 | Support %3 | Challenge %4")
-                .arg(day.date.toString("yyyy-MM-dd"))
-                .arg(day.netScore)
+            QString value = QString("%1: Net %2, Support %3, Challenge %4, Neutral %5")
+                .arg(longDateLabel(day.date))
+                .arg(signedCountLabel(day.netScore))
                 .arg(day.supportCount)
-                .arg(day.challengeCount);
+                .arg(day.challengeCount)
+                .arg(day.neutralCount);
+            if (!day.strongestPreview.isEmpty()) {
+                value += QString(". Strongest: %1").arg(day.strongestPreview);
+            }
             rightBottomTable_->setItem(row, 0, makeCell(QString("#%1").arg(i + 1)));
             auto* item = makeCell(value);
-            if (day.netScore > 0) {
-                item->setForeground(goodColor);
-            } else if (day.netScore < 0) {
-                item->setForeground(badColor);
-            }
+            item->setForeground(toneColor(day.netScore));
             rightBottomTable_->setItem(row++, 1, item);
         }
-        rightBottomTable_->setWordWrap(true);
+
+        rightBottomTable_->setItem(row, 0, makeCell("Month Ranking"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 ranked %2").arg(metricLabel, orderLabel)));
+
+        QVector<int> monthIndices;
+        monthIndices.reserve(months.size());
+        for (int i = 0; i < months.size(); ++i) {
+            monthIndices.push_back(i);
+        }
+        auto monthMetricValue = [&](const MonthRow& month) {
+            if (metricIndex == 1) {
+                return month.positiveDays;
+            }
+            if (metricIndex == 2) {
+                return month.negativeDays;
+            }
+            return month.dayBalance;
+        };
+        std::sort(monthIndices.begin(), monthIndices.end(), [&](int a, int b) {
+            const int va = monthMetricValue(months[a]);
+            const int vb = monthMetricValue(months[b]);
+            if (va != vb) {
+                return ascending ? va < vb : va > vb;
+            }
+            if (metricIndex == 1 && months[a].totalSupport != months[b].totalSupport) {
+                return ascending ? months[a].totalSupport < months[b].totalSupport
+                                 : months[a].totalSupport > months[b].totalSupport;
+            }
+            if (metricIndex == 2 && months[a].totalChallenge != months[b].totalChallenge) {
+                return ascending ? months[a].totalChallenge < months[b].totalChallenge
+                                 : months[a].totalChallenge > months[b].totalChallenge;
+            }
+            if (months[a].totalNet != months[b].totalNet) {
+                return ascending ? months[a].totalNet < months[b].totalNet
+                                 : months[a].totalNet > months[b].totalNet;
+            }
+            return months[a].monthStart < months[b].monthStart;
+        });
+
+        for (int i = 0; i < topMonthN; ++i) {
+            const MonthRow& month = months[monthIndices[i]];
+            QString value = QString("%1: Positive days %2, Negative days %3, Neutral days %4, Net days %5, Total net %6")
+                .arg(monthLabel(month.monthStart))
+                .arg(month.positiveDays)
+                .arg(month.negativeDays)
+                .arg(month.neutralDays)
+                .arg(signedCountLabel(month.dayBalance))
+                .arg(signedCountLabel(month.totalNet));
+            if (!month.strongestPreview.isEmpty()) {
+                value += QString(". Strongest: %1").arg(month.strongestPreview);
+            }
+            rightBottomTable_->setItem(row, 0, makeCell(QString("#%1").arg(i + 1)));
+            auto* item = makeCell(value);
+            item->setForeground(toneColor(month.dayBalance));
+            rightBottomTable_->setItem(row++, 1, item);
+        }
         rightBottomTable_->resizeRowsToContents();
     }
 }
