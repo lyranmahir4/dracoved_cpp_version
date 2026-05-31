@@ -1,8 +1,8 @@
 # DracoVed C++
 
-DracoVed C++ is a Windows desktop astrology workstation built with **C++20**, **Qt 6 Widgets**, and **Swiss Ephemeris**. It is designed for dense, data-first workflows where chart state, transit results, and detail panes stay synchronized.
+DracoVed C++ is an **advanced astrology research application** for Windows, built with **C++20**, **Qt 6 Widgets**, and **Swiss Ephemeris**. It combines dense chart calculation workflows with research-oriented transit tools, synchronized detail panes, and AI-assisted analysis features for interpreting and organizing astrological results.
 
-The goal is to provide a fast native desktop tool for natal chart work, sidereal/tropical switching, transit research, return charts, progressions, relocation workflows, and detailed copyable reports.
+The goal is to provide a fast native desktop tool for natal chart work, sidereal/tropical switching, transit research, return charts, progressions, relocation workflows, and detailed copyable reports that can support deeper astrology research and analysis.
 
 ## Highlights
 
@@ -13,6 +13,7 @@ The goal is to provide a fast native desktop tool for natal chart work, sidereal
 - Fixed stars support with collision-aware label placement.
 - Arabic Lots and derived points support, including Rhetorius-focused lot workflows.
 - Transit tools for search, calendar views, conjunction scans, best-days scans, and lunation/eclipses.
+- AI-assisted analysis tools for turning chart, transit, and report data into structured interpretive research notes.
 - Detail/report panes with copy-to-clipboard support.
 - Annual profection and lord-of-year style workflow support.
 - Solar Return, Progression, and Relocation workflows.
@@ -122,6 +123,7 @@ This repository has recently been made public. The next public-release tasks are
 - Confirm and document the project license.
 - Move generated build/package artifacts out of the tracked source tree.
 - Add a short architecture overview for contributors.
+- Document the AI analysis workflow and any required configuration.
 
 ## Contributing
 
@@ -130,7 +132,7 @@ Issues and pull requests are welcome. Good first contributions include:
 - Build fixes for different Qt/MinGW versions.
 - UI polish and accessibility improvements.
 - More complete documentation.
-- Test cases for date, timezone, chart, and transit edge cases.
+- Test cases for date, timezone, chart, transit, and AI-analysis edge cases.
 - Packaging/release automation.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution guidelines.
