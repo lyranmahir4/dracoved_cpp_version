@@ -1,157 +1,150 @@
-# DracoVed C++ (Windows 11)
+# DracoVed C++
 
-DracoVed C++ is a desktop astrology workstation built with Qt 6 and Swiss Ephemeris. The app is optimized for dense, data-first workflows where chart state, transit results, and detail panes stay synchronized.
+DracoVed C++ is a Windows desktop astrology workstation built with **C++20**, **Qt 6 Widgets**, and **Swiss Ephemeris**. It is designed for dense, data-first workflows where chart state, transit results, and detail panes stay synchronized.
 
-## Design Philosophy
+The goal is to provide a fast native desktop tool for natal chart work, sidereal/tropical switching, transit research, return charts, progressions, relocation workflows, and detailed copyable reports.
 
-- Dense, information-rich UI with fast interaction loops.
-- Data-first transit UX: selected results should immediately be inspectable in chart + detail/report views.
-- Non-blocking status for normal operations, modal dialogs only for critical failures.
-- Practical rendering controls to reduce clutter without hiding important data.
+## Highlights
 
-## Current Features
-
-- Tropical and Sidereal natal charts (Swiss Ephemeris), Whole Sign or Placidus houses.
-- Global zodiac mode controls in the top bar:
-  - `Tropical` or `Sidereal` toggle.
-  - Sidereal ayanamsa selection (`Lahiri`, `Raman`, `Krishnamurti`, `Fagan/Bradley`, `Yukteshwar`, `True Citra`, `True Revati`).
-  - Selected mode applies app-wide to placements/transits calculations.
-- Chart wheel with zoom/pan/reset, aspect lines, tooltips, and overlay modes.
-- Fixed stars support with display toggle and collision-aware label placement.
-- Arabic Lots and derived points support with chart visibility toggles:
-  - Lots are visible by default.
-  - Derived points are visible by default.
-- Rhetorius-focused lots framework, including:
-  - Fortune and Spirit (day/night reversal).
-  - Action, Brothers, Father.
-  - Planetary/Pauline lots.
-  - Marriage lot with natal gender-aware formula path (male/female/unspecified profile field).
-- Transit tools:
-  - Transit Search (including exact degree-in-sign targeting).
-  - Transit Calendar.
-  - Conjunction finder (including exact 0 degree two-planet mode when `N=2` and two planets selected).
-  - Best Days scan.
-  - Lunation search with sidereal-aware eclipse rule selection:
-    - `Astronomical (Swiss)` rule (physical eclipse events from Swiss Ephemeris).
-    - `Strict Vedic (whole-sign nodes)` rule (sidereal-only): classifies eclipses from exact new/full moon instants using whole-sign Rahu/Ketu axis conditions.
-  - In sidereal mode, lunation house-based analysis/filtering uses whole-sign logic.
-- Transit detail/report parity:
-  - Search, Calendar, Conjunction, Scan, and Lunation all support right-bottom detail reporting and copy-to-clipboard output when selection is active.
-  - Calendar and Scan detail panes show Placements + Summary for selected moments.
-- Profection/activation workflow support for annual sign/lord-of-year style analysis.
+- Tropical and sidereal natal charts using Swiss Ephemeris.
+- Whole Sign and Placidus house support.
+- App-wide zodiac controls for tropical/sidereal mode and sidereal ayanamsa selection.
+- Chart wheel with zoom, pan, reset, aspect lines, tooltips, and overlay modes.
+- Fixed stars support with collision-aware label placement.
+- Arabic Lots and derived points support, including Rhetorius-focused lot workflows.
+- Transit tools for search, calendar views, conjunction scans, best-days scans, and lunation/eclipses.
+- Detail/report panes with copy-to-clipboard support.
+- Annual profection and lord-of-year style workflow support.
 - Solar Return, Progression, and Relocation workflows.
-- Location geocoding (OpenStreetMap Nominatim) and timezone lookup (Open-Meteo).
-- Profile save/load/delete (JSON) with settings persisted via QSettings.
-  - Profiles include zodiac system and sidereal ayanamsa fields.
+- Location geocoding through OpenStreetMap Nominatim.
+- Timezone lookup through Open-Meteo.
+- Profile save/load/delete support using JSON and Qt settings.
 
 ## Tech Stack
 
 - C++20
-- Qt 6 Widgets + Network
-- Swiss Ephemeris (`swedll64.dll` + `.se1` files)
-- CMake + Ninja (Windows)
+- Qt 6 Widgets and Qt Network
+- Swiss Ephemeris
+- CMake
+- Ninja
+- Windows 11
 
-## Project Layout
+## Repository Layout
 
-- `dracoved_app/` source + CMake project
-- `dracoved_app/build/` local build output (updated EXE)
-- `dracoved_app/dist/` packaged runtime (EXE + Qt DLLs + ephemeris + Swiss DLL)
-- `ephe/` Swiss Ephemeris data files
-- `sweph/` upstream Swiss Ephemeris source/tools (vendor code)
+```text
+dracoVed_cpp_version/
+├── dracoved_app/        # Main Qt/CMake application source
+├── ephe/                # Swiss Ephemeris data files used at runtime
+├── sweph/               # Vendored Swiss Ephemeris source/tools
+├── do_build.bat         # Local Windows build/package helper
+└── README.md
+```
+
+Local build and packaging outputs should stay out of version control. The repository now includes a `.gitignore` for common CMake, Qt, Windows, and local runtime artifacts.
 
 ## Runtime Assets
 
-Required ephemeris files for 1800-2399 in `DracoVed_cpp_version/ephe`:
+The app expects Swiss Ephemeris data files to be available at runtime. The current project uses the following files for the 1800-2399 range:
 
-- `sepl_18.se1`
-- `semo_18.se1`
-- `seas_18.se1`
-- `sefstars.txt`
-
-Optional future range files:
-
-- `sepl_24.se1`
-- `semo_24.se1`
-- `seas_24.se1`
-
-Swiss Ephemeris DLL:
-
-- `swedll64.dll` must be next to the packaged EXE in `dracoved_app/dist/`, or provided via `DRACOVED_SWE_DLL`.
-
-## Build and Run (Windows CMD)
-
-### Quickest way — use the build script
-
-After any code change, just double-click `do_build.bat` in the project root, or run it from CMD:
-
-```bat
-cd C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version
-do_build.bat
+```text
+sepl_18.se1
+semo_18.se1
+seas_18.se1
+sefstars.txt
 ```
 
-This runs all required steps in order: build → copy EXE to `dist/` → `windeployqt` → copy `swedll64.dll` → copy `ephe/`. Both `build/` and `dist/` executables will be current when it finishes.
+Optional future-range files may also be used:
 
----
-
-### Manual steps (reference only)
-
-Run these in `cmd.exe` from:
-`C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version`
-
-### One-time configure (only if `dracoved_app/build` is missing)
-
-```bat
-set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"
-cmake -S C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app -B C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
+```text
+sepl_24.se1
+semo_24.se1
+seas_24.se1
 ```
 
-### Build updated EXE in `build/` (required after code changes)
+The Swiss Ephemeris DLL must be available next to the packaged executable or through the `DRACOVED_SWE_DLL` environment variable.
+
+## Build and Run on Windows
+
+### Prerequisites
+
+Install:
+
+- Qt 6 for MinGW
+- CMake
+- Ninja
+- A compatible MinGW toolchain
+
+Make sure the Qt, CMake, Ninja, and MinGW `bin` directories are available on `PATH`.
+
+### Configure
+
+From the repository root:
 
 ```bat
-set "PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.10.1\mingw_64\bin;C:\Qt\Tools\mingw1310_64\bin;%PATH%"
-cmake --build C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build
+cmake -S dracoved_app -B dracoved_app\build -G Ninja -DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
 ```
 
-### Package fresh runtime EXE in `dist/` (required after build)
+Adjust `CMAKE_PREFIX_PATH` if your Qt version or install path is different.
+
+### Build
+
+```bat
+cmake --build dracoved_app\build
+```
+
+### Package a Local Runtime
 
 ```bat
 set "QT_BIN=C:\Qt\6.10.1\mingw_64\bin"
-copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-copy /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\swedll64.dll C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\swedll64.dll
-xcopy /E /I /Y C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\ephe
+if not exist dracoved_app\dist mkdir dracoved_app\dist
+copy /Y dracoved_app\build\dracoved_app.exe dracoved_app\dist\dracoved_app.exe
+"%QT_BIN%\windeployqt.exe" --compiler-runtime --no-translations dracoved_app\dist\dracoved_app.exe
+copy /Y swedll64.dll dracoved_app\dist\swedll64.dll
+xcopy /E /I /Y ephe dracoved_app\dist\ephe
 ```
 
-### Run packaged app (preferred)
+### Run
 
 ```bat
-C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
+dracoved_app\dist\dracoved_app.exe
 ```
 
-### Common pitfalls
+### Quick Local Build Helper
 
-- `windeployqt` must include the EXE path argument.
-- `copy` must include both source and destination paths.
-- `swedll64.dll` and `ephe` are assets; do not execute them as commands.
+The repository includes `do_build.bat` for local development. It is intended to run the configure/build/package flow in order and refresh the packaged runtime after code changes.
 
-### Build Discipline (Do / Do Not)
+## Current Status
 
-Do:
-- Run build/package commands in `cmd.exe`, not mixed through another shell parser.
-- Run from `C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version`.
-- Run steps in this order every time after code changes:
-  `cmake --build` -> copy `build\dracoved_app.exe` to `dist\dracoved_app.exe` -> `windeployqt <dist exe>` -> copy `swedll64.dll` -> `xcopy ephe`.
-- If any step fails or the session is interrupted, rerun the full packaging sequence before testing.
-- Verify both exe timestamps are current before launching from `dist`.
+This repository has recently been made public. The next public-release tasks are:
 
-Do not:
-- Do not omit required arguments (`windeployqt` target exe, `copy` destination path).
-- Do not treat assets (`swedll64.dll`, `ephe\`) as executable commands.
-- Do not assume a successful build means `dist` is updated; packaging is a separate required step.
-- Do not mix partial old/new runtime files in `dist`; always redeploy after a new build.
+- Add screenshots to the README.
+- Publish the first GitHub Release with a packaged Windows build.
+- Confirm and document the project license.
+- Move generated build/package artifacts out of the tracked source tree.
+- Add a short architecture overview for contributors.
 
-## Notes
+## Contributing
 
-- Always refresh both executables after code changes: `dracoved_app/build/dracoved_app.exe` and `dracoved_app/dist/dracoved_app.exe`.
-- Use accurate local time and timezone inputs for reliable transit/profection timing.
-- Chart wheel orientation follows Astro.com style (Ascendant left, MC top).
+Issues and pull requests are welcome. Good first contributions include:
+
+- Build fixes for different Qt/MinGW versions.
+- UI polish and accessibility improvements.
+- More complete documentation.
+- Test cases for date, timezone, chart, and transit edge cases.
+- Packaging/release automation.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution guidelines.
+
+## Maintenance Notes
+
+After code changes, rebuild and redeploy the runtime before testing from `dist`:
+
+```text
+cmake --build -> copy EXE -> windeployqt -> copy Swiss Ephemeris DLL -> copy ephe assets
+```
+
+Avoid mixing old and new runtime files in `dist`; redeploy the full runtime after each build.
+
+## License
+
+The project license still needs to be finalized. Because this project depends on Swiss Ephemeris assets/code, confirm the correct licensing approach before distributing binaries or accepting outside contributions.
