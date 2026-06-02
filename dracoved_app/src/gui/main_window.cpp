@@ -4541,10 +4541,17 @@ void MainWindow::loadUiState() {
 
     aspectGridFilter_.showNodes          = settings.value("aspects/grid/show_nodes", true).toBool();
     aspectGridFilter_.showLilith         = settings.value("aspects/grid/show_lilith", false).toBool();
-    aspectGridFilter_.showLots           = settings.value("aspects/grid/show_lots", false).toBool();
-    aspectGridFilter_.showDerivedPoints  = settings.value("aspects/grid/show_derived_points", false).toBool();
+    aspectGridFilter_.showLots           = settings.value("aspects/grid/show_lots", true).toBool();
+    aspectGridFilter_.showDerivedPoints  = settings.value("aspects/grid/show_derived_points", true).toBool();
     aspectGridFilter_.showAsteroids      = settings.value("aspects/grid/show_asteroids", false).toBool();
     aspectGridFilter_.showAngles         = settings.value("aspects/grid/show_angles", true).toBool();
+    if (!settings.value("aspects/grid/default_visibility_v2", false).toBool()) {
+        aspectGridFilter_.showLots = true;
+        aspectGridFilter_.showDerivedPoints = true;
+        settings.setValue("aspects/grid/show_lots", true);
+        settings.setValue("aspects/grid/show_derived_points", true);
+        settings.setValue("aspects/grid/default_visibility_v2", true);
+    }
 
     int readabilityPresetValue = settings.value("chart/readability_preset",
         static_cast<int>(ChartReadabilityPreset::Clean)).toInt();
@@ -14472,6 +14479,12 @@ void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, c
     for (const auto& body : transitChart.bodies) {
         transitMap.insert(body.name, body.longitude);
     }
+    if (aspectGridFilter_.showAngles) {
+        transitMap.insert("Ascendant", transitChart.angles.asc);
+        transitMap.insert("Midheaven", transitChart.angles.mc);
+        transitMap.insert("Descendant", transitChart.angles.desc);
+        transitMap.insert("IC", transitChart.angles.ic);
+    }
     QMap<QString, double> natalMap;
     for (const auto& body : natalChart.bodies) {
         natalMap.insert(body.name, body.longitude);
@@ -14598,6 +14611,12 @@ void MainWindow::populateProgressedAspectsOverlay(const NatalChart& progressedCh
     QMap<QString, double> progressedMap;
     for (const auto& body : progressedChart.bodies) {
         progressedMap.insert(body.name, body.longitude);
+    }
+    if (aspectGridFilter_.showAngles) {
+        progressedMap.insert("Ascendant", progressedChart.angles.asc);
+        progressedMap.insert("Midheaven", progressedChart.angles.mc);
+        progressedMap.insert("Descendant", progressedChart.angles.desc);
+        progressedMap.insert("IC", progressedChart.angles.ic);
     }
     QMap<QString, double> natalMap;
     for (const auto& body : natalChart.bodies) {

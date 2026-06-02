@@ -219,8 +219,8 @@ private:
     struct AspectGridBodyFilter {
         bool showNodes = true;
         bool showLilith = false;
-        bool showLots = false;
-        bool showDerivedPoints = false;
+        bool showLots = true;
+        bool showDerivedPoints = true;
         bool showAsteroids = false;
         bool showAngles = true;
     };

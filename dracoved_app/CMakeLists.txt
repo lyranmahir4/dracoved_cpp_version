@@ -28,6 +28,8 @@ add_executable(dracoved_app
     src/gui/transit_calc_service.h
     src/gui/transit_calc_service.cpp
     src/core/chart_types.h
+    src/core/arabic_lots.h
+    src/core/arabic_lots.cpp
     src/core/fixed_stars.h
     src/core/fixed_stars.cpp
     src/core/formatting.h

@@ -1,5 +1,6 @@
 #include "tropical_natal.h"
 
+#include "arabic_lots.h"
 #include "fixed_stars.h"
 #include "formatting.h"
 #include "timezone_utils.h"
@@ -194,19 +195,11 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     };
 
     QVector<BodyPosition> positions;
-    positions.reserve(24);
+    positions.reserve(128);
     QStringList warnings;
+    QMap<QString, double> bodyLongitudes;
 
-    auto signList = zodiacSigns();
     int ascSignIdx = signIndex(angles.asc);
-
-    double sunLon = 0.0;
-    double moonLon = 0.0;
-    double mercuryLon = 0.0;
-    double venusLon = 0.0;
-    double marsLon = 0.0;
-    double jupiterLon = 0.0;
-    double saturnLon = 0.0;
 
     for (const auto& body : bodies) {
         double lon = 0.0;
@@ -249,22 +242,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
             pos.retrograde = (delta < 0.0);
         }
 
-        if (pos.name == "Sun") {
-            sunLon = lon;
-        } else if (pos.name == "Moon") {
-            moonLon = lon;
-        } else if (pos.name == "Mercury") {
-            mercuryLon = lon;
-        } else if (pos.name == "Venus") {
-            venusLon = lon;
-        } else if (pos.name == "Mars") {
-            marsLon = lon;
-        } else if (pos.name == "Jupiter") {
-            jupiterLon = lon;
-        } else if (pos.name == "Saturn") {
-            saturnLon = lon;
-        }
-
+        bodyLongitudes.insert(pos.name, lon);
         positions.push_back(pos);
     }
 
@@ -330,58 +308,35 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     }
     bool isDay = (sunHouse >= 7 && sunHouse <= 12);
 
-    const auto lotFrom = [&](double aLon, double bLon) {
-        return normalizeDegrees(angles.asc + aLon - bLon);
-    };
+    LotCalculationContext lotCtx;
+    lotCtx.asc = angles.asc;
+    lotCtx.mc = angles.mc;
+    lotCtx.cusps = cusps;
+    lotCtx.houseSystem = input.houseSystem;
+    lotCtx.isDay = isDay;
+    lotCtx.gender = input.gender;
+    lotCtx.bodies = bodyLongitudes;
 
-    const double pof = isDay ? lotFrom(moonLon, sunLon) : lotFrom(sunLon, moonLon);
-    const double spirit = isDay ? lotFrom(sunLon, moonLon) : lotFrom(moonLon, sunLon);
-    const double action = isDay ? lotFrom(marsLon, mercuryLon) : lotFrom(mercuryLon, marsLon);
-    const double brothers = isDay ? lotFrom(jupiterLon, saturnLon) : lotFrom(saturnLon, jupiterLon);
-    const double father = isDay ? lotFrom(saturnLon, sunLon) : lotFrom(sunLon, saturnLon);
-    const double marriageMale = lotFrom(venusLon, saturnLon);
-    const double marriageFemale = lotFrom(saturnLon, venusLon);
-    const double nemesis = isDay ? lotFrom(pof, saturnLon) : lotFrom(saturnLon, pof);
-    const double victory = isDay ? lotFrom(jupiterLon, spirit) : lotFrom(spirit, jupiterLon);
-    const double eros = isDay ? lotFrom(spirit, venusLon) : lotFrom(venusLon, spirit);
-    const double necessity = isDay ? lotFrom(pof, mercuryLon) : lotFrom(mercuryLon, pof);
-
-    auto addLotBody = [&](const QString& name, double lon) {
-        const int sidx = signIndex(lon);
-        const QString sname = signName(sidx);
-        int house = 0;
-        if (input.houseSystem == HouseSystem::Placidus) {
-            house = houseOfLongitude(lon, cusps);
-        } else {
-            house = ((sidx - ascSignIdx + 12) % 12) + 1;
-        }
-        BodyPosition lot;
-        lot.name = name;
-        lot.longitude = lon;
-        lot.signIndex = sidx;
-        lot.signName = sname;
-        lot.degInSign = degInSign(lon);
-        lot.house = house;
-        lot.element = elementForSign(sname);
-        lot.mode = modeForSign(sname);
-        lot.dignity = "-";
-        positions.push_back(lot);
-    };
-
-    addLotBody("Part of Fortune", pof);
-    addLotBody("Lot of Spirit", spirit);
-    addLotBody("Lot of Action", action);
-    addLotBody("Lot of Brothers", brothers);
-    addLotBody("Lot of Father", father);
-    if (input.gender == Gender::Male) {
-        addLotBody("Lot of Marriage", marriageMale);
-    } else if (input.gender == Gender::Female) {
-        addLotBody("Lot of Marriage", marriageFemale);
+    PrenatalSyzygy syzygy;
+    QString syzygyErr;
+    if (findPrenatalSyzygy(swe_, jd, calcFlags, &syzygy, &syzygyErr)) {
+        lotCtx.hasPrenatalSyzygy = syzygy.valid;
+        lotCtx.prenatalConjunctional = syzygy.conjunctional;
+        lotCtx.prenatalSyzygyLongitude = syzygy.longitude;
+    } else {
+        warnings.push_back(QString("Skipped prenatal-syzygy dependent Lots: %1").arg(syzygyErr));
     }
-    addLotBody("Lot of Necessity", necessity);
-    addLotBody("Lot of Eros", eros);
-    addLotBody("Lot of Victory", victory);
-    addLotBody("Lot of Nemesis", nemesis);
+
+    double pof = 0.0;
+    bool hasPartOfFortune = false;
+    const QVector<BodyPosition> lotPositions = calculateArabicLots(lotCtx);
+    for (const auto& lot : lotPositions) {
+        if (lot.name == "Part of Fortune") {
+            pof = lot.longitude;
+            hasPartOfFortune = true;
+        }
+        positions.push_back(lot);
+    }
 
     // Build cusps for Placidus only.
     QVector<HouseCusp> cuspRows;
@@ -495,7 +450,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     out->warnings = warnings;
     out->isDayChart = isDay;
     out->partOfFortune = pof;
-    out->hasPartOfFortune = true;
+    out->hasPartOfFortune = hasPartOfFortune;
     out->aspects.bodyOrder = order.toVector();
     out->aspects.bodyAbbrev = abbrev.toVector();
     out->aspects.bodyGlyphs = glyphs.toVector();

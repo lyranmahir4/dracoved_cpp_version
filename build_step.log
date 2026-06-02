@@ -1273,3 +1273,197 @@ C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sepl_24.se1
 7 File(s) copied
 ephe copy OK 
 === ALL STEPS COMPLETE === 
+=== STEP 1: Building EXE === 
+Build OK 
+=== STEP 2: Copy EXE to dist === 
+        1 file(s) copied.
+Copy OK 
+=== STEP 3: windeployqt === 
+Unable to query qtpaths: Error running binary qtpaths: pipe: The system cannot find the file specified.
+WINDEPLOYQT FAILED 
+=== STEP 1: Building EXE === 
+Build OK 
+=== STEP 2: Copy EXE to dist === 
+        1 file(s) copied.
+Copy OK 
+=== STEP 3: windeployqt === 
+Unable to query qtpaths: Error running binary qtpaths: pipe: The system cannot find the file specified.
+WINDEPLOYQT FAILED 
+=== STEP 1: Building EXE === 
+Build OK 
+=== STEP 2: Copy EXE to dist === 
+        1 file(s) copied.
+Copy OK 
+=== STEP 3: windeployqt === 
+Unable to query qtpaths: Error running binary qtpaths: pipe: The system cannot find the file specified.
+WINDEPLOYQT FAILED 
+=== STEP 1: Building EXE === 
+[1/5] Automatic MOC and UIC for target dracoved_app
+AutoMoc: Could not request license for qtframework:
+    Message: No valid license could be acquired. Please contact your license admin. For more details, see: https://doc.qt.io/qtlicenseserver/qls-reference-troubleshooting-service.html#qt-license-service-error-messages.
+    Status code: 100
+    Error details:
+      • The licenses available to the current user have expired. License IDs:
+        11798916. Check your available licenses in the customer portal or
+        contact your local license admin. For more details, see
+        https://doc.qt.io/qtlicenseserver/qls-reference-troubleshooting-server.html#reservation-errors.
+Cannot acquire license to use qtframework.
+
+If you have a valid commercial license, please create a bug report to Qt Bugtracker:
+https://bugreports.qt.io/projects/QLS
+
+Attach the above details to the bug report.
+
+Additionally, attach the logs folder of the Qt License Service that can be found from the directory of this Qt installation.
+On this system the log file path appears to be: "C:\Qt\Tools\LicenseService\logs".
+
+To bypass the license check entirely, set the environment variable QTFRAMEWORK_BYPASS_LICENSE_CHECK with value 1.
+AutoMoc: Could not request license for qtframework:
+    Message: No valid license could be acquired. Please contact your license admin. For more details, see: https://doc.qt.io/qtlicenseserver/qls-reference-troubleshooting-service.html#qt-license-service-error-messages.
+    Status code: 100
+    Error details:
+      • The licenses available to the current user have expired. License IDs:
+        11798916. Check your available licenses in the customer portal or
+        contact your local license admin. For more details, see
+        https://doc.qt.io/qtlicenseserver/qls-reference-troubleshooting-server.html#reservation-errors.
+Cannot acquire license to use qtframework.
+
+If you have a valid commercial license, please create a bug report to Qt Bugtracker:
+https://bugreports.qt.io/projects/QLS
+
+Attach the above details to the bug report.
+
+Additionally, attach the logs folder of the Qt License Service that can be found from the directory of this Qt installation.
+On this system the log file path appears to be: "C:\Qt\Tools\LicenseService\logs".
+
+To bypass the license check entirely, set the environment variable QTFRAMEWORK_BYPASS_LICENSE_CHECK with value 1.
+[2/5] Building CXX object CMakeFiles/dracoved_app.dir/src/main.cpp.obj
+[3/5] Building CXX object CMakeFiles/dracoved_app.dir/dracoved_app_autogen/mocs_compilation.cpp.obj
+[4/5] Building CXX object CMakeFiles/dracoved_app.dir/src/gui/main_window.cpp.obj
+[5/5] Linking CXX executable dracoved_app.exe
+Build OK 
+=== STEP 2: Copy EXE to dist === 
+        1 file(s) copied.
+Copy OK 
+=== STEP 3: windeployqt === 
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libgcc_s_seh-1.dll
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libstdc++-6.dll
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libwinpthread-1.dll
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe 64 bit, release executable
+Adding in plugin type generic for module: Qt6Gui
+Adding in plugin type iconengines for module: Qt6Gui
+Adding in plugin type imageformats for module: Qt6Gui
+Adding in plugin type networkinformation for module: Qt6Network
+Adding in plugin type platforms for module: Qt6Gui
+Adding in plugin type styles for module: Qt6Widgets
+Adding in plugin type tls for module: Qt6Network
+Skipping plugin qopensslbackend.dll. Use -force-openssl or specify -openssl-root if you want to use it.
+Direct dependencies: Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+All dependencies   : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+To be deployed     : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+Warning: Cannot find any version of the dxcompiler.dll and dxil.dll.
+Qt6Core.dll is up to date.
+Qt6Gui.dll is up to date.
+Qt6Network.dll is up to date.
+Qt6Svg.dll is up to date.
+Qt6Widgets.dll is up to date.
+opengl32sw.dll is up to date.
+D3Dcompiler_47.dll is up to date.
+libgcc_s_seh-1.dll is up to date.
+libstdc++-6.dll is up to date.
+libwinpthread-1.dll is up to date.
+qtuiotouchplugin.dll is up to date.
+qsvgicon.dll is up to date.
+qgif.dll is up to date.
+qico.dll is up to date.
+qjpeg.dll is up to date.
+qsvg.dll is up to date.
+qnetworklistmanager.dll is up to date.
+qwindows.dll is up to date.
+qmodernwindowsstyle.dll is up to date.
+qcertonlybackend.dll is up to date.
+qschannelbackend.dll is up to date.
+windeployqt OK 
+=== STEP 4: Copy swedll64.dll === 
+        1 file(s) copied.
+DLL copy OK 
+=== STEP 5: xcopy ephe === 
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\seas_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\seas_24.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sefstars.txt
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\semo_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\semo_24.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sepl_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sepl_24.se1
+7 File(s) copied
+ephe copy OK 
+=== ALL STEPS COMPLETE === 
+=== STEP 1: Building EXE === 
+[0/1] Re-running CMake...
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- Configuring done (3.1s)
+-- Generating done (0.5s)
+-- Build files have been written to: C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build
+[1/8] Automatic MOC and UIC for target dracoved_app
+[2/7] Building CXX object CMakeFiles/dracoved_app.dir/src/core/formatting.cpp.obj
+[3/7] Building CXX object CMakeFiles/dracoved_app.dir/src/core/arabic_lots.cpp.obj
+[4/7] Building CXX object CMakeFiles/dracoved_app.dir/src/core/progression.cpp.obj
+[5/7] Building CXX object CMakeFiles/dracoved_app.dir/src/core/tropical_natal.cpp.obj
+[6/7] Linking CXX executable dracoved_app.exe
+Build OK 
+=== STEP 2: Copy EXE to dist === 
+        1 file(s) copied.
+Copy OK 
+=== STEP 3: windeployqt === 
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libgcc_s_seh-1.dll
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libstdc++-6.dll
+Adding local dependencyC:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/dist/libwinpthread-1.dll
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe 64 bit, release executable
+Adding in plugin type generic for module: Qt6Gui
+Adding in plugin type iconengines for module: Qt6Gui
+Adding in plugin type imageformats for module: Qt6Gui
+Adding in plugin type networkinformation for module: Qt6Network
+Adding in plugin type platforms for module: Qt6Gui
+Adding in plugin type styles for module: Qt6Widgets
+Adding in plugin type tls for module: Qt6Network
+Skipping plugin qopensslbackend.dll. Use -force-openssl or specify -openssl-root if you want to use it.
+Direct dependencies: Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+All dependencies   : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+To be deployed     : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+Warning: Cannot find any version of the dxcompiler.dll and dxil.dll.
+Qt6Core.dll is up to date.
+Qt6Gui.dll is up to date.
+Qt6Network.dll is up to date.
+Qt6Svg.dll is up to date.
+Qt6Widgets.dll is up to date.
+opengl32sw.dll is up to date.
+D3Dcompiler_47.dll is up to date.
+libgcc_s_seh-1.dll is up to date.
+libstdc++-6.dll is up to date.
+libwinpthread-1.dll is up to date.
+qtuiotouchplugin.dll is up to date.
+qsvgicon.dll is up to date.
+qgif.dll is up to date.
+qico.dll is up to date.
+qjpeg.dll is up to date.
+qsvg.dll is up to date.
+qnetworklistmanager.dll is up to date.
+qwindows.dll is up to date.
+qmodernwindowsstyle.dll is up to date.
+qcertonlybackend.dll is up to date.
+qschannelbackend.dll is up to date.
+windeployqt OK 
+=== STEP 4: Copy swedll64.dll === 
+        1 file(s) copied.
+DLL copy OK 
+=== STEP 5: xcopy ephe === 
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\seas_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\seas_24.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sefstars.txt
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\semo_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\semo_24.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sepl_18.se1
+C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe\sepl_24.se1
+7 File(s) copied
+ephe copy OK 
+=== ALL STEPS COMPLETE === 
