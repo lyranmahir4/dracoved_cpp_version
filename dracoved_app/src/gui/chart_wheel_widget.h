@@ -4,6 +4,9 @@
 #include <QPen>
 #include <QColor>
 #include <QSet>
+#include <QHash>
+#include <QPixmap>
+#include <QString>
 
 #include "../core/chart_types.h"
 
@@ -40,6 +43,7 @@ struct ChartWheelTheme {
     QColor aspectInnerCircle;
     QColor retrogradeIndicator;
     QColor angularHouseLabel;
+    QColor transitLaneBand;  // subtle background for the outer (transit) lane in overlay
 };
 
 class ChartWheelWidget : public QWidget {
@@ -63,6 +67,7 @@ public:
     void setTransitChart(const NatalChart& chart, HouseSystem system);
     void setOverlayCharts(const NatalChart& natal, const NatalChart& transit, HouseSystem system, const AspectOrbs& orbs);
     void setOverlayLabel(const QString& label);
+    void setChartNote(const QString& note);
     void setOverlayAspectScopes(bool transitNatal, bool transitTransit, bool natalNatal);
     void setAspectDisplayMaxOrb(double maxOrb);
     void setZoom(double zoom);
@@ -124,6 +129,8 @@ private:
         double baseWidth = 1.0;
         QString symbol;
         Qt::PenStyle style = Qt::SolidLine;
+        QString rawNameA;   // unprefixed body name (for click-to-focus matching)
+        QString rawNameB;
     };
 
     struct PlacedBody {
@@ -143,6 +150,8 @@ private:
     int houseForLongitude(double lon, const QVector<double>& cusps) const;
     double distanceToSegment(const QPointF& point, const QLineF& line) const;
     int hitTestAspect(const QPointF& point) const;
+    bool focusActiveNow() const;
+    QPixmap coloredSvgPixmap(const QString& path, const QColor& color, const QSize& sizePx, qreal dpr);
     void updateCursor();
     bool isAsteroidVisible(const QString& name) const;
     bool isFixedStarVisible(const QString& name) const;
@@ -182,14 +191,22 @@ private:
     bool overlayTransitTransitAspects_ = false;
     bool overlayNatalNatalAspects_ = false;
     QString overlayLabel_ = "Transit";
+    QString chartNote_;
+    QHash<QString, QPixmap> glyphPixmapCache_;
     ChartWheelTheme theme_;
     QVector<QRectF> planetHitAreas_;
     QVector<QString> planetTooltips_;
+    QVector<QString> planetHitNames_;   // parallel to planetHitAreas_; empty for non-focusable hits
     QVector<AspectLineInfo> aspectLines_;
     int hoveredAspectIndex_ = -1;
     QPointF panOffset_ = {0.0, 0.0};
     QPointF lastPanPos_;
     bool panning_ = false;
+    QPointF pressPos_;                  // for click-vs-drag detection
+    bool leftPressActive_ = false;
+    bool hasFocus_ = false;             // click-to-focus: only show aspects touching focusBody_
+    QString focusBody_;
+    bool showAspectLegend_ = true;
     bool hasHighlight_ = false;
     bool highlightTransit_ = false;
     QString highlightBody_;

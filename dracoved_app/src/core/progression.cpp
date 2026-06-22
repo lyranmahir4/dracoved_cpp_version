@@ -74,6 +74,22 @@ bool aspectFor(double diff, const AspectOrbs& orbs, QString* outLabel, double* o
     return false;
 }
 
+double aspectExactAngle(const QString& label) {
+    if (label == "Conjunction") return 0.0;
+    if (label == "Sextile") return 60.0;
+    if (label == "Square") return 90.0;
+    if (label == "Trine") return 120.0;
+    if (label == "Opposition") return 180.0;
+    return 0.0;
+}
+
+bool aspectApplying(double lonA, double speedA, double lonB, double speedB, double exact) {
+    const double dt = 0.05;  // days
+    const double cur = std::fabs(angularDiff(lonA, lonB) - exact);
+    const double fut = std::fabs(angularDiff(lonA + speedA * dt, lonB + speedB * dt) - exact);
+    return fut < cur;
+}
+
 int houseOfLongitude(double lon, const QVector<double>& cusps) {
     if (cusps.size() < 12) {
         return 0;
@@ -310,6 +326,8 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
         if (swe_->calcUt(jdProg + 1.0, body.sweId, calcFlags, &lonNext, nullptr)) {
             double delta = std::fmod((lonNext - lon + 540.0), 360.0) - 180.0;
             pos.retrograde = (delta < 0.0);
+            pos.speed = delta;   // deg/day, signed
+            pos.hasSpeed = true;
         }
 
         bodyLongitudes.insert(pos.name, lon);
@@ -465,8 +483,12 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
     QStringList abbrev = tropicalBodyAbbrev();
     QStringList glyphs = tropicalBodyGlyphs();
     QMap<QString, double> bodyMap;
+    QMap<QString, double> speedMap;
     for (const auto& pos : positions) {
         bodyMap.insert(pos.name, pos.longitude);
+        if (pos.hasSpeed) {
+            speedMap.insert(pos.name, pos.speed);
+        }
     }
     bodyMap.insert("Ascendant", angles.asc);
     bodyMap.insert("Midheaven", angles.mc);
@@ -497,6 +519,12 @@ bool SecondaryProgressionEngine::compute(const NatalInput& natalInput, const QDa
                 cell.orb = orb;
                 cell.maxOrb = maxOrb;
                 cell.hasAspect = true;
+                if (speedMap.contains(aName) && speedMap.contains(bName)) {
+                    cell.hasMotion = true;
+                    cell.applying = aspectApplying(bodyMap.value(aName), speedMap.value(aName),
+                                                   bodyMap.value(bName), speedMap.value(bName),
+                                                   aspectExactAngle(label));
+                }
                 grid[i][j] = cell;
                 grid[j][i] = cell;
             }

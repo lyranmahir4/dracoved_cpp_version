@@ -185,6 +185,8 @@ struct BodyPosition {
     double degInSign = 0.0;
     int house = 0;            // 1..12
     bool retrograde = false;
+    double speed = 0.0;       // deg/day (signed); valid only when hasSpeed
+    bool hasSpeed = false;
     QString element;
     QString mode;
     QString dignity;
@@ -224,6 +226,8 @@ struct AspectGrid {
         double orb = 0.0;
         double maxOrb = 0.0;
         bool hasAspect = false;
+        bool applying = false;   // valid only when hasMotion
+        bool hasMotion = false;  // true when both bodies have ephemeris speed
     };
     QVector<QVector<Cell>> cells;
 };

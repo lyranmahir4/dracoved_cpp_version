@@ -3,12 +3,14 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDate \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QFlags \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QHash \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QList \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QMap \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QMetaType \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QObject \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSet \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSharedDataPointer \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QSize \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QTime \
@@ -25,6 +27,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/q23type_traits.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/q23utility.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/q26numeric.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qabstractitemmodel.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qalgorithms.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qalloc.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qanystringview.h \
@@ -99,6 +102,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qprocessordetection.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qrect.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qrefcount.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qregularexpression.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qscopedpointer.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qscopeguard.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qset.h \
@@ -154,6 +158,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qxptype_traits.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qyieldcpu.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QColor \
+  C:/Qt/6.10.1/mingw_64/include/QtGui/QFont \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qaction.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qbitmap.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qbrush.h \
@@ -178,6 +183,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtGui/qtguiexports.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qtguiglobal.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qtransform.h \
+  C:/Qt/6.10.1/mingw_64/include/QtGui/qvalidator.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qwindowdefs.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qwindowdefs_win.h \
   C:/Qt/6.10.1/mingw_64/include/QtNetwork/QNetworkAccessManager \
@@ -199,8 +205,19 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtNetwork/qtnetworkexports.h \
   C:/Qt/6.10.1/mingw_64/include/QtNetwork/qtnetworkglobal.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/QMainWindow \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/QStyledItemDelegate \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qabstractitemdelegate.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qabstractslider.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qabstractspinbox.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qframe.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/qmainwindow.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qrubberband.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/qsizepolicy.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qslider.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstyle.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstyleditemdelegate.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qstyleoption.h \
+  C:/Qt/6.10.1/mingw_64/include/QtWidgets/qtabbar.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/qtabwidget.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/qtwidgets-config.h \
   C:/Qt/6.10.1/mingw_64/include/QtWidgets/qtwidgetsexports.h \
@@ -466,5 +483,6 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h \
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h \
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h \
+  C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_matrix_delegate.h \
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h \
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.h

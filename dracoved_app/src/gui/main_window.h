@@ -6,10 +6,13 @@
 #include <QVariant>
 #include <QTimeZone>
 
+#include <functional>
+
 #include "../core/chart_types.h"
 #include "../core/swiss_eph.h"
 #include "../core/tropical_natal.h"
 #include "../core/progression.h"
+#include "aspect_matrix_delegate.h"
 
 class QDockWidget;
 class QToolButton;
@@ -125,6 +128,7 @@ private:
         Transits,
         Progression,
         SolarReturn,
+        LunarReturn,
         Relocation,
         Astrocartography,
     };
@@ -150,6 +154,10 @@ private:
     enum class SolarAspectView {
         SolarReturn,
         SolarNatal,
+    };
+    enum class LunarAspectView {
+        LunarReturn,
+        LunarNatal,
     };
     enum class SolarTechniqueCountingMode {
         SRStartDate,
@@ -256,6 +264,32 @@ private:
         QString matchedAngleName;
         double conjunctionOrb = 0.0;
         QString warning;
+        bool isStellium = false;
+        int stelliumHouseWhole = 0;
+        int stelliumHousePlacidus = 0;
+        int stelliumCountWhole = 0;
+        int stelliumCountPlacidus = 0;
+        QString stelliumBodies;
+    };
+
+    struct LunarPlacementFinderResult {
+        QDateTime localDateTime;
+        QDateTime returnUtc;
+        QString bodyName;
+        int houseWhole = 0;
+        int housePlacidus = 0;
+        bool matchedWhole = false;
+        bool matchedPlacidus = false;
+        bool matchedConjunction = false;
+        QString matchedAngleName;
+        double conjunctionOrb = 0.0;
+        QString warning;
+        bool isStellium = false;
+        int stelliumHouseWhole = 0;
+        int stelliumHousePlacidus = 0;
+        int stelliumCountWhole = 0;
+        int stelliumCountPlacidus = 0;
+        QString stelliumBodies;
     };
 
     void setupUi();
@@ -288,10 +322,32 @@ private:
     void refreshSolarReturnView();
     void handleSolarPlacementFinderRun();
     void refreshSolarPlacementFinderView();
+    void updateSolarFinderModeAvailability();
     void showSolarPlacementFinderResults();
     void showSolarPlacementFinderDetails(int index);
     void handleSolarPlacementFinderResultActivated(int row, int column);
     void showSolarPlaceholder();
+    void markLunarPending();
+    void updateLunarStatusLabels();
+    void updateLunarLocationAvailability();
+    void updateLunarTimezoneStatus();
+    void syncLunarLocationFromNatal();
+    void handleLunarGeocode();
+    void fetchLunarTimezoneForCoords(double lat, double lon);
+    void handleLunarCalculate();
+    void handleLunarPrev();
+    void handleLunarNext();
+    void refreshLunarReturnView();
+    void showLunarPlaceholder();
+    void handleLunarPlacementFinderRun();
+    void refreshLunarPlacementFinderView();
+    void updateLunarFinderModeAvailability();
+    void showLunarPlacementFinderResults();
+    void showLunarPlacementFinderDetails(int index);
+    void handleLunarPlacementFinderResultActivated(int row, int column);
+    void markLunarPlacementFinderStale();
+    bool isLunarPlacementFinderTabActive() const;
+    void updateLunarReturnDockTitles();
     void markRelocationPending();
     void updateRelocationStatusLabels();
     void updateRelocationTimezoneStatus();
@@ -401,6 +457,7 @@ private:
     void refreshTransitProfectionTab();
     void syncTransitProfectionAgeFromTransitDate();
     void updateTransitScanResultsTable();
+    void scheduleTransitSearchResultsRefresh();
     void showTransitScanDetails(int index);
     void updateTransitSearchTargets();
     void runTransitSearch();
@@ -442,10 +499,24 @@ private:
     void populateProgressedAspectsOverlay(const dracoved::NatalChart& progressedChart, const dracoved::NatalChart& natalChart);
     void populateSolarNatalAspectsOverlay(const dracoved::NatalChart& solarChart, const dracoved::NatalChart& natalChart);
     void populateRelocationNatalAspectsOverlay(const dracoved::NatalChart& relocationChart, const dracoved::NatalChart& natalChart);
+    void populateCrossAspectsOverlay(const dracoved::NatalChart& rowChart, const dracoved::NatalChart& natalChart, const QString& rowPrefix);
+    struct AspectMatrixCellData {
+        bool hasAspect = false;
+        QString label;
+        double orb = 0.0;
+        int applying = -1;  // -1 unknown, 0 separating, 1 applying
+    };
+    void populateAspectMatrix(const QStringList& rowNames, const QStringList& colNames, bool symmetric,
+                              const std::function<AspectMatrixCellData(const QString&, const QString&)>& lookup,
+                              const QString& rowPrefix, const QString& colPrefix);
+    dracoved::AspectMatrixPalette buildAspectMatrixPalette(ThemeMode mode) const;
     void populateTransitList(const dracoved::NatalChart& transitChart, bool overlayMode);
     void populateCurrentTransits(const dracoved::NatalChart& transitChart, const dracoved::NatalChart& natalChart);
     void populateIngressCountdown(const dracoved::NatalChart& transitChart, const dracoved::NatalInput& transitInput);
     bool computeTransitChart(const QDateTime& localTime, const QString& tzLabel, dracoved::NatalChart* out, QString* error);
+    bool computeTransitChart(const QDateTime& localTime, const QString& tzLabel,
+                             const dracoved::TropicalComputeOptions& options,
+                             dracoved::NatalChart* out, QString* error);
     void refreshNatalTransitsPanels();
     void refreshTransitsTab();
     QDateTime transitSelectedLocal() const;
@@ -457,10 +528,16 @@ private:
     void setWorldMapOverlays(const QVariantList& lineOverlays, const QVariantList& bandOverlays);
     bool resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
                                    QString* error) const;
+    bool resolveLunarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
+                                   QString* error) const;
     bool computeSolarReturnChartPure(int year, const QString& tzLabel, double targetLon, const QString& locationName,
                                      double lat, double lon, dracoved::HouseSystem houseSystem,
-                                     dracoved::NatalChart* outChart, dracoved::NatalInput* outInput, QString* error);
+                                     dracoved::NatalChart* outChart, dracoved::NatalInput* outInput, QString* error,
+                                     const dracoved::TropicalComputeOptions& options = dracoved::TropicalComputeOptions{});
     bool applySolarReturnYear(int year, QString* error = nullptr);
+    bool lunarReturnTimeUtc(const QDateTime& anchorUtc, int direction, double targetLon,
+                            const QString& tzLabel, QDateTime* outUtc, QDateTime* outLocal, QString* error);
+    bool applyLunarReturnAnchor(int direction, bool fromAnchorDate, QString* error = nullptr);
 
     QDockWidget* dataDock_ = nullptr;
     QDockWidget* rightTopDock_ = nullptr;
@@ -676,6 +753,33 @@ private:
     QPushButton* solarCalculateButton_ = nullptr;
     QLabel* solarStatusLabel_ = nullptr;
     QLabel* solarLastLabel_ = nullptr;
+    QWidget* lunarControls_ = nullptr;
+    QDateEdit* lunarAnchorDateEdit_ = nullptr;
+    QRadioButton* lunarUseNatalRadio_ = nullptr;
+    QRadioButton* lunarUseCustomRadio_ = nullptr;
+    QLineEdit* lunarLocationEdit_ = nullptr;
+    QPushButton* lunarGeocodeButton_ = nullptr;
+    QDoubleSpinBox* lunarLatSpin_ = nullptr;
+    QDoubleSpinBox* lunarLonSpin_ = nullptr;
+    QLineEdit* lunarTimezoneEdit_ = nullptr;
+    QLabel* lunarTimezoneStatus_ = nullptr;
+    QPushButton* lunarPrevButton_ = nullptr;
+    QPushButton* lunarNextButton_ = nullptr;
+    QPushButton* lunarCalculateButton_ = nullptr;
+    QLabel* lunarStatusLabel_ = nullptr;
+    QLabel* lunarLastLabel_ = nullptr;
+    QWidget* lunarPlacementFinderPanel_ = nullptr;
+    QDateEdit* lunarFinderStartDateEdit_ = nullptr;
+    QDateEdit* lunarFinderEndDateEdit_ = nullptr;
+    QComboBox* lunarFinderModeCombo_ = nullptr;
+    QComboBox* lunarFinderPlanetCombo_ = nullptr;
+    QSpinBox* lunarFinderStelliumCountSpin_ = nullptr;
+    QComboBox* lunarFinderHouseCombo_ = nullptr;
+    QComboBox* lunarFinderHouseSystemCombo_ = nullptr;
+    QComboBox* lunarFinderConjunctionTargetCombo_ = nullptr;
+    QDoubleSpinBox* lunarFinderConjunctionOrbSpin_ = nullptr;
+    QPushButton* lunarFinderRunButton_ = nullptr;
+    QLabel* lunarFinderStatusLabel_ = nullptr;
     QComboBox* solarTechniqueModeCombo_ = nullptr;
     QComboBox* solarTechniqueBodyPresetCombo_ = nullptr;
     QDateEdit* solarTechniqueDateEdit_ = nullptr;
@@ -697,7 +801,8 @@ private:
     QSpinBox* solarFinderStartYearSpin_ = nullptr;
     QSpinBox* solarFinderEndYearSpin_ = nullptr;
     QComboBox* solarFinderPlanetCombo_ = nullptr;
-    QComboBox* solarFinderHouseCombo_ = nullptr;
+    QComboBox* solarFinderModeCombo_ = nullptr;
+    QSpinBox* solarFinderStelliumCountSpin_ = nullptr;    QComboBox* solarFinderHouseCombo_ = nullptr;
     QComboBox* solarFinderHouseSystemCombo_ = nullptr;
     QComboBox* solarFinderConjunctionTargetCombo_ = nullptr;
     QDoubleSpinBox* solarFinderConjunctionOrbSpin_ = nullptr;
@@ -740,6 +845,7 @@ private:
     bool hasTransitChart_ = false;
     bool hasProgressionChart_ = false;
     bool hasSolarChart_ = false;
+    bool hasLunarChart_ = false;
     bool hasRelocationChart_ = false;
     QString currentLocation_;
     QString currentProfileName_;
@@ -748,11 +854,14 @@ private:
     dracoved::NatalChart currentTransitChart_;
     dracoved::NatalChart currentProgressionChart_;
     dracoved::NatalChart currentSolarChart_;
+    dracoved::NatalChart currentLunarChart_;
     dracoved::NatalChart currentRelocationChart_;
     dracoved::NatalInput currentProgressionInput_;
     dracoved::NatalInput currentSolarInput_;
+    dracoved::NatalInput currentLunarInput_;
     dracoved::NatalInput currentRelocationInput_;
     QString currentSolarLocation_;
+    QString currentLunarLocation_;
     QString currentRelocationLocation_;
     QVector<dracoved::HouseCusp> natalPlacidusCusps_;
     dracoved::HouseSystem defaultHouseSystem_ = dracoved::HouseSystem::WholeSign;
@@ -765,11 +874,14 @@ private:
     bool transitPending_ = false;
     bool progressionPending_ = false;
     bool solarPending_ = false;
+    bool lunarPending_ = false;
     bool relocationPending_ = false;
     QDateTime lastTransitCalculated_;
     QDateTime lastProgressionCalculated_;
     QDateTime lastSolarCalculated_;
+    QDateTime lastLunarCalculated_;
     QDateTime lastRelocationCalculated_;
+    QDateTime currentLunarReturnUtc_;
     bool overlayAspectsTransitNatal_ = true;
     bool overlayAspectsTransitTransit_ = false;
     bool overlayAspectsNatalNatal_ = false;
@@ -808,6 +920,8 @@ private:
     QThread* calendarThread_ = nullptr;
     QObject* calendarWorker_ = nullptr;
     QTimer* calendarRecomputeTimer_ = nullptr;
+    QTimer* searchResultsRefreshTimer_ = nullptr;
+    bool searchResultsDirty_ = false;
     bool calendarRunning_ = false;
     bool calendarRestartPending_ = false;
     QTimeZone calendarTz_;
@@ -851,6 +965,26 @@ private:
     SolarPlacementFinderHouseMode solarPlacementFinderLastHouseMode_ = SolarPlacementFinderHouseMode::WholeSign;
     QString solarPlacementFinderLastConjunctionTarget_ = "None";
     double solarPlacementFinderLastConjunctionOrb_ = 1.0;
+    bool solarPlacementFinderLastStelliumMode_ = false;
+    int solarPlacementFinderLastStelliumMin_ = 3;
+    bool solarPlacementFinderLastAnyHouse_ = false;
+    QVector<LunarPlacementFinderResult> lunarPlacementFinderResults_;
+    QStringList lunarPlacementFinderWarnings_;
+    bool lunarPlacementFinderRan_ = false;
+    bool lunarPlacementFinderStale_ = false;
+    int lunarPlacementFinderSelectedIndex_ = -1;
+    int lunarPlacementFinderLastSearchedCount_ = 0;
+    int lunarPlacementFinderLastFailedCount_ = 0;
+    QDate lunarPlacementFinderLastStartDate_;
+    QDate lunarPlacementFinderLastEndDate_;
+    QString lunarPlacementFinderLastPlanet_;
+    int lunarPlacementFinderLastHouse_ = 1;
+    SolarPlacementFinderHouseMode lunarPlacementFinderLastHouseMode_ = SolarPlacementFinderHouseMode::WholeSign;
+    QString lunarPlacementFinderLastConjunctionTarget_ = "None";
+    double lunarPlacementFinderLastConjunctionOrb_ = 1.0;
+    bool lunarPlacementFinderLastStelliumMode_ = false;
+    int lunarPlacementFinderLastStelliumMin_ = 3;
+    bool lunarPlacementFinderLastAnyHouse_ = false;
     LunationAnalysisMode lunationAnalysisMode_ = LunationAnalysisMode::List;
     QThread* lunationThread_ = nullptr;
     QObject* lunationWorker_ = nullptr;
@@ -858,9 +992,11 @@ private:
     AspectHeaderMode aspectHeaderMode_ = AspectHeaderMode::Abbrev;
     ProgressionView progressionView_ = ProgressionView::ProgressedOnly;
     SolarAspectView solarAspectView_ = SolarAspectView::SolarReturn;
+    LunarAspectView lunarAspectView_ = LunarAspectView::LunarReturn;
     RelocationAspectView relocationAspectView_ = RelocationAspectView::Relocation;
     dracoved::HouseSystem relocationHouseSystem_ = dracoved::HouseSystem::WholeSign;
     bool aspectTriangleEnabled_ = false;
+    dracoved::AspectMatrixDelegate* aspectDelegate_ = nullptr;
     int aspectHoverRow_ = -1;
     int aspectHoverCol_ = -1;
     AspectGridBodyFilter aspectGridFilter_;

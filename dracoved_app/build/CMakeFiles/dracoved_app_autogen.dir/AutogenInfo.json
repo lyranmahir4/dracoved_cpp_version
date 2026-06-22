@@ -355,6 +355,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_matrix_delegate.h",
+			"MU",
+			"MXUWEOXILK/moc_aspect_matrix_delegate.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_aspect_orbs_dialog.cpp",
@@ -373,9 +379,21 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/collapsible_section.h",
+			"MU",
+			"MXUWEOXILK/moc_collapsible_section.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h",
 			"MU",
 			"MXUWEOXILK/moc_main_window.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.h",
+			"MU",
+			"MXUWEOXILK/moc_row_hover_delegate.cpp",
 			null
 		],
 		[
@@ -504,6 +522,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_matrix_delegate.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.cpp",
 			"MU",
 			null
@@ -519,7 +542,17 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/collapsible_section.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.cpp",
 			"MU",
 			null
 		],

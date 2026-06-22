@@ -20,6 +20,12 @@ add_executable(dracoved_app
     src/gui/main_window.cpp
     src/gui/aspect_orbs_dialog.h
     src/gui/aspect_orbs_dialog.cpp
+    src/gui/aspect_matrix_delegate.h
+    src/gui/aspect_matrix_delegate.cpp
+    src/gui/row_hover_delegate.h
+    src/gui/row_hover_delegate.cpp
+    src/gui/collapsible_section.h
+    src/gui/collapsible_section.cpp
     src/gui/chart_setup_dialog.h
     src/gui/chart_setup_dialog.cpp
     src/gui/chart_wheel_widget.h

@@ -37,6 +37,32 @@ QString aspectSymbolForLabel(const QString& label) {
     return "";
 }
 
+// Distinct color per aspect type. Scope (transit-natal / transit-transit /
+// natal-natal) is encoded separately via line style, so colour can be used
+// purely to differentiate the five Ptolemaic aspects for easier reading.
+QColor aspectTypeColor(const QString& label) {
+    if (label == "Conjunction") return QColor("#C99A2E");  // amber/gold
+    if (label == "Sextile")     return QColor("#3FA7D6");  // cyan-blue
+    if (label == "Square")      return QColor("#E0533D");  // red
+    if (label == "Trine")       return QColor("#3FA66A");  // green
+    if (label == "Opposition")  return QColor("#9B59B6");  // violet
+    return QColor("#90A4AE");
+}
+
+// The two lunar nodes are always exactly 180 deg apart, so an aspect line
+// between them carries no information and only crowds the wheel.
+bool isLunarNodePair(const QString& a, const QString& b) {
+    return (a == "North Node" && b == "South Node")
+        || (a == "South Node" && b == "North Node");
+}
+
+// Chart angles are fixed relative to one another (AC/DC and MC/IC are exact
+// oppositions; their square relationships are structural), so aspect lines
+// between angles are redundant too.
+bool isChartAngleName(const QString& n) {
+    return n == "Ascendant" || n == "Midheaven" || n == "Descendant" || n == "IC";
+}
+
 bool aspectFor(double diff, const AspectOrbs& orbs, QString* outLabel, double* outOrb, double* outMaxOrb) {
     struct AspectDef {
         const char* name;
@@ -105,6 +131,7 @@ ChartWheelWidget::ChartWheelWidget(QWidget* parent)
         QColor("#E0E0E0"),          // aspectInnerCircle
         QColor("#D32F2F"),          // retrogradeIndicator - Red
         QColor("#F57F17"),          // angularHouseLabel - Dark Gold
+        QColor("#EEF2F7"),          // transitLaneBand - faint cool tint
     };
 }
 
@@ -116,6 +143,7 @@ void ChartWheelWidget::setChart(const NatalChart& chart, HouseSystem system) {
     mode_ = Mode::NatalOnly;
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
+    chartNote_.clear();
     update();
 }
 
@@ -127,6 +155,7 @@ void ChartWheelWidget::setTransitChart(const NatalChart& chart, HouseSystem syst
     mode_ = Mode::TransitOnly;
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
+    chartNote_.clear();
     update();
 }
 
@@ -140,12 +169,18 @@ void ChartWheelWidget::setOverlayCharts(const NatalChart& natal, const NatalChar
     aspectOrbs_ = orbs;
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
+    chartNote_.clear();
     update();
 }
 
 void ChartWheelWidget::setOverlayLabel(const QString& label) {
     const QString trimmed = label.trimmed();
     overlayLabel_ = trimmed.isEmpty() ? "Transit" : trimmed;
+    update();
+}
+
+void ChartWheelWidget::setChartNote(const QString& note) {
+    chartNote_ = note;
     update();
 }
 
@@ -278,7 +313,32 @@ void ChartWheelWidget::setFontScale(double scale) {
 
 void ChartWheelWidget::setTheme(const ChartWheelTheme& theme) {
     theme_ = theme;
+    glyphPixmapCache_.clear();
     update();
+}
+
+QPixmap ChartWheelWidget::coloredSvgPixmap(const QString& path, const QColor& color, const QSize& sizePx, qreal dpr) {
+    const QString key = QStringLiteral("%1|%2|%3x%4|%5")
+        .arg(path, color.name(QColor::HexArgb))
+        .arg(sizePx.width())
+        .arg(sizePx.height())
+        .arg(QString::number(dpr, 'f', 2));
+    const auto it = glyphPixmapCache_.constFind(key);
+    if (it != glyphPixmapCache_.constEnd()) {
+        return it.value();
+    }
+    QPixmap px(sizePx * dpr);
+    px.fill(Qt::transparent);
+    px.setDevicePixelRatio(dpr);
+    QSvgRenderer renderer(path);
+    if (renderer.isValid()) {
+        QPainter p(&px);
+        renderer.render(&p);
+        p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        p.fillRect(px.rect(), color);
+    }
+    glyphPixmapCache_.insert(key, px);
+    return px;
 }
 
 bool ChartWheelWidget::showAspects() const {
@@ -358,6 +418,9 @@ void ChartWheelWidget::clearChart() {
     hasHighlight_ = false;
     highlightBody_.clear();
     highlightLabel_.clear();
+    hasFocus_ = false;
+    focusBody_.clear();
+    chartNote_.clear();
     update();
 }
 
@@ -487,11 +550,16 @@ int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
     if (aspectLines_.isEmpty()) {
         return -1;
     }
+    const bool focusActive = focusActiveNow();
     const double threshold = 5.0 * fontScale_;
     double best = threshold;
     int bestIndex = -1;
     for (int i = 0; i < aspectLines_.size(); ++i) {
         const auto& info = aspectLines_[i];
+        // In focus mode only the focused body's lines are visible/interactive.
+        if (focusActive && info.rawNameA != focusBody_ && info.rawNameB != focusBody_) {
+            continue;
+        }
         if (info.symbolRect.contains(point)) {
             return i;
         }
@@ -502,6 +570,18 @@ int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
         }
     }
     return bestIndex;
+}
+
+bool ChartWheelWidget::focusActiveNow() const {
+    if (!hasFocus_ || focusBody_.isEmpty()) {
+        return false;
+    }
+    for (const auto& info : aspectLines_) {
+        if (info.rawNameA == focusBody_ || info.rawNameB == focusBody_) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ChartWheelWidget::wheelEvent(QWheelEvent* event) {
@@ -544,6 +624,10 @@ void ChartWheelWidget::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void ChartWheelWidget::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        leftPressActive_ = true;
+        pressPos_ = event->position();
+    }
     const bool leftPan = (event->button() == Qt::LeftButton && zoom_ > 1.0);
     if (event->button() == Qt::MiddleButton || leftPan) {
         panning_ = true;
@@ -556,9 +640,43 @@ void ChartWheelWidget::mousePressEvent(QMouseEvent* event) {
 }
 
 void ChartWheelWidget::mouseReleaseEvent(QMouseEvent* event) {
+    const bool wasPanning = panning_;
     if ((event->button() == Qt::MiddleButton || event->button() == Qt::LeftButton) && panning_) {
         panning_ = false;
         updateCursor();
+    }
+    if (event->button() == Qt::LeftButton && leftPressActive_) {
+        leftPressActive_ = false;
+        const QPointF delta = event->position() - pressPos_;
+        const double moved = std::hypot(delta.x(), delta.y());
+        if (moved <= 4.0) {
+            // Treat as a click (not a pan drag): toggle click-to-focus.
+            QString hitName;
+            const int n = std::min(planetHitAreas_.size(), planetHitNames_.size());
+            for (int i = 0; i < n; ++i) {
+                if (!planetHitNames_[i].isEmpty() && planetHitAreas_[i].contains(event->position())) {
+                    hitName = planetHitNames_[i];
+                    break;
+                }
+            }
+            if (!hitName.isEmpty()) {
+                if (hasFocus_ && focusBody_ == hitName) {
+                    hasFocus_ = false;
+                    focusBody_.clear();
+                } else {
+                    hasFocus_ = true;
+                    focusBody_ = hitName;
+                }
+            } else if (hasFocus_) {
+                hasFocus_ = false;
+                focusBody_.clear();
+            }
+            update();
+            event->accept();
+            return;
+        }
+    }
+    if (wasPanning) {
         event->accept();
         return;
     }
@@ -951,6 +1069,19 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             infoY += painter.fontMetrics().height() + 1;
         }
 
+        // Optional context note (e.g., Solar Return profected house).
+        if (!chartNote_.isEmpty()) {
+            infoY += 2;
+            QFont noteFont("Segoe UI", 8);
+            noteFont.setWeight(QFont::DemiBold);
+            noteFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.2);
+            painter.setFont(noteFont);
+            QColor noteColor = theme_.angularHouseLabel;
+            painter.setPen(noteColor);
+            painter.drawText(infoX, infoY + painter.fontMetrics().ascent(), chartNote_);
+            infoY += painter.fontMetrics().height() + 1;
+        }
+
         // If overlay, show transit date on a second line
         if (overlay && overlayChart_.localDateTime.isValid()) {
             infoY += 3;
@@ -1098,46 +1229,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         QRectF iconRect(pos.x() - 14, pos.y() - 14, 28, 28);
         
         if (s < svgPaths.size()) {
-            QSvgRenderer renderer(svgPaths[s]);
-            if (renderer.isValid()) {
-                // To colorize the SVG (which uses currentColor), we can use a temporary pixmap+mask
-                // OR simpler: render to a transparent layer, then use composition mode to fill color
-                // But QPainter on widget supports direct composition too?
-                // Let's rely on the SVG being simple lines.
-                // Creating a pixmap cache is better for performance but direct render is fine for now.
-                
-                // Colorizing method: 
-                // 1. Draw SVG into a pixmap
-                // 2. Use CompositionMode_SourceIn to fill with theme color
-                // 3. Draw pixmap
-                
-                // We use a small cache key based on color, size, and index? 
-                // For simplicity, let's just create the pixmap on fly. Optimization can come later if needed.
-                
-                // Better approach with QPainter:
-                
-                painter.save();
-                // Translate so we can draw at 0,0
-                painter.translate(iconRect.topLeft());
-                
-                // We want to color it with theme_.signGlyph
-                // Strategy: Render SVG to a QImage/QPixmap that is transparent
-                // Then use Painter CompositionMode to tint it.
-                
-                // Create a pixmap of the size
-                QPixmap px(iconRect.size().toSize() * painter.device()->devicePixelRatio());
-                px.fill(Qt::transparent);
-                px.setDevicePixelRatio(painter.device()->devicePixelRatio());
-                
-                QPainter p(&px);
-                renderer.render(&p);
-                p.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                p.fillRect(px.rect(), theme_.signGlyph);
-                p.end();
-                
-                painter.drawPixmap(0, 0, px);
-                painter.restore();
-            }
+            const QPixmap px = coloredSvgPixmap(svgPaths[s], theme_.signGlyph,
+                                                iconRect.size().toSize(),
+                                                painter.device()->devicePixelRatio());
+            painter.drawPixmap(iconRect.topLeft(), px);
         }
     }
 
@@ -1206,11 +1301,21 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     const bool overlay = (mode_ == Mode::Overlay && hasOverlay_);
     const QString overlayPrefix = overlayLabel_.isEmpty() ? QString("Transit") : overlayLabel_;
     if (overlay) {
-        // Draw separator ring between natal and transit planet lanes
-        const double transitSeparator = (planetLaneRadius + transitLaneRadius) * 0.5;
+        // Subtle, intentional background lane for the outer (transit) ring, with
+        // thin crisp edges so the two chart layers read as distinct rings.
+        const double bandInner = zodiacOuter + 1.0;
+        const double bandOuter = planetLaneRadius + glyphHalf + 8.0 * fontScale_;
+        QPainterPath band;
+        band.addEllipse(center, bandOuter, bandOuter);
+        band.addEllipse(center, bandInner, bandInner);
         painter.save();
-        painter.setPen(QPen(theme_.transitRing, 0.8));
-        painter.drawEllipse(center, transitSeparator, transitSeparator);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme_.transitLaneBand);
+        painter.drawPath(band);
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(theme_.ringOuter, 1.0));
+        painter.drawEllipse(center, bandOuter, bandOuter);
+        painter.drawEllipse(center, bandInner, bandInner);
         painter.restore();
     }
 
@@ -1225,7 +1330,42 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                                     const QString& label, double orb, double maxOrb,
                                     const QColor& color, Qt::PenStyle style,
                                     double opacityScale, const QString& tooltipPrefix) {
+            Q_UNUSED(color);
             if (!shouldIncludeOrb(orb)) {
+                return;
+            }
+            // Colour encodes aspect TYPE; line style (passed in) encodes SCOPE.
+            const QColor lineColor = aspectTypeColor(label);
+            // Strip scope prefixes to recover the raw body name for click-to-focus.
+            auto stripPrefix = [&](const QString& n) -> QString {
+                const QStringList prefixes = {QStringLiteral("Natal "), QStringLiteral("Transit "), overlayPrefix + " "};
+                for (const auto& p : prefixes) {
+                    if (!p.trimmed().isEmpty() && n.startsWith(p)) {
+                        return n.mid(p.size());
+                    }
+                }
+                return n;
+            };
+            const QString rawA = stripPrefix(nameA);
+            const QString rawB = stripPrefix(nameB);
+            // Suppress structurally redundant aspect lines within a single chart:
+            //   - North Node / South Node are always exactly opposite.
+            //   - Chart angles (AC/MC/DC/IC) are fixed relative to each other.
+            // Detect "same chart" by comparing scope prefixes so a genuine
+            // transit-node-to-natal-node aspect is still drawn in overlays.
+            auto scopeOf = [&](const QString& n) -> QString {
+                const QStringList prefixes = {QStringLiteral("Natal "), QStringLiteral("Transit "), overlayPrefix + " "};
+                for (const auto& p : prefixes) {
+                    if (!p.trimmed().isEmpty() && n.startsWith(p)) {
+                        return p;
+                    }
+                }
+                return QString();
+            };
+            const bool sameChart = (scopeOf(nameA) == scopeOf(nameB));
+            if (sameChart
+                && (isLunarNodePair(rawA, rawB)
+                    || (isChartAngleName(rawA) && isChartAngleName(rawB)))) {
                 return;
             }
             const QPointF p1 = pointOnCircle(center, aspectRadius, angleForLongitude(lonA));
@@ -1261,11 +1401,13 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 line,
                 symbolRect,
                 tooltip,
-                color,
+                lineColor,
                 baseOpacity,
                 baseWidth,
                 aspectSymbolForLabel(label),
                 style,
+                rawA,
+                rawB,
             });
         };
 
@@ -1445,13 +1587,38 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             hoveredAspectIndex_ = -1;
         }
         const bool hasHover = hoveredAspectIndex_ >= 0 && hoveredAspectIndex_ < aspectLines_.size();
+        // Focus is only "active" this frame if at least one drawn aspect touches
+        // the focused body; this gracefully ignores a stale focus after the chart
+        // changes (otherwise every line would dim).
+        bool focusActive = false;
+        if (hasFocus_ && !focusBody_.isEmpty()) {
+            for (const auto& info : aspectLines_) {
+                if (info.rawNameA == focusBody_ || info.rawNameB == focusBody_) {
+                    focusActive = true;
+                    break;
+                }
+            }
+        }
         QFont aspectFont("Segoe UI Symbol", 8 * fontScale_);
         aspectFont.setBold(true);
         for (int i = 0; i < aspectLines_.size(); ++i) {
             const auto& info = aspectLines_[i];
             const bool isHover = (i == hoveredAspectIndex_);
+            const bool involvesFocus = focusActive
+                && (info.rawNameA == focusBody_ || info.rawNameB == focusBody_);
             double opacity = info.baseOpacity;
             double width = info.baseWidth;
+            // Click-to-focus: in focus mode show ONLY the lines touching the
+            // focused body (others are hidden, not just dimmed, so hover/hit-test
+            // never picks up unrelated aspects).
+            if (focusActive && !involvesFocus) {
+                continue;
+            }
+            if (focusActive && involvesFocus) {
+                opacity = std::min(1.0, opacity + 0.30);
+                width += 0.6;
+            }
+            // Hover still emphasises a single line on top of any focus state.
             if (hasHover && !isHover) {
                 opacity *= 0.25;
             } else if (hasHover && isHover) {
@@ -1462,11 +1629,23 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.setOpacity(opacity);
             QPen pen(info.color, width);
             pen.setStyle(info.style);
+            pen.setCapStyle(Qt::RoundCap);
             painter.setPen(pen);
-            painter.drawLine(info.line);
+            painter.setBrush(Qt::NoBrush);
+            // Curve each chord gently toward the centre so overlapping lines
+            // separate visually and are easier to trace than straight chords.
+            const QPointF a = info.line.p1();
+            const QPointF b = info.line.p2();
+            const QPointF mid = (a + b) * 0.5;
+            const QPointF ctrl = mid + (center - mid) * 0.30;
+            QPainterPath path(a);
+            path.quadTo(ctrl, b);
+            painter.drawPath(path);
             painter.restore();
 
-            const bool showSymbol = !info.symbol.isEmpty() && (showAspectSymbols_ || isHover);
+            const bool focusSuppressed = focusActive && !involvesFocus;
+            const bool showSymbol = !info.symbol.isEmpty() && !focusSuppressed
+                && (showAspectSymbols_ || isHover);
             if (showSymbol) {
                 painter.save();
                 const double symbolOpacity = showAspectSymbols_
@@ -1487,14 +1666,13 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     // Planet glyphs + degrees.
     planetHitAreas_.clear();
     planetTooltips_.clear();
+    planetHitNames_.clear();
     QVector<QRectF> occupiedRects;
     occupiedRects.reserve(128);
 
     QFont degreeFont = smallFont;
     degreeFont.setBold(true);
     degreeFont.setPointSizeF(smallFont.pointSizeF() + 0.5);
-    QColor degreeBg = theme_.background;
-    degreeBg.setAlpha(220);
 
     auto placeRadialRect = [&](double angleDeg, double baseRad, double width, double height) {
         const double step = 6.0 * fontScale_;
@@ -1597,16 +1775,31 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
             QColor bodyColor = color;
 
-            // --- Astro.com-style tick line from glyph to zodiac ring ---
+            // --- Exact-degree marker on the ring + leader to a displaced glyph ---
             {
+                const double dir = (item.displayRadius >= tickTargetRadius) ? 1.0 : -1.0;
+                const QPointF ringPt = pointOnCircle(center, tickTargetRadius, trueAngle);
+                const QPointF stubPt = pointOnCircle(center, tickTargetRadius + dir * 5.0 * fontScale_, trueAngle);
+                const double glyphEdgeR = item.displayRadius - dir * (gs * 0.5 + 1.0);
+                const QPointF glyphPt = pointOnCircle(center, glyphEdgeR, displayAngle);
+                const bool displaced = (angularDiff(item.displayLon, item.trueLon) > 0.4)
+                    || (item.radialLayer != 0);
+
                 painter.save();
-                QColor tickColor = bodyColor;
-                tickColor.setAlpha(160);
-                painter.setPen(QPen(tickColor, 0.8, Qt::SolidLine, Qt::RoundCap));
-                // Line from inner edge of glyph toward center, to the zodiac outer edge
-                const QPointF tickStart = pointOnCircle(center, item.displayRadius - gs * 0.5 - 1.0, displayAngle);
-                const QPointF tickEnd = pointOnCircle(center, tickTargetRadius, trueAngle);
-                painter.drawLine(tickStart, tickEnd);
+                // Always draw a crisp short tick at the body's exact degree.
+                QColor markColor = bodyColor;
+                markColor.setAlpha(230);
+                painter.setPen(QPen(markColor, 1.3, Qt::SolidLine, Qt::RoundCap));
+                painter.drawLine(ringPt, stubPt);
+                // Only when the glyph has been moved to avoid overlap: a thin, faint
+                // leader from the exact-degree tick to the glyph. Keeping it thin and
+                // only-when-needed keeps dense clusters legible.
+                if (displaced) {
+                    QColor leadColor = bodyColor;
+                    leadColor.setAlpha(115);
+                    painter.setPen(QPen(leadColor, 0.8, Qt::SolidLine, Qt::RoundCap));
+                    painter.drawLine(stubPt, glyphPt);
+                }
                 painter.restore();
             }
 
@@ -1624,22 +1817,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             bool drewSvg = false;
             const QString svgPath = planetSvgPath(item.name);
             if (!svgPath.isEmpty()) {
-                QSvgRenderer renderer(svgPath);
-                if (renderer.isValid()) {
-                    painter.save();
-                    painter.translate(glyphR.topLeft());
-                    QPixmap px(glyphR.size().toSize() * painter.device()->devicePixelRatio());
-                    px.fill(Qt::transparent);
-                    px.setDevicePixelRatio(painter.device()->devicePixelRatio());
-                    QPainter p(&px);
-                    renderer.render(&p);
-                    p.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                    p.fillRect(px.rect(), bodyColor);
-                    p.end();
-                    painter.drawPixmap(0, 0, px);
-                    painter.restore();
-                    drewSvg = true;
-                }
+                const QPixmap px = coloredSvgPixmap(svgPath, bodyColor, glyphR.size().toSize(),
+                                                    painter.device()->devicePixelRatio());
+                painter.drawPixmap(glyphR.topLeft(), px);
+                drewSvg = true;
             }
             if (!drewSvg) {
                 painter.setPen(bodyColor);
@@ -1684,6 +1865,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 .arg(house);
             planetHitAreas_.push_back(glyphR.adjusted(-2, -2, 2, 2));
             planetTooltips_.push_back(tooltip);
+            planetHitNames_.push_back(item.name);
         }
     };
 
@@ -1780,6 +1962,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 .arg(star.house > 0 ? QString::number(star.house) : QString("-"));
             planetHitAreas_.push_back(symbolRect.adjusted(-2, -2, 2, 2));
             planetTooltips_.push_back(tooltip);
+            planetHitNames_.push_back(QString());
             occupiedRects.push_back(symbolRect.adjusted(-2, -2, 2, 2));
         }
     };
@@ -1817,28 +2000,45 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     angleLabelFont.setPointSizeF(angleFont.pointSizeF() + 1.0);
     painter.setFont(angleLabelFont);
     const QStringList angleNames = {"AC", "MC", "DC", "IC"};
+    // Names used by the aspect lines, so click-to-focus on an angle matches.
+    const QStringList angleFocusNames = {"Ascendant", "Midheaven", "Descendant", "IC"};
     for (int i = 0; i < angleNames.size(); ++i) {
         const double angleLon = angleLons[i];
         const QPointF labelPos = pointOnCircle(center, angleLabelRadius, angleForLongitude(angleLon));
         const QRectF labelRect(labelPos.x() - angleLabelWidth * 0.5, labelPos.y() - angleLabelHeight * 0.5,
                                 angleLabelWidth, angleLabelHeight);
         painter.save();
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(degreeBg);
-        painter.drawRoundedRect(labelRect.adjusted(-5, -3, 5, 3), 4, 4);
+        const QColor angleHalo = theme_.background;
+        painter.setPen(angleHalo);
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                if (dx == 0 && dy == 0) {
+                    continue;
+                }
+                painter.drawText(labelRect.translated(dx, dy), Qt::AlignCenter, angleNames[i]);
+            }
+        }
         painter.setPen(angleColors[i]);
         painter.drawText(labelRect, Qt::AlignCenter, angleNames[i]);
         painter.restore();
         planetHitAreas_.push_back(labelRect.adjusted(-2, -2, 2, 2));
+        planetHitNames_.push_back(angleFocusNames[i]);
         if (showDegrees_) {
             painter.setFont(degreeFont);
             const QPointF degPos = pointOnCircle(center, angleDegRadius, angleForLongitude(angleLon));
             const QRectF degRect(degPos.x() - angleDegWidth * 0.5, degPos.y() - degHeight * 0.5,
                                   angleDegWidth, degHeight);
             painter.save();
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(degreeBg);
-            painter.drawRoundedRect(degRect.adjusted(-4, -2, 4, 2), 4, 4);
+            const QColor degHalo = theme_.background;
+            painter.setPen(degHalo);
+            for (int dx = -1; dx <= 1; ++dx) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    if (dx == 0 && dy == 0) {
+                        continue;
+                    }
+                    painter.drawText(degRect.translated(dx, dy), Qt::AlignCenter, formatDegShort(angleLon));
+                }
+            }
             painter.setPen(angleColors[i]);
             painter.drawText(degRect, Qt::AlignCenter, formatDegShort(angleLon));
             painter.restore();
@@ -1849,6 +2049,88 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             .arg(signName(signIndex(angleLon)))
             .arg(formatDegShort(angleLon));
         planetTooltips_.push_back(tooltip);
+    }
+
+    // --- Aspect colour legend (bottom-left) ---
+    if (hasChart_ && showAspects_ && showAspectLegend_ && !aspectLines_.isEmpty()) {
+        const QStringList aspNames = {"Conjunction", "Sextile", "Square", "Trine", "Opposition"};
+        QFont legendFont("Segoe UI", static_cast<int>(8 * fontScale_));
+        painter.setFont(legendFont);
+        const QFontMetrics fm(legendFont);
+        const double rowH = fm.height() + 3.0;
+        const double sampleW = 20.0;
+        double maxTextW = 0.0;
+        for (const auto& n : aspNames) {
+            maxTextW = std::max(maxTextW, static_cast<double>(fm.horizontalAdvance(n)));
+        }
+        const double padX = 8.0;
+        const double padY = 6.0;
+        const double panelW = padX * 2 + sampleW + 8.0 + maxTextW + 14.0;
+        const double panelH = padY * 2 + rowH * aspNames.size();
+        const double px = 10.0;
+        const double py = height() - panelH - 10.0;
+
+        painter.save();
+        QColor bg = theme_.background;
+        bg.setAlpha(215);
+        painter.setPen(QPen(theme_.ringOuter, 1.0));
+        painter.setBrush(bg);
+        painter.drawRoundedRect(QRectF(px, py, panelW, panelH), 6, 6);
+
+        QFont glyphLegendFont("Segoe UI Symbol", static_cast<int>(8 * fontScale_));
+        glyphLegendFont.setBold(true);
+        for (int r = 0; r < aspNames.size(); ++r) {
+            const QString& name = aspNames[r];
+            const QColor color = aspectTypeColor(name);
+            const double rowY = py + padY + rowH * r + rowH * 0.5;
+            const double lx = px + padX;
+            painter.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap));
+            painter.drawLine(QPointF(lx, rowY), QPointF(lx + sampleW, rowY));
+            painter.setFont(glyphLegendFont);
+            painter.setPen(color);
+            painter.drawText(QRectF(lx + sampleW + 2.0, rowY - rowH * 0.5, 12.0, rowH),
+                             Qt::AlignCenter, aspectSymbolForLabel(name));
+            painter.setFont(legendFont);
+            QColor textColor = theme_.body;
+            textColor.setAlpha(220);
+            painter.setPen(textColor);
+            painter.drawText(QRectF(lx + sampleW + 14.0, rowY - rowH * 0.5, maxTextW + 4.0, rowH),
+                             Qt::AlignVCenter | Qt::AlignLeft, name);
+        }
+        painter.restore();
+    }
+
+    // --- Focus indicator (top-right) when a body is pinned via click ---
+    if (hasChart_ && hasFocus_ && !focusBody_.isEmpty()) {
+        bool focusActive = false;
+        for (const auto& info : aspectLines_) {
+            if (info.rawNameA == focusBody_ || info.rawNameB == focusBody_) {
+                focusActive = true;
+                break;
+            }
+        }
+        if (focusActive) {
+            QFont focusFont("Segoe UI", static_cast<int>(8.5 * fontScale_));
+            focusFont.setBold(true);
+            painter.setFont(focusFont);
+            const QString text = QString("Focus: %1  (click empty to clear)").arg(focusBody_);
+            const QFontMetrics fm(focusFont);
+            const double w = fm.horizontalAdvance(text) + 18.0;
+            const double h = fm.height() + 8.0;
+            const double x = width() - w - 12.0;
+            const double y = 10.0;
+            painter.save();
+            QColor bg = highlightColor_;
+            bg.setAlpha(40);
+            painter.setPen(QPen(highlightColor_, 1.0));
+            painter.setBrush(bg);
+            painter.drawRoundedRect(QRectF(x, y, w, h), 6, 6);
+            QColor textColor = theme_.body;
+            textColor.setAlpha(230);
+            painter.setPen(textColor);
+            painter.drawText(QRectF(x, y, w, h), Qt::AlignCenter, text);
+            painter.restore();
+        }
     }
 }
 

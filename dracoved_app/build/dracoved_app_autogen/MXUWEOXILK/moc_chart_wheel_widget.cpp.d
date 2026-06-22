@@ -1,6 +1,7 @@
 C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/MXUWEOXILK/moc_chart_wheel_widget.cpp: C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h \
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QHash \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSet \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList \
@@ -138,6 +139,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qyieldcpu.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QColor \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QPen \
+  C:/Qt/6.10.1/mingw_64/include/QtGui/QPixmap \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qaction.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qbitmap.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qbrush.h \

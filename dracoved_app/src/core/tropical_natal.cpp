@@ -71,6 +71,24 @@ bool aspectFor(double diff, const AspectOrbs& orbs, QString* outLabel, double* o
     return false;
 }
 
+double aspectExactAngle(const QString& label) {
+    if (label == "Conjunction") return 0.0;
+    if (label == "Sextile") return 60.0;
+    if (label == "Square") return 90.0;
+    if (label == "Trine") return 120.0;
+    if (label == "Opposition") return 180.0;
+    return 0.0;
+}
+
+// Applying = the orb is shrinking over time (project both bodies a small step
+// forward using their daily speeds and compare the resulting orb).
+bool aspectApplying(double lonA, double speedA, double lonB, double speedB, double exact) {
+    const double dt = 0.05;  // days
+    const double cur = std::fabs(angularDiff(lonA, lonB) - exact);
+    const double fut = std::fabs(angularDiff(lonA + speedA * dt, lonB + speedB * dt) - exact);
+    return fut < cur;
+}
+
 int houseOfLongitude(double lon, const QVector<double>& cusps) {
     if (cusps.size() < 12) {
         return 0;
@@ -108,6 +126,10 @@ void TropicalNatalEngine::setEphePath(const QString& path) {
 }
 
 bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QString* error) {
+    return compute(input, TropicalComputeOptions{}, out, error);
+}
+
+bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalComputeOptions& options, NatalChart* out, QString* error) {
     if (!swe_ || !out) {
         return false;
     }
@@ -240,6 +262,8 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
         if (swe_->calcUt(jd + 1.0, body.sweId, calcFlags, &lonNext, nullptr)) {
             double delta = std::fmod((lonNext - lon + 540.0), 360.0) - 180.0;
             pos.retrograde = (delta < 0.0);
+            pos.speed = delta;   // deg/day, signed
+            pos.hasSpeed = true;
         }
 
         bodyLongitudes.insert(pos.name, lon);
@@ -317,25 +341,27 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     lotCtx.gender = input.gender;
     lotCtx.bodies = bodyLongitudes;
 
-    PrenatalSyzygy syzygy;
-    QString syzygyErr;
-    if (findPrenatalSyzygy(swe_, jd, calcFlags, &syzygy, &syzygyErr)) {
-        lotCtx.hasPrenatalSyzygy = syzygy.valid;
-        lotCtx.prenatalConjunctional = syzygy.conjunctional;
-        lotCtx.prenatalSyzygyLongitude = syzygy.longitude;
-    } else {
-        warnings.push_back(QString("Skipped prenatal-syzygy dependent Lots: %1").arg(syzygyErr));
-    }
-
     double pof = 0.0;
     bool hasPartOfFortune = false;
-    const QVector<BodyPosition> lotPositions = calculateArabicLots(lotCtx);
-    for (const auto& lot : lotPositions) {
-        if (lot.name == "Part of Fortune") {
-            pof = lot.longitude;
-            hasPartOfFortune = true;
+    if (options.includeArabicLots) {
+        PrenatalSyzygy syzygy;
+        QString syzygyErr;
+        if (findPrenatalSyzygy(swe_, jd, calcFlags, &syzygy, &syzygyErr)) {
+            lotCtx.hasPrenatalSyzygy = syzygy.valid;
+            lotCtx.prenatalConjunctional = syzygy.conjunctional;
+            lotCtx.prenatalSyzygyLongitude = syzygy.longitude;
+        } else {
+            warnings.push_back(QString("Skipped prenatal-syzygy dependent Lots: %1").arg(syzygyErr));
         }
-        positions.push_back(lot);
+
+        const QVector<BodyPosition> lotPositions = calculateArabicLots(lotCtx);
+        for (const auto& lot : lotPositions) {
+            if (lot.name == "Part of Fortune") {
+                pof = lot.longitude;
+                hasPartOfFortune = true;
+            }
+            positions.push_back(lot);
+        }
     }
 
     // Build cusps for Placidus only.
@@ -352,88 +378,104 @@ bool TropicalNatalEngine::compute(const NatalInput& input, NatalChart* out, QStr
     }
 
     QVector<FixedStarPosition> fixedStars;
-    QStringList fixedStarNames = input.fixedStars;
-    if (fixedStarNames.isEmpty()) {
-        fixedStarNames = defaultFixedStars();
-    }
-    QSet<QString> seenStars;
-    for (const auto& requestedName : fixedStarNames) {
-        const QString starName = requestedName.trimmed();
-        const QString starKey = starName.toCaseFolded();
-        if (starName.isEmpty() || seenStars.contains(starKey)) {
-            continue;
+    if (options.includeFixedStars) {
+        QStringList fixedStarNames = input.fixedStars;
+        if (fixedStarNames.isEmpty()) {
+            fixedStarNames = defaultFixedStars();
         }
-        seenStars.insert(starKey);
-
-        double starLon = 0.0;
-        QString resolvedName;
-        QString starErr;
-        if (!swe_->fixstarUt(starName, jd, calcFlags, &starLon, &resolvedName, &starErr)) {
-            warnings.push_back(QString("Skipped fixed star %1: %2").arg(starName, starErr));
-            continue;
-        }
-
-        starLon = normalizeDegrees(starLon);
-        const int sidx = signIndex(starLon);
-        const QString sname = signName(sidx);
-        int house = 0;
-        if (input.houseSystem == HouseSystem::Placidus) {
-            house = houseOfLongitude(starLon, cusps);
-        } else {
-            house = ((sidx - ascSignIdx + 12) % 12) + 1;
-        }
-
-        const QString displayName = resolvedName.section(',', 0, 0).trimmed();
-        FixedStarPosition star;
-        star.name = displayName.isEmpty() ? starName : displayName;
-        star.longitude = starLon;
-        star.signIndex = sidx;
-        star.signName = sname;
-        star.degInSign = degInSign(starLon);
-        star.house = house;
-        fixedStars.push_back(star);
-    }
-
-    // Build aspects grid.
-    const AspectOrbs orbs = normalizedOrbs(input.aspectOrbs);
-    QStringList order = tropicalBodyOrder();
-    QStringList abbrev = tropicalBodyAbbrev();
-    QStringList glyphs = tropicalBodyGlyphs();
-    QMap<QString, double> bodyMap;
-    for (const auto& pos : positions) {
-        bodyMap.insert(pos.name, pos.longitude);
-    }
-    bodyMap.insert("Ascendant", angles.asc);
-    bodyMap.insert("Midheaven", angles.mc);
-    bodyMap.insert("Descendant", angles.desc);
-    bodyMap.insert("IC", angles.ic);
-
-    QVector<QVector<AspectGrid::Cell>> grid;
-    grid.resize(order.size());
-    for (int i = 0; i < order.size(); ++i) {
-        grid[i].resize(order.size());
-    }
-
-    for (int i = 0; i < order.size(); ++i) {
-        for (int j = i + 1; j < order.size(); ++j) {
-            const QString& aName = order[i];
-            const QString& bName = order[j];
-            if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
+        QSet<QString> seenStars;
+        for (const auto& requestedName : fixedStarNames) {
+            const QString starName = requestedName.trimmed();
+            const QString starKey = starName.toCaseFolded();
+            if (starName.isEmpty() || seenStars.contains(starKey)) {
                 continue;
             }
-            double diff = angularDiff(bodyMap.value(aName), bodyMap.value(bName));
-            QString label;
-            double orb = 0.0;
-            double maxOrb = 0.0;
-            if (aspectFor(diff, orbs, &label, &orb, &maxOrb)) {
-                AspectGrid::Cell cell;
-                cell.label = label;
-                cell.symbol = aspectSymbol(label);
-                cell.orb = orb;
-                cell.maxOrb = maxOrb;
-                cell.hasAspect = true;
-                grid[i][j] = cell;
-                grid[j][i] = cell;
+            seenStars.insert(starKey);
+
+            double starLon = 0.0;
+            QString resolvedName;
+            QString starErr;
+            if (!swe_->fixstarUt(starName, jd, calcFlags, &starLon, &resolvedName, &starErr)) {
+                warnings.push_back(QString("Skipped fixed star %1: %2").arg(starName, starErr));
+                continue;
+            }
+
+            starLon = normalizeDegrees(starLon);
+            const int sidx = signIndex(starLon);
+            const QString sname = signName(sidx);
+            int house = 0;
+            if (input.houseSystem == HouseSystem::Placidus) {
+                house = houseOfLongitude(starLon, cusps);
+            } else {
+                house = ((sidx - ascSignIdx + 12) % 12) + 1;
+            }
+
+            const QString displayName = resolvedName.section(',', 0, 0).trimmed();
+            FixedStarPosition star;
+            star.name = displayName.isEmpty() ? starName : displayName;
+            star.longitude = starLon;
+            star.signIndex = sidx;
+            star.signName = sname;
+            star.degInSign = degInSign(starLon);
+            star.house = house;
+            fixedStars.push_back(star);
+        }
+    }
+
+    QStringList order;
+    QStringList abbrev;
+    QStringList glyphs;
+    QVector<QVector<AspectGrid::Cell>> grid;
+    if (options.includeAspectGrid) {
+        const AspectOrbs orbs = normalizedOrbs(input.aspectOrbs);
+        order = tropicalBodyOrder();
+        abbrev = tropicalBodyAbbrev();
+        glyphs = tropicalBodyGlyphs();
+        QMap<QString, double> bodyMap;
+        QMap<QString, double> speedMap;
+        for (const auto& pos : positions) {
+            bodyMap.insert(pos.name, pos.longitude);
+            if (pos.hasSpeed) {
+                speedMap.insert(pos.name, pos.speed);
+            }
+        }
+        bodyMap.insert("Ascendant", angles.asc);
+        bodyMap.insert("Midheaven", angles.mc);
+        bodyMap.insert("Descendant", angles.desc);
+        bodyMap.insert("IC", angles.ic);
+
+        grid.resize(order.size());
+        for (int i = 0; i < order.size(); ++i) {
+            grid[i].resize(order.size());
+        }
+
+        for (int i = 0; i < order.size(); ++i) {
+            for (int j = i + 1; j < order.size(); ++j) {
+                const QString& aName = order[i];
+                const QString& bName = order[j];
+                if (!bodyMap.contains(aName) || !bodyMap.contains(bName)) {
+                    continue;
+                }
+                double diff = angularDiff(bodyMap.value(aName), bodyMap.value(bName));
+                QString label;
+                double orb = 0.0;
+                double maxOrb = 0.0;
+                if (aspectFor(diff, orbs, &label, &orb, &maxOrb)) {
+                    AspectGrid::Cell cell;
+                    cell.label = label;
+                    cell.symbol = aspectSymbol(label);
+                    cell.orb = orb;
+                    cell.maxOrb = maxOrb;
+                    cell.hasAspect = true;
+                    if (speedMap.contains(aName) && speedMap.contains(bName)) {
+                        cell.hasMotion = true;
+                        cell.applying = aspectApplying(bodyMap.value(aName), speedMap.value(aName),
+                                                       bodyMap.value(bName), speedMap.value(bName),
+                                                       aspectExactAngle(label));
+                    }
+                    grid[i][j] = cell;
+                    grid[j][i] = cell;
+                }
             }
         }
     }
