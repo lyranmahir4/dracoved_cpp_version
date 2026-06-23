@@ -34,8 +34,10 @@
     "longitude": 90.389014,
     "name": "Mahir 1998",
     "profile_name": "Mahir 1998",
-    "saved_at_utc": "2026-02-12T13:25:14Z",
+    "saved_at_utc": "2026-06-22T19:31:23Z",
+    "sidereal_ayanamsa": "Lahiri",
     "time": "16:12:23",
     "timezone": "Asia/Dhaka",
-    "version": 2
+    "version": 3,
+    "zodiac_system": "Tropical"
 }

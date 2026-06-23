@@ -732,6 +732,7 @@ void MainWindow::setupDockLayout() {
     mainTabBar_->addTab("Progression");
     mainTabBar_->addTab("Solar Return");
     mainTabBar_->addTab("Lunar Return");
+    mainTabBar_->addTab("Lunations");
     mainTabBar_->addTab("Relocation");
 // Astrocartography tab is optional (QtLocation). Do not remove the guard.
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
@@ -1088,12 +1089,22 @@ void MainWindow::setupDockLayout() {
     solarFinderModeCombo_ = new QComboBox(finderFilterGroup);
     solarFinderModeCombo_->addItem("Single Planet");
     solarFinderModeCombo_->addItem("Stellium");
+    solarFinderModeCombo_->addItem("House Ruler");
+    solarFinderModeCombo_->addItem("Profection Lord");
 
     solarFinderPlanetCombo_ = new QComboBox(finderFilterGroup);
     for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
         solarFinderPlanetCombo_->addItem(bodyName);
     }
     solarFinderPlanetCombo_->setCurrentText("Sun");
+
+    solarFinderPlanet2Combo_ = new QComboBox(finderFilterGroup);
+    solarFinderPlanet2Combo_->addItem("None");
+    for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
+        solarFinderPlanet2Combo_->addItem(bodyName);
+    }
+    solarFinderPlanet2Combo_->setCurrentText("None");
+    solarFinderPlanet2Combo_->setToolTip("Optional second planet (OR): a year matches if either planet meets the criteria.");
 
     solarFinderStelliumCountSpin_ = new QSpinBox(finderFilterGroup);
     solarFinderStelliumCountSpin_->setRange(2, 10);
@@ -1111,7 +1122,8 @@ void MainWindow::setupDockLayout() {
     solarFinderHouseSystemCombo_ = new QComboBox(finderFilterGroup);
     solarFinderHouseSystemCombo_->addItem("Whole Sign", static_cast<int>(SolarPlacementFinderHouseMode::WholeSign));
     solarFinderHouseSystemCombo_->addItem("Placidus", static_cast<int>(SolarPlacementFinderHouseMode::Placidus));
-    solarFinderHouseSystemCombo_->addItem("Both", static_cast<int>(SolarPlacementFinderHouseMode::Both));
+    solarFinderHouseSystemCombo_->addItem("Both (OR)", static_cast<int>(SolarPlacementFinderHouseMode::Both));
+    solarFinderHouseSystemCombo_->addItem("Both (AND)", static_cast<int>(SolarPlacementFinderHouseMode::BothAnd));
     solarFinderConjunctionTargetCombo_ = new QComboBox(finderFilterGroup);
     for (const auto& targetName : solarPlacementFinderConjunctionTargets()) {
         solarFinderConjunctionTargetCombo_->addItem(targetName);
@@ -1123,20 +1135,38 @@ void MainWindow::setupDockLayout() {
     solarFinderConjunctionOrbSpin_->setSingleStep(0.1);
     solarFinderConjunctionOrbSpin_->setValue(1.0);
     solarFinderConjunctionOrbSpin_->setSuffix(" deg");
+    solarFinderRulerHouseCombo_ = new QComboBox(finderFilterGroup);
+    for (int house = 1; house <= 12; ++house) {
+        solarFinderRulerHouseCombo_->addItem(QString::number(house), house);
+    }
+    solarFinderRulerHouseCombo_->setCurrentIndex(6);  // 7th house default
+    solarFinderRulerHouseCombo_->setToolTip("Find returns where the ruler of this house falls in the target House.");
+    solarFinderRulerHouseCombo_->setEnabled(false);
+    solarFinderRulerSchemeCombo_ = new QComboBox(finderFilterGroup);
+    solarFinderRulerSchemeCombo_->addItem("Traditional", 0);
+    solarFinderRulerSchemeCombo_->addItem("Modern", 1);
+    solarFinderRulerSchemeCombo_->setToolTip("Traditional: classical domicile rulers. Modern: Scorpio->Pluto, Aquarius->Uranus, Pisces->Neptune.");
+    solarFinderRulerSchemeCombo_->setEnabled(false);
     finderFilterLayout->addWidget(new QLabel("Search Type", finderFilterGroup), 0, 0);
     finderFilterLayout->addWidget(solarFinderModeCombo_, 0, 1);
     finderFilterLayout->addWidget(new QLabel("Planet", finderFilterGroup), 1, 0);
     finderFilterLayout->addWidget(solarFinderPlanetCombo_, 1, 1);
-    finderFilterLayout->addWidget(new QLabel("Min Planets", finderFilterGroup), 2, 0);
-    finderFilterLayout->addWidget(solarFinderStelliumCountSpin_, 2, 1);
-    finderFilterLayout->addWidget(new QLabel("House", finderFilterGroup), 3, 0);
-    finderFilterLayout->addWidget(solarFinderHouseCombo_, 3, 1);
-    finderFilterLayout->addWidget(new QLabel("House System", finderFilterGroup), 4, 0);
-    finderFilterLayout->addWidget(solarFinderHouseSystemCombo_, 4, 1);
-    finderFilterLayout->addWidget(new QLabel("Conjunction", finderFilterGroup), 5, 0);
-    finderFilterLayout->addWidget(solarFinderConjunctionTargetCombo_, 5, 1);
-    finderFilterLayout->addWidget(new QLabel("Conj. Orb", finderFilterGroup), 6, 0);
-    finderFilterLayout->addWidget(solarFinderConjunctionOrbSpin_, 6, 1);
+    finderFilterLayout->addWidget(new QLabel("or Planet", finderFilterGroup), 2, 0);
+    finderFilterLayout->addWidget(solarFinderPlanet2Combo_, 2, 1);
+    finderFilterLayout->addWidget(new QLabel("Min Planets", finderFilterGroup), 3, 0);
+    finderFilterLayout->addWidget(solarFinderStelliumCountSpin_, 3, 1);
+    finderFilterLayout->addWidget(new QLabel("Ruler of House", finderFilterGroup), 4, 0);
+    finderFilterLayout->addWidget(solarFinderRulerHouseCombo_, 4, 1);
+    finderFilterLayout->addWidget(new QLabel("Rulership", finderFilterGroup), 5, 0);
+    finderFilterLayout->addWidget(solarFinderRulerSchemeCombo_, 5, 1);
+    finderFilterLayout->addWidget(new QLabel("House", finderFilterGroup), 6, 0);
+    finderFilterLayout->addWidget(solarFinderHouseCombo_, 6, 1);
+    finderFilterLayout->addWidget(new QLabel("House System", finderFilterGroup), 7, 0);
+    finderFilterLayout->addWidget(solarFinderHouseSystemCombo_, 7, 1);
+    finderFilterLayout->addWidget(new QLabel("Conjunction", finderFilterGroup), 8, 0);
+    finderFilterLayout->addWidget(solarFinderConjunctionTargetCombo_, 8, 1);
+    finderFilterLayout->addWidget(new QLabel("Conj. Orb", finderFilterGroup), 9, 0);
+    finderFilterLayout->addWidget(solarFinderConjunctionOrbSpin_, 9, 1);
     finderLayout->addWidget(finderFilterGroup);
 
     auto* finderRunGroup = new QGroupBox("Run", solarPlacementFinderPanel_);
@@ -1193,11 +1223,20 @@ void MainWindow::setupDockLayout() {
     lunarFinderModeCombo_ = new QComboBox(lunarFinderFilterGroup);
     lunarFinderModeCombo_->addItem("Single Planet");
     lunarFinderModeCombo_->addItem("Stellium");
+    lunarFinderModeCombo_->addItem("House Ruler");
+    lunarFinderModeCombo_->addItem("Profection Lord");
     lunarFinderPlanetCombo_ = new QComboBox(lunarFinderFilterGroup);
     for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
         lunarFinderPlanetCombo_->addItem(bodyName);
     }
     lunarFinderPlanetCombo_->setCurrentText("Moon");
+    lunarFinderPlanet2Combo_ = new QComboBox(lunarFinderFilterGroup);
+    lunarFinderPlanet2Combo_->addItem("None");
+    for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
+        lunarFinderPlanet2Combo_->addItem(bodyName);
+    }
+    lunarFinderPlanet2Combo_->setCurrentText("None");
+    lunarFinderPlanet2Combo_->setToolTip("Optional second planet (OR): a return matches if either planet meets the criteria.");
     lunarFinderStelliumCountSpin_ = new QSpinBox(lunarFinderFilterGroup);
     lunarFinderStelliumCountSpin_->setRange(2, 10);
     lunarFinderStelliumCountSpin_->setValue(3);
@@ -1213,7 +1252,8 @@ void MainWindow::setupDockLayout() {
     lunarFinderHouseSystemCombo_ = new QComboBox(lunarFinderFilterGroup);
     lunarFinderHouseSystemCombo_->addItem("Whole Sign", static_cast<int>(SolarPlacementFinderHouseMode::WholeSign));
     lunarFinderHouseSystemCombo_->addItem("Placidus", static_cast<int>(SolarPlacementFinderHouseMode::Placidus));
-    lunarFinderHouseSystemCombo_->addItem("Both", static_cast<int>(SolarPlacementFinderHouseMode::Both));
+    lunarFinderHouseSystemCombo_->addItem("Both (OR)", static_cast<int>(SolarPlacementFinderHouseMode::Both));
+    lunarFinderHouseSystemCombo_->addItem("Both (AND)", static_cast<int>(SolarPlacementFinderHouseMode::BothAnd));
     lunarFinderConjunctionTargetCombo_ = new QComboBox(lunarFinderFilterGroup);
     for (const auto& targetName : solarPlacementFinderConjunctionTargets()) {
         lunarFinderConjunctionTargetCombo_->addItem(targetName);
@@ -1225,20 +1265,38 @@ void MainWindow::setupDockLayout() {
     lunarFinderConjunctionOrbSpin_->setSingleStep(0.1);
     lunarFinderConjunctionOrbSpin_->setValue(1.0);
     lunarFinderConjunctionOrbSpin_->setSuffix(" deg");
+    lunarFinderRulerHouseCombo_ = new QComboBox(lunarFinderFilterGroup);
+    for (int house = 1; house <= 12; ++house) {
+        lunarFinderRulerHouseCombo_->addItem(QString::number(house), house);
+    }
+    lunarFinderRulerHouseCombo_->setCurrentIndex(6);  // 7th house default
+    lunarFinderRulerHouseCombo_->setToolTip("Find returns where the ruler of this house falls in the target House.");
+    lunarFinderRulerHouseCombo_->setEnabled(false);
+    lunarFinderRulerSchemeCombo_ = new QComboBox(lunarFinderFilterGroup);
+    lunarFinderRulerSchemeCombo_->addItem("Traditional", 0);
+    lunarFinderRulerSchemeCombo_->addItem("Modern", 1);
+    lunarFinderRulerSchemeCombo_->setToolTip("Traditional: classical domicile rulers. Modern: Scorpio->Pluto, Aquarius->Uranus, Pisces->Neptune.");
+    lunarFinderRulerSchemeCombo_->setEnabled(false);
     lunarFinderFilterLayout->addWidget(new QLabel("Search Type", lunarFinderFilterGroup), 0, 0);
     lunarFinderFilterLayout->addWidget(lunarFinderModeCombo_, 0, 1);
     lunarFinderFilterLayout->addWidget(new QLabel("Planet", lunarFinderFilterGroup), 1, 0);
     lunarFinderFilterLayout->addWidget(lunarFinderPlanetCombo_, 1, 1);
-    lunarFinderFilterLayout->addWidget(new QLabel("Min Planets", lunarFinderFilterGroup), 2, 0);
-    lunarFinderFilterLayout->addWidget(lunarFinderStelliumCountSpin_, 2, 1);
-    lunarFinderFilterLayout->addWidget(new QLabel("House", lunarFinderFilterGroup), 3, 0);
-    lunarFinderFilterLayout->addWidget(lunarFinderHouseCombo_, 3, 1);
-    lunarFinderFilterLayout->addWidget(new QLabel("House System", lunarFinderFilterGroup), 4, 0);
-    lunarFinderFilterLayout->addWidget(lunarFinderHouseSystemCombo_, 4, 1);
-    lunarFinderFilterLayout->addWidget(new QLabel("Conjunction", lunarFinderFilterGroup), 5, 0);
-    lunarFinderFilterLayout->addWidget(lunarFinderConjunctionTargetCombo_, 5, 1);
-    lunarFinderFilterLayout->addWidget(new QLabel("Conj. Orb", lunarFinderFilterGroup), 6, 0);
-    lunarFinderFilterLayout->addWidget(lunarFinderConjunctionOrbSpin_, 6, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("or Planet", lunarFinderFilterGroup), 2, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderPlanet2Combo_, 2, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("Min Planets", lunarFinderFilterGroup), 3, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderStelliumCountSpin_, 3, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("Ruler of House", lunarFinderFilterGroup), 4, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderRulerHouseCombo_, 4, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("Rulership", lunarFinderFilterGroup), 5, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderRulerSchemeCombo_, 5, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("House", lunarFinderFilterGroup), 6, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderHouseCombo_, 6, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("House System", lunarFinderFilterGroup), 7, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderHouseSystemCombo_, 7, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("Conjunction", lunarFinderFilterGroup), 8, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderConjunctionTargetCombo_, 8, 1);
+    lunarFinderFilterLayout->addWidget(new QLabel("Conj. Orb", lunarFinderFilterGroup), 9, 0);
+    lunarFinderFilterLayout->addWidget(lunarFinderConjunctionOrbSpin_, 9, 1);
     lunarFinderLayout->addWidget(lunarFinderFilterGroup);
 
     auto* lunarFinderRunGroup = new QGroupBox("Run", lunarPlacementFinderPanel_);
@@ -1583,7 +1641,6 @@ void MainWindow::setupDockLayout() {
     transitSubTabBar_->addTab("Conjunctions");
     transitSubTabBar_->addTab("Best Days");
     transitSubTabBar_->addTab("Profections");
-    transitSubTabBar_->addTab("Lunations");
     transitSubTabBar_->setExpanding(false);
     transitSubTabBar_->setDrawBase(false);
     transitSubTabBar_->setCurrentIndex(0);
@@ -2495,9 +2552,77 @@ void MainWindow::setupDockLayout() {
     lunationRunLayout->addStretch();
     lunationRunLayout->addWidget(lunationStatusLabel_);
 
+    auto* lunationConjGroup = new QGroupBox("Planet Involvement (optional)", transitLunationPanel_);
+    auto* lunationConjLayout = new QGridLayout(lunationConjGroup);
+    lunationConjLayout->setHorizontalSpacing(8);
+    lunationConjLayout->setVerticalSpacing(6);
+    lunationConjLayout->setColumnStretch(1, 1);
+    lunationPlanetConjCheck_ = new QCheckBox("Require planet conjunction", lunationConjGroup);
+    lunationPlanetConjCheck_->setToolTip(
+        "Only keep lunations where the chosen planet is conjunct one of the selected points "
+        "(Sun / Moon / Nodes) within the orb.");
+    lunationPlanetCombo_ = new QComboBox(lunationConjGroup);
+    for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
+        lunationPlanetCombo_->addItem(bodyName);
+    }
+    lunationPlanetCombo_->setCurrentText("Saturn");
+    lunationConjSunCheck_ = new QCheckBox("Sun", lunationConjGroup);
+    lunationConjMoonCheck_ = new QCheckBox("Moon", lunationConjGroup);
+    lunationConjNorthNodeCheck_ = new QCheckBox("North Node", lunationConjGroup);
+    lunationConjSouthNodeCheck_ = new QCheckBox("South Node", lunationConjGroup);
+    lunationConjSunCheck_->setChecked(true);
+    lunationConjMoonCheck_->setChecked(true);
+    lunationConjOrbSpin_ = new QDoubleSpinBox(lunationConjGroup);
+    lunationConjOrbSpin_->setRange(0.1, 15.0);
+    lunationConjOrbSpin_->setDecimals(2);
+    lunationConjOrbSpin_->setSingleStep(0.25);
+    lunationConjOrbSpin_->setValue(3.0);
+    lunationConjOrbSpin_->setSuffix(QString(QChar(0x00B0)));
+    auto* lunationConjTargetRow = new QWidget(lunationConjGroup);
+    auto* lunationConjTargetLayout = new QHBoxLayout(lunationConjTargetRow);
+    lunationConjTargetLayout->setContentsMargins(0, 0, 0, 0);
+    lunationConjTargetLayout->setSpacing(8);
+    lunationConjTargetLayout->addWidget(lunationConjSunCheck_);
+    lunationConjTargetLayout->addWidget(lunationConjMoonCheck_);
+    lunationConjTargetLayout->addWidget(lunationConjNorthNodeCheck_);
+    lunationConjTargetLayout->addWidget(lunationConjSouthNodeCheck_);
+    lunationConjTargetLayout->addStretch();
+    lunationConjLayout->addWidget(lunationPlanetConjCheck_, 0, 0, 1, 2);
+    lunationConjLayout->addWidget(new QLabel("Planet", lunationConjGroup), 1, 0);
+    lunationConjLayout->addWidget(lunationPlanetCombo_, 1, 1);
+    lunationConjLayout->addWidget(new QLabel("Conjunct", lunationConjGroup), 2, 0);
+    lunationConjLayout->addWidget(lunationConjTargetRow, 2, 1);
+    lunationConjLayout->addWidget(new QLabel("Orb", lunationConjGroup), 3, 0);
+    lunationConjLayout->addWidget(lunationConjOrbSpin_, 3, 1);
+
+    auto updateLunationConjEnabled = [this]() {
+        const bool on = lunationPlanetConjCheck_ && lunationPlanetConjCheck_->isChecked();
+        if (lunationPlanetCombo_) lunationPlanetCombo_->setEnabled(on);
+        if (lunationConjSunCheck_) lunationConjSunCheck_->setEnabled(on);
+        if (lunationConjMoonCheck_) lunationConjMoonCheck_->setEnabled(on);
+        if (lunationConjNorthNodeCheck_) lunationConjNorthNodeCheck_->setEnabled(on);
+        if (lunationConjSouthNodeCheck_) lunationConjSouthNodeCheck_->setEnabled(on);
+        if (lunationConjOrbSpin_) lunationConjOrbSpin_->setEnabled(on);
+    };
+    connect(lunationPlanetConjCheck_, &QCheckBox::toggled, this, [updateLunationConjEnabled](bool) {
+        updateLunationConjEnabled();
+    });
+    updateLunationConjEnabled();
+
     lunationLayout->addWidget(lunationEventGroup);
     lunationLayout->addWidget(lunationModeGroup);
+    lunationLayout->addWidget(lunationConjGroup);
     lunationLayout->addWidget(lunationAnalysisSection);
+
+    auto* lunationChartGroup = new QGroupBox("Chart", transitLunationPanel_);
+    auto* lunationChartLayout = new QVBoxLayout(lunationChartGroup);
+    lunationChartLayout->setContentsMargins(8, 6, 8, 6);
+    lunationOverlayCheck_ = new QCheckBox("Overlay natal chart", lunationChartGroup);
+    lunationOverlayCheck_->setChecked(true);
+    lunationOverlayCheck_->setToolTip("Show the lunation moment overlaid on the natal chart (off = standalone moment chart).");
+    lunationChartLayout->addWidget(lunationOverlayCheck_);
+    lunationLayout->addWidget(lunationChartGroup);
+
     lunationLayout->addWidget(lunationRunGroup);
     lunationLayout->addStretch();
 
@@ -2507,7 +2632,6 @@ void MainWindow::setupDockLayout() {
     transitPanelStack_->addWidget(transitConjunctionPanel_);
     transitPanelStack_->addWidget(transitScanPanel);
     transitPanelStack_->addWidget(transitProfectionPanel_);
-    transitPanelStack_->addWidget(transitLunationPanel_);
 
     transitLayout->addWidget(transitPanelStack_);
 
@@ -2603,6 +2727,16 @@ void MainWindow::setupDockLayout() {
     transitScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     transitScroll->setWidget(transitPanel_);
     dataStack_->addWidget(transitScroll);
+
+    // Lunations is its own main tab; wrap its control panel in a scroll area and
+    // register it as a dedicated data-stack page (index captured for switching).
+    auto* lunationsScroll = new QScrollArea(this);
+    lunationsScroll->setWidgetResizable(true);
+    lunationsScroll->setFrameShape(QFrame::NoFrame);
+    lunationsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lunationsScroll->setWidget(transitLunationPanel_);
+    lunationsPanel_ = lunationsScroll;
+    lunationsDataStackIndex_ = dataStack_->addWidget(lunationsScroll);
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
     dataStack_->addWidget(astrocartographyPanel_);
 #endif
@@ -3826,6 +3960,18 @@ void MainWindow::setupConnections() {
         connect(lunarFinderStelliumCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
                 this, [this](int) { markLunarPlacementFinderStale(); });
     }
+    if (lunarFinderRulerHouseCombo_) {
+        connect(lunarFinderRulerHouseCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markLunarPlacementFinderStale(); });
+    }
+    if (lunarFinderRulerSchemeCombo_) {
+        connect(lunarFinderRulerSchemeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markLunarPlacementFinderStale(); });
+    }
+    if (lunarFinderPlanet2Combo_) {
+        connect(lunarFinderPlanet2Combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markLunarPlacementFinderStale(); });
+    }
     if (lunarFinderHouseCombo_) {
         connect(lunarFinderHouseCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int) { markLunarPlacementFinderStale(); });
@@ -3885,6 +4031,18 @@ void MainWindow::setupConnections() {
     if (solarFinderStelliumCountSpin_) {
         connect(solarFinderStelliumCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
                 this, &MainWindow::markSolarPlacementFinderStale);
+    }
+    if (solarFinderRulerHouseCombo_) {
+        connect(solarFinderRulerHouseCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markSolarPlacementFinderStale(); });
+    }
+    if (solarFinderRulerSchemeCombo_) {
+        connect(solarFinderRulerSchemeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markSolarPlacementFinderStale(); });
+    }
+    if (solarFinderPlanet2Combo_) {
+        connect(solarFinderPlanet2Combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { markSolarPlacementFinderStale(); });
     }
     if (relocationLocationEdit_) {
         connect(relocationLocationEdit_, &QLineEdit::editingFinished, this, &MainWindow::markRelocationPending);
@@ -4487,6 +4645,15 @@ void MainWindow::setupConnections() {
     if (lunationRunButton_) {
         connect(lunationRunButton_, &QPushButton::clicked, this, &MainWindow::handleLunationSearchRun);
     }
+    if (lunationOverlayCheck_) {
+        connect(lunationOverlayCheck_, &QCheckBox::toggled, this, [this](bool checked) {
+            lunationOverlay_ = checked;
+            updateChartLegend();
+            if (inLunationsView() && hasLunationSelection_ && canApplyLunationResult(nullptr)) {
+                applyLunationResult(lastLunationSelection_);
+            }
+        });
+    }
     if (lunationStopButton_) {
         connect(lunationStopButton_, &QPushButton::clicked, this, &MainWindow::handleLunationSearchStop);
     }
@@ -4653,7 +4820,7 @@ void MainWindow::setupConnections() {
                 handleCopyTransitConjunctionDetails();
             } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Scan) {
                 handleCopyTransitScanDetails();
-            } else if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations) {
+            } else if (inLunationsView()) {
                 handleCopyLunationDetails();
             }
         });
@@ -4681,6 +4848,10 @@ void MainWindow::setupConnections() {
             }
             if (activeTab_ == AppTab::LunarReturn && isLunarPlacementFinderTabActive()) {
                 handleLunarPlacementFinderResultActivated(row, column);
+                return;
+            }
+            if (inLunationsView()) {
+                handleLunationResultActivated(row, column);
                 return;
             }
             if (activeTab_ == AppTab::SolarReturn && isSolarTechniqueTabActive()) {
@@ -4717,7 +4888,7 @@ void MainWindow::setupConnections() {
     if (rightBottomTable_) {
         connect(rightBottomTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
             Q_UNUSED(column);
-            if (activeTab_ != AppTab::Transits || transitSubTab_ != TransitSubTab::Lunations) {
+            if (!inLunationsView()) {
                 return;
             }
             if (lunationAnalysisMode_ != LunationAnalysisMode::RepeatedDegrees) {
@@ -5064,6 +5235,13 @@ void MainWindow::loadUiState() {
             lunarFinderPlanetCombo_->setCurrentIndex(idx);
         }
     }
+    if (lunarFinderPlanet2Combo_) {
+        const QString planet2 = settings.value("lunar/finder_planet2", "None").toString();
+        const int idx = lunarFinderPlanet2Combo_->findText(planet2);
+        if (idx >= 0) {
+            lunarFinderPlanet2Combo_->setCurrentIndex(idx);
+        }
+    }
     if (lunarFinderStelliumCountSpin_) {
         lunarFinderStelliumCountSpin_->setValue(settings.value("lunar/finder_stellium_min",
             lunarFinderStelliumCountSpin_->value()).toInt());
@@ -5079,7 +5257,7 @@ void MainWindow::loadUiState() {
         int finderMode = settings.value("lunar/finder_house_mode",
             static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)).toInt();
         if (finderMode < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
-            || finderMode > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+            || finderMode > static_cast<int>(SolarPlacementFinderHouseMode::BothAnd)) {
             finderMode = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
         }
         const int idx = lunarFinderHouseSystemCombo_->findData(finderMode);
@@ -5098,6 +5276,20 @@ void MainWindow::loadUiState() {
     if (lunarFinderConjunctionOrbSpin_) {
         lunarFinderConjunctionOrbSpin_->setValue(settings.value("lunar/finder_conjunction_orb",
             lunarFinderConjunctionOrbSpin_->value()).toDouble());
+    }
+    if (lunarFinderRulerHouseCombo_) {
+        const int h = settings.value("lunar/finder_ruler_house", 7).toInt();
+        const int idx = lunarFinderRulerHouseCombo_->findData(h);
+        if (idx >= 0) {
+            lunarFinderRulerHouseCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (lunarFinderRulerSchemeCombo_) {
+        const int s = settings.value("lunar/finder_ruler_scheme", 0).toInt();
+        const int idx = lunarFinderRulerSchemeCombo_->findData(s);
+        if (idx >= 0) {
+            lunarFinderRulerSchemeCombo_->setCurrentIndex(idx);
+        }
     }
     if (lunarFinderModeCombo_) {
         const int modeIdx = settings.value("lunar/finder_search_mode", 0).toInt();
@@ -5183,6 +5375,13 @@ void MainWindow::loadUiState() {
             solarFinderPlanetCombo_->setCurrentIndex(idx);
         }
     }
+    if (solarFinderPlanet2Combo_) {
+        const QString planet2 = settings.value("solar/finder_planet2", "None").toString();
+        const int idx = solarFinderPlanet2Combo_->findText(planet2);
+        if (idx >= 0) {
+            solarFinderPlanet2Combo_->setCurrentIndex(idx);
+        }
+    }
     if (solarFinderHouseCombo_) {
         const int finderHouse = settings.value("solar/finder_house", 1).toInt();
         const int idx = solarFinderHouseCombo_->findData(finderHouse);
@@ -5194,7 +5393,7 @@ void MainWindow::loadUiState() {
         int finderMode = settings.value("solar/finder_house_mode",
             static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)).toInt();
         if (finderMode < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
-            || finderMode > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+            || finderMode > static_cast<int>(SolarPlacementFinderHouseMode::BothAnd)) {
             finderMode = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
         }
         const int idx = solarFinderHouseSystemCombo_->findData(finderMode);
@@ -5217,6 +5416,20 @@ void MainWindow::loadUiState() {
     if (solarFinderStelliumCountSpin_) {
         solarFinderStelliumCountSpin_->setValue(settings.value("solar/finder_stellium_min",
             solarFinderStelliumCountSpin_->value()).toInt());
+    }
+    if (solarFinderRulerHouseCombo_) {
+        const int h = settings.value("solar/finder_ruler_house", 7).toInt();
+        const int idx = solarFinderRulerHouseCombo_->findData(h);
+        if (idx >= 0) {
+            solarFinderRulerHouseCombo_->setCurrentIndex(idx);
+        }
+    }
+    if (solarFinderRulerSchemeCombo_) {
+        const int s = settings.value("solar/finder_ruler_scheme", 0).toInt();
+        const int idx = solarFinderRulerSchemeCombo_->findData(s);
+        if (idx >= 0) {
+            solarFinderRulerSchemeCombo_->setCurrentIndex(idx);
+        }
     }
     if (solarFinderModeCombo_) {
         const int modeIdx = settings.value("solar/finder_search_mode", 0).toInt();
@@ -5377,6 +5590,9 @@ void MainWindow::saveUiState() {
     if (lunarFinderPlanetCombo_) {
         settings.setValue("lunar/finder_planet", lunarFinderPlanetCombo_->currentText());
     }
+    if (lunarFinderPlanet2Combo_) {
+        settings.setValue("lunar/finder_planet2", lunarFinderPlanet2Combo_->currentText());
+    }
     if (lunarFinderStelliumCountSpin_) {
         settings.setValue("lunar/finder_stellium_min", lunarFinderStelliumCountSpin_->value());
     }
@@ -5385,6 +5601,12 @@ void MainWindow::saveUiState() {
     }
     if (lunarFinderHouseSystemCombo_) {
         settings.setValue("lunar/finder_house_mode", lunarFinderHouseSystemCombo_->currentData().toInt());
+    }
+    if (lunarFinderRulerHouseCombo_) {
+        settings.setValue("lunar/finder_ruler_house", lunarFinderRulerHouseCombo_->currentData().toInt());
+    }
+    if (lunarFinderRulerSchemeCombo_) {
+        settings.setValue("lunar/finder_ruler_scheme", lunarFinderRulerSchemeCombo_->currentData().toInt());
     }
     if (lunarFinderConjunctionTargetCombo_) {
         settings.setValue("lunar/finder_conjunction_target", lunarFinderConjunctionTargetCombo_->currentText());
@@ -5428,6 +5650,9 @@ void MainWindow::saveUiState() {
     if (solarFinderPlanetCombo_) {
         settings.setValue("solar/finder_planet", solarFinderPlanetCombo_->currentText());
     }
+    if (solarFinderPlanet2Combo_) {
+        settings.setValue("solar/finder_planet2", solarFinderPlanet2Combo_->currentText());
+    }
     if (solarFinderHouseCombo_) {
         settings.setValue("solar/finder_house", solarFinderHouseCombo_->currentData().toInt());
     }
@@ -5445,6 +5670,12 @@ void MainWindow::saveUiState() {
     }
     if (solarFinderStelliumCountSpin_) {
         settings.setValue("solar/finder_stellium_min", solarFinderStelliumCountSpin_->value());
+    }
+    if (solarFinderRulerHouseCombo_) {
+        settings.setValue("solar/finder_ruler_house", solarFinderRulerHouseCombo_->currentData().toInt());
+    }
+    if (solarFinderRulerSchemeCombo_) {
+        settings.setValue("solar/finder_ruler_scheme", solarFinderRulerSchemeCombo_->currentData().toInt());
     }
     settings.setValue("relocation/house_system", relocationHouseSystem_ == HouseSystem::Placidus ? 1 : 0);
     if (relocationLocationEdit_) {
@@ -5585,6 +5816,8 @@ void MainWindow::showAsteroidSelectionDialog() {
         refreshSolarReturnView();
     } else if (activeTab_ == AppTab::LunarReturn) {
         refreshLunarReturnView();
+    } else if (activeTab_ == AppTab::Lunations) {
+        refreshLunationsTab();
     } else if (activeTab_ == AppTab::Relocation) {
         refreshRelocationView();
     } else if (hasCurrentChart_) {
@@ -5882,6 +6115,8 @@ void MainWindow::showChartSettingsMenu() {
             refreshSolarReturnView();
         } else if (activeTab_ == AppTab::LunarReturn) {
             refreshLunarReturnView();
+        } else if (activeTab_ == AppTab::Lunations) {
+            refreshLunationsTab();
         } else if (activeTab_ == AppTab::Relocation) {
             refreshRelocationView();
         } else {
@@ -6294,6 +6529,8 @@ void MainWindow::showFixedStarSelectionDialog() {
         refreshSolarReturnView();
     } else if (activeTab_ == AppTab::LunarReturn) {
         refreshLunarReturnView();
+    } else if (activeTab_ == AppTab::Lunations) {
+        refreshLunationsTab();
     } else if (activeTab_ == AppTab::Relocation) {
         refreshRelocationView();
     } else if (activeTab_ == AppTab::Transits) {
@@ -6481,6 +6718,15 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         } else {
             showLunarPlaceholder();
         }
+    } else if (activeTab_ == AppTab::Lunations) {
+        // A natal recompute (e.g. Tropical/Sidereal switch) changes the displayed
+        // moment chart; re-apply the current selection so the wheel/aspects match
+        // the new zodiac. (The event list itself should be re-run by the user.)
+        if (hasLunationSelection_ && canApplyLunationResult(nullptr)) {
+            applyLunationResult(lastLunationSelection_);
+        } else {
+            refreshLunationsTab();
+        }
     } else if (activeTab_ == AppTab::Astrocartography) {
         updateAstrocartographyView();
     } else {
@@ -6532,9 +6778,11 @@ void MainWindow::handleMainTabChanged(int index) {
     } else if (index == 4) {
         activeTab_ = AppTab::LunarReturn;
     } else if (index == 5) {
+        activeTab_ = AppTab::Lunations;
+    } else if (index == 6) {
         activeTab_ = AppTab::Relocation;
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
-    } else if (index == 6) {
+    } else if (index == 7) {
         activeTab_ = AppTab::Astrocartography;
 #endif
     } else {
@@ -6543,9 +6791,11 @@ void MainWindow::handleMainTabChanged(int index) {
     if (dataStack_) {
         if (activeTab_ == AppTab::Transits) {
             dataStack_->setCurrentIndex(1);
+        } else if (activeTab_ == AppTab::Lunations && lunationsDataStackIndex_ >= 0) {
+            dataStack_->setCurrentIndex(lunationsDataStackIndex_);
 #if defined(DRACOVED_ENABLE_ASTRO_MAP)
         } else if (activeTab_ == AppTab::Astrocartography) {
-            dataStack_->setCurrentIndex(2);
+            dataStack_->setCurrentIndex(lunationsDataStackIndex_ >= 0 ? lunationsDataStackIndex_ + 1 : 2);
 #endif
         } else {
             dataStack_->setCurrentIndex(0);
@@ -6683,6 +6933,14 @@ void MainWindow::handleMainTabChanged(int index) {
         updateLunarStatusLabels();
         refreshLunarReturnView();
         refreshLunarPlacementFinderView();
+    } else if (activeTab_ == AppTab::Lunations) {
+        if (rightTopDock_) {
+            rightTopDock_->setWindowTitle("Lunations");
+        }
+        if (rightBottomDock_) {
+            rightBottomDock_->setWindowTitle("Lunation Details");
+        }
+        refreshLunationsTab();
     } else if (activeTab_ == AppTab::Relocation) {
         if (rightTopDock_) {
             rightTopDock_->setWindowTitle("Relocation");
@@ -6872,8 +7130,6 @@ void MainWindow::handleTransitSubTabChanged(int index) {
         transitSubTab_ = TransitSubTab::Scan;
     } else if (index == 5) {
         transitSubTab_ = TransitSubTab::Profections;
-    } else if (index == 6) {
-        transitSubTab_ = TransitSubTab::Lunations;
     } else {
         transitSubTab_ = TransitSubTab::Overview;
     }
@@ -6899,7 +7155,9 @@ void MainWindow::handleTransitSubTabChanged(int index) {
                 stackIndex = 5;
                 break;
             case TransitSubTab::Lunations:
-                stackIndex = 6;
+                // Lunations is now its own main tab; this sub-tab value is no
+                // longer reachable here. Keep a safe fallback for switch coverage.
+                stackIndex = 0;
                 break;
         }
         transitPanelStack_->setCurrentIndex(stackIndex);
@@ -7901,7 +8159,7 @@ void MainWindow::updateLunationCopyButtonState() {
         rightBottomCopyButton_->setEnabled(hasTransitScanSelection_ && hasTransitChart_);
         return;
     }
-    const bool inLunations = (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations);
+    const bool inLunations = inLunationsView();
     const bool showingEventDetails = lunationBottomEventOrder_.isEmpty();
     if (inLunations) {
         rightBottomCopyButton_->setText("Copy Lunation Placements");
@@ -10782,6 +11040,29 @@ void MainWindow::runLunationSearch() {
         params.degreeRangeEnd = lunationDegreeRangeEndSpin_ ? lunationDegreeRangeEndSpin_->value() : 29.99;
     }
 
+    params.requirePlanetConjunction = lunationPlanetConjCheck_ && lunationPlanetConjCheck_->isChecked();
+    if (params.requirePlanetConjunction) {
+        if (!lunationModeRangeRadio_ || !lunationModeRangeRadio_->isChecked()) {
+            setStatusMessage("Planet conjunction filter needs Year Range mode "
+                             "(Find Next/Previous returns a single event that the filter would usually exclude).");
+            return;
+        }
+        params.conjunctionPlanet = lunationPlanetCombo_ ? lunationPlanetCombo_->currentText().trimmed() : QString();
+        params.targetSun = lunationConjSunCheck_ && lunationConjSunCheck_->isChecked();
+        params.targetMoon = lunationConjMoonCheck_ && lunationConjMoonCheck_->isChecked();
+        params.targetNorthNode = lunationConjNorthNodeCheck_ && lunationConjNorthNodeCheck_->isChecked();
+        params.targetSouthNode = lunationConjSouthNodeCheck_ && lunationConjSouthNodeCheck_->isChecked();
+        params.conjunctionOrb = lunationConjOrbSpin_ ? lunationConjOrbSpin_->value() : 3.0;
+        if (params.conjunctionPlanet.isEmpty()) {
+            setStatusMessage("Select a planet for the conjunction filter.");
+            return;
+        }
+        if (!params.targetSun && !params.targetMoon && !params.targetNorthNode && !params.targetSouthNode) {
+            setStatusMessage("Select at least one conjunction target (Sun/Moon/Node).");
+            return;
+        }
+    }
+
     if (lunationModeRangeRadio_ && lunationModeRangeRadio_->isChecked()) {
         params.findMode = LunationFindMode::Range;
         int startYear = lunationStartYearSpin_ ? lunationStartYearSpin_->value() : QDate::currentDate().year();
@@ -10836,7 +11117,7 @@ void MainWindow::runLunationSearch() {
     if (lunationStatusLabel_) {
         lunationStatusLabel_->setText("Searching...");
     }
-    if (transitSubTab_ == TransitSubTab::Lunations) {
+    if (inLunationsView()) {
         showLunationResults();
     }
 
@@ -10887,7 +11168,7 @@ void MainWindow::runLunationSearch() {
                 lunationStatusLabel_->setText(QString("Done (%1)").arg(lunationResults_.size()));
             }
         }
-        if (transitSubTab_ == TransitSubTab::Lunations) {
+        if (inLunationsView()) {
             showLunationResults();
         }
     });
@@ -10974,7 +11255,19 @@ void MainWindow::showLunationResults() {
         return;
     }
 
-    setupTable(rightTopTable_, {"Date", "Time", "Event", "Sun", "Moon", "Eclipse"}, lunationListDisplayOrder_.size());
+    bool anyConjunction = false;
+    for (int idx : lunationListDisplayOrder_) {
+        if (idx >= 0 && idx < lunationResults_.size() && !lunationResults_[idx].conjunctionSummary.isEmpty()) {
+            anyConjunction = true;
+            break;
+        }
+    }
+
+    QStringList listHeaders = {"Date", "Time", "Event", "Sun", "Moon", "Eclipse"};
+    if (anyConjunction) {
+        listHeaders << "Planet Hit";
+    }
+    setupTable(rightTopTable_, listHeaders, lunationListDisplayOrder_.size());
     for (int row = 0; row < lunationListDisplayOrder_.size(); ++row) {
         const int idx = lunationListDisplayOrder_[row];
         if (idx < 0 || idx >= lunationResults_.size()) {
@@ -10987,6 +11280,9 @@ void MainWindow::showLunationResults() {
         rightTopTable_->setItem(row, 3, makeCell(formatDegInSign(res.sunLon)));
         rightTopTable_->setItem(row, 4, makeCell(formatDegInSign(res.moonLon)));
         rightTopTable_->setItem(row, 5, makeCell(res.eclipseType.isEmpty() ? "-" : res.eclipseType));
+        if (anyConjunction) {
+            rightTopTable_->setItem(row, 6, makeCell(res.conjunctionSummary.isEmpty() ? "-" : res.conjunctionSummary));
+        }
     }
     const int firstIndex = lunationListDisplayOrder_.front();
     if (firstIndex >= 0 && firstIndex < lunationResults_.size()) {
@@ -11398,6 +11694,7 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     }
     lunationBottomEventOrder_.clear();
     const bool hasEclipse = !result.eclipseType.isEmpty();
+    const bool hasConj = !result.conjunctionSummary.isEmpty();
     const bool hasMomentPlacements = hasTransitChart_
         && hasLunationSelection_
         && lastLunationSelection_.timeUtc == result.timeUtc
@@ -11405,7 +11702,7 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     const bool hasFixedStarInfo = hasMomentPlacements && !currentTransitChart_.fixedStars.isEmpty();
     const int placementRows = hasMomentPlacements ? currentTransitChart_.bodies.size() : 0;
     const int fixedStarRows = hasFixedStarInfo ? 2 : 0;
-    const int totalRows = (hasEclipse ? 7 : 6) + fixedStarRows + (hasMomentPlacements ? 1 + placementRows : 1);
+    const int totalRows = (hasEclipse ? 7 : 6) + (hasConj ? 1 : 0) + fixedStarRows + (hasMomentPlacements ? 1 + placementRows : 1);
     setupTable(rightBottomTable_, {"Item", "Value"}, totalRows);
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
@@ -11424,6 +11721,10 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.sunLon)));
     rightBottomTable_->setItem(row, 0, makeCell("Moon"));
     rightBottomTable_->setItem(row++, 1, makeCell(formatDegInSign(result.moonLon)));
+    if (hasConj) {
+        rightBottomTable_->setItem(row, 0, makeCell("Planet Hit"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.conjunctionSummary));
+    }
     if (hasFixedStarInfo) {
         auto nearestStarLine = [&](double lon) -> QString {
             const FixedStarPosition* bestStar = nullptr;
@@ -11507,6 +11808,23 @@ void MainWindow::showLunationDetails(const LunationResult& result) {
     updateLunationCopyButtonState();
 }
 
+bool MainWindow::inLunationsView() const {
+    return activeTab_ == AppTab::Lunations;
+}
+
+void MainWindow::refreshLunationsTab() {
+    if (activeTab_ != AppTab::Lunations) {
+        return;
+    }
+    updateLunationModeAvailability();
+    updateLunationAnalysisAvailability();
+    if (!lunationRunning_) {
+        lunationAutoApplied_ = false;
+        showLunationResults();
+    }
+    updateLunationCopyButtonState();
+}
+
 void MainWindow::applyLunationResult(const LunationResult& result) {
     QString precheckErr;
     if (!canApplyLunationResult(&precheckErr)) {
@@ -11543,7 +11861,7 @@ void MainWindow::applyLunationResult(const LunationResult& result) {
         }
     };
 
-    const bool overlayMode = (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_);
+    const bool overlayMode = (lunationOverlay_ && hasCurrentChart_);
     if (overlayMode) {
         if (chartWheel_) {
             chartWheel_->setShowAspects(true);
@@ -11587,13 +11905,13 @@ bool MainWindow::canApplyLunationResult(QString* error) const {
         }
         return false;
     }
-    if (transitMode_ == TransitMode::NatalOverlay && !hasCurrentChart_) {
+    if (lunationOverlay_ && !hasCurrentChart_) {
         if (error) {
-            *error = "Load a natal chart first to compute transits.";
+            *error = "Load a natal chart first to overlay the lunation chart.";
         }
         return false;
     }
-    if (transitMode_ == TransitMode::TransitOnly && !hasCurrentChart_) {
+    if (!lunationOverlay_ && !hasCurrentChart_) {
         const QString loc = transitLocationEdit_ ? transitLocationEdit_->text().trimmed() : QString();
         const double lat = transitLatSpin_ ? transitLatSpin_->value() : 0.0;
         const double lon = transitLonSpin_ ? transitLonSpin_->value() : 0.0;
@@ -12236,6 +12554,9 @@ void MainWindow::updateChartLegend() {
     } else if (activeTab_ == AppTab::Relocation && relocationOverlayCheck_ && relocationOverlayCheck_->isChecked()) {
         showLegend = true;
         label = "Natal (inner) / Relocation (outer)";
+    } else if (activeTab_ == AppTab::Lunations && lunationOverlay_ && hasCurrentChart_) {
+        showLegend = true;
+        label = "Natal (inner) / Lunation (outer)";
     }
     if (showLegend) {
         chartLegendLabel_->setText(label);
@@ -13408,6 +13729,26 @@ static QString solarProfectionRulerForSign(int idx) {
     return QString::fromLatin1(rulers[idx]);
 }
 
+// Domicile ruler of a sign. Traditional uses the seven classical rulers;
+// modern assigns Scorpio->Pluto, Aquarius->Uranus, Pisces->Neptune.
+static QString houseRulerForSign(int idx, bool modern) {
+    if (idx < 0 || idx >= 12) {
+        return QString();
+    }
+    if (modern) {
+        if (idx == 7) {
+            return QStringLiteral("Pluto");    // Scorpio
+        }
+        if (idx == 10) {
+            return QStringLiteral("Uranus");   // Aquarius
+        }
+        if (idx == 11) {
+            return QStringLiteral("Neptune");  // Pisces
+        }
+    }
+    return solarProfectionRulerForSign(idx);
+}
+
 static QString ordinalHouseLabel(int house) {
     static const char* names[13] = {
         "-", "1st", "2nd", "3rd", "4th", "5th", "6th",
@@ -14261,18 +14602,31 @@ void MainWindow::updateLunarReturnDockTitles() {
 }
 
 void MainWindow::updateLunarFinderModeAvailability() {
-    const bool stellium = (lunarFinderModeCombo_ && lunarFinderModeCombo_->currentIndex() == 1);
+    const int modeIdx = lunarFinderModeCombo_ ? lunarFinderModeCombo_->currentIndex() : 0;
+    const bool single = (modeIdx == 0);
+    const bool stellium = (modeIdx == 1);
+    const bool ruler = (modeIdx == 2);
+    const bool profection = (modeIdx == 3);
     if (lunarFinderPlanetCombo_) {
-        lunarFinderPlanetCombo_->setEnabled(!stellium);
+        lunarFinderPlanetCombo_->setEnabled(single);
+    }
+    if (lunarFinderPlanet2Combo_) {
+        lunarFinderPlanet2Combo_->setEnabled(single);
     }
     if (lunarFinderStelliumCountSpin_) {
         lunarFinderStelliumCountSpin_->setEnabled(stellium);
     }
+    if (lunarFinderRulerHouseCombo_) {
+        lunarFinderRulerHouseCombo_->setEnabled(ruler);
+    }
+    if (lunarFinderRulerSchemeCombo_) {
+        lunarFinderRulerSchemeCombo_->setEnabled(ruler || profection);
+    }
     if (lunarFinderConjunctionTargetCombo_) {
-        lunarFinderConjunctionTargetCombo_->setEnabled(!stellium);
+        lunarFinderConjunctionTargetCombo_->setEnabled(single);
     }
     if (lunarFinderConjunctionOrbSpin_) {
-        lunarFinderConjunctionOrbSpin_->setEnabled(!stellium);
+        lunarFinderConjunctionOrbSpin_->setEnabled(single);
     }
 }
 
@@ -14340,10 +14694,14 @@ void MainWindow::handleLunarPlacementFinderRun() {
     }
 
     const bool stelliumMode = (lunarFinderModeCombo_ && lunarFinderModeCombo_->currentIndex() == 1);
+    const bool rulerMode = (lunarFinderModeCombo_ && lunarFinderModeCombo_->currentIndex() == 2);
+    const bool profectionMode = (lunarFinderModeCombo_ && lunarFinderModeCombo_->currentIndex() == 3);
     const int stelliumMin = lunarFinderStelliumCountSpin_ ? lunarFinderStelliumCountSpin_->value() : 3;
+    const int rulerOfHouse = lunarFinderRulerHouseCombo_ ? lunarFinderRulerHouseCombo_->currentData().toInt() : 7;
+    const bool rulerModern = (lunarFinderRulerSchemeCombo_ && lunarFinderRulerSchemeCombo_->currentData().toInt() == 1);
 
     const QString planetName = lunarFinderPlanetCombo_->currentText().trimmed();
-    if (!stelliumMode && planetName.isEmpty()) {
+    if (!stelliumMode && !rulerMode && !profectionMode && planetName.isEmpty()) {
         if (lunarFinderStatusLabel_) {
             lunarFinderStatusLabel_->setText("Idle");
         }
@@ -14365,7 +14723,7 @@ void MainWindow::handleLunarPlacementFinderRun() {
 
     int modeValue = lunarFinderHouseSystemCombo_->currentData().toInt();
     if (modeValue < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
-        || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+        || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::BothAnd)) {
         modeValue = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
     }
     const SolarPlacementFinderHouseMode houseMode = static_cast<SolarPlacementFinderHouseMode>(modeValue);
@@ -14377,12 +14735,20 @@ void MainWindow::handleLunarPlacementFinderRun() {
         ? std::max(0.01, (lunarFinderConjunctionOrbSpin_ ? lunarFinderConjunctionOrbSpin_->value() : 1.0))
         : 0.0;
 
-    if (!stelliumMode && anyHouse && !useConjunction) {
+    if (!stelliumMode && !rulerMode && !profectionMode && anyHouse && !useConjunction) {
         if (lunarFinderStatusLabel_) {
             lunarFinderStatusLabel_->setText("Idle");
         }
         setStatusMessage("Single-planet search with \"Any house\" needs a conjunction-to-angle filter, "
                          "otherwise every return matches. Pick a house or set a conjunction target.");
+        refreshLunarPlacementFinderView();
+        return;
+    }
+    if ((rulerMode || profectionMode) && anyHouse) {
+        if (lunarFinderStatusLabel_) {
+            lunarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage("This search needs a specific target House (not \"Any house\").");
         refreshLunarPlacementFinderView();
         return;
     }
@@ -14508,10 +14874,12 @@ void MainWindow::handleLunarPlacementFinderRun() {
                 };
 
                 const bool checkWhole = (houseMode == SolarPlacementFinderHouseMode::WholeSign
-                                         || houseMode == SolarPlacementFinderHouseMode::Both);
+                                         || houseMode == SolarPlacementFinderHouseMode::Both
+                                         || houseMode == SolarPlacementFinderHouseMode::BothAnd);
                 const bool checkPlacidus = hasPlacidusCusps
                                            && (houseMode == SolarPlacementFinderHouseMode::Placidus
-                                               || houseMode == SolarPlacementFinderHouseMode::Both);
+                                               || houseMode == SolarPlacementFinderHouseMode::Both
+                                               || houseMode == SolarPlacementFinderHouseMode::BothAnd);
 
                 int wholeHouse = 0;
                 int wholeCount = 0;
@@ -14559,12 +14927,166 @@ void MainWindow::handleLunarPlacementFinderRun() {
                     matches.push_back(result);
                 }
             }
-        } else {
-            double bodyLon = 0.0;
-            if (!findBodyLongitude(chart, planetName, &bodyLon)) {
+        } else if (rulerMode) {
+            const int ascSign = signIndex(chart.angles.asc);
+            const bool hasPlacidusCusps = (chart.cusps.size() == 12);
+            const int signXWhole = (ascSign + (rulerOfHouse - 1)) % 12;
+            const QString rulerWhole = houseRulerForSign(signXWhole, rulerModern);
+            int rulerHouseWhole = 0;
+            bool wholeMatch = false;
+            double rlonW = 0.0;
+            if (!rulerWhole.isEmpty() && findBodyLongitude(chart, rulerWhole, &rlonW)) {
+                rulerHouseWhole = calcHouseForLongitude(rlonW, {}, chart.angles.asc, HouseSystem::WholeSign);
+                wholeMatch = (rulerHouseWhole == targetHouse);
+            }
+            QString rulerPlac;
+            int rulerHousePlac = 0;
+            bool placMatch = false;
+            bool rulerBlocked = false;
+            if (hasPlacidusCusps) {
+                const int signXPlac = signIndex(chart.cusps[rulerOfHouse - 1].longitude);
+                rulerPlac = houseRulerForSign(signXPlac, rulerModern);
+                double rlonP = 0.0;
+                if (!rulerPlac.isEmpty() && findBodyLongitude(chart, rulerPlac, &rlonP)) {
+                    rulerHousePlac = calcHouseForLongitude(rlonP, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+                    placMatch = (rulerHousePlac == targetHouse);
+                }
+            } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
                 ++failedCount;
-                warnings.push_back(QString("%1: %2 position unavailable.").arg(stamp, planetName));
-            } else {
+                warnings.push_back(QString("%1: Placidus cusps unavailable.").arg(stamp));
+                rulerBlocked = true;
+            } else if (houseMode == SolarPlacementFinderHouseMode::BothAnd) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(stamp));
+                rulerBlocked = true;
+            } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+                rowWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
+                warnings.push_back(QString("%1: %2").arg(stamp, rowWarning));
+            }
+            if (!rulerBlocked) {
+                bool matchedRuler = false;
+                switch (houseMode) {
+                    case SolarPlacementFinderHouseMode::WholeSign:
+                        matchedRuler = wholeMatch;
+                        break;
+                    case SolarPlacementFinderHouseMode::Placidus:
+                        matchedRuler = placMatch;
+                        break;
+                    case SolarPlacementFinderHouseMode::Both:
+                        matchedRuler = (wholeMatch || placMatch);
+                        break;
+                    case SolarPlacementFinderHouseMode::BothAnd:
+                        matchedRuler = (wholeMatch && placMatch);
+                        break;
+                }
+                if (matchedRuler) {
+                    LunarPlacementFinderResult result;
+                    result.localDateTime = chart.localDateTime;
+                    result.returnUtc = curUtc;
+                    result.isHouseRuler = true;
+                    result.rulerOfHouse = rulerOfHouse;
+                    result.rulerNameWhole = rulerWhole;
+                    result.rulerNamePlacidus = rulerPlac;
+                    result.bodyName = !rulerWhole.isEmpty() ? rulerWhole : rulerPlac;
+                    result.houseWhole = rulerHouseWhole;
+                    result.housePlacidus = rulerHousePlac;
+                    result.matchedWhole = wholeMatch;
+                    result.matchedPlacidus = placMatch;
+                    result.warning = rowWarning;
+                    matches.push_back(result);
+                }
+            }
+        } else if (profectionMode) {
+            const int birthYear = currentChart_.localDateTime.isValid()
+                ? currentChart_.localDateTime.date().year()
+                : curLocal.date().year();
+            const int age = std::max(0, curLocal.date().year() - birthYear);
+            const int ageMod = ((age % 12) + 12) % 12;
+            const int profectedHouse = ageMod + 1;
+            const int natalAscSign = signIndex(currentChart_.angles.asc);
+            const int profectedSignIdx = (natalAscSign + ageMod) % 12;
+            const QString lord = houseRulerForSign(profectedSignIdx, rulerModern);
+            double lordLon = 0.0;
+            bool profBlocked = false;
+            if (lord.isEmpty() || !findBodyLongitude(chart, lord, &lordLon)) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Lord of the year (%2) unavailable.").arg(stamp, lord));
+                profBlocked = true;
+            }
+            int lordHouseWhole = 0;
+            int lordHousePlac = 0;
+            if (!profBlocked) {
+                lordHouseWhole = calcHouseForLongitude(lordLon, {}, chart.angles.asc, HouseSystem::WholeSign);
+                const bool hasPlac = (chart.cusps.size() == 12);
+                if (hasPlac) {
+                    lordHousePlac = calcHouseForLongitude(lordLon, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+                } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
+                    ++failedCount;
+                    warnings.push_back(QString("%1: Placidus cusps unavailable.").arg(stamp));
+                    profBlocked = true;
+                } else if (houseMode == SolarPlacementFinderHouseMode::BothAnd) {
+                    ++failedCount;
+                    warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(stamp));
+                    profBlocked = true;
+                } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+                    rowWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
+                    warnings.push_back(QString("%1: %2").arg(stamp, rowWarning));
+                }
+            }
+            if (!profBlocked) {
+                const bool wholeMatch = (lordHouseWhole == targetHouse);
+                const bool placMatch = (lordHousePlac == targetHouse);
+                bool matchedLord = false;
+                switch (houseMode) {
+                    case SolarPlacementFinderHouseMode::WholeSign:
+                        matchedLord = wholeMatch;
+                        break;
+                    case SolarPlacementFinderHouseMode::Placidus:
+                        matchedLord = placMatch;
+                        break;
+                    case SolarPlacementFinderHouseMode::Both:
+                        matchedLord = (wholeMatch || placMatch);
+                        break;
+                    case SolarPlacementFinderHouseMode::BothAnd:
+                        matchedLord = (wholeMatch && placMatch);
+                        break;
+                }
+                if (matchedLord) {
+                    LunarPlacementFinderResult result;
+                    result.localDateTime = chart.localDateTime;
+                    result.returnUtc = curUtc;
+                    result.isHouseRuler = true;
+                    result.isProfectionLord = true;
+                    result.rulerOfHouse = profectedHouse;
+                    result.rulerNameWhole = lord;
+                    result.rulerNamePlacidus = lord;
+                    result.bodyName = lord;
+                    result.houseWhole = lordHouseWhole;
+                    result.housePlacidus = lordHousePlac;
+                    result.matchedWhole = wholeMatch;
+                    result.matchedPlacidus = placMatch;
+                    result.warning = rowWarning;
+                    matches.push_back(result);
+                }
+            }
+        } else {
+            QStringList finderPlanets;
+            finderPlanets << planetName;
+            {
+                const QString planet2 = lunarFinderPlanet2Combo_ ? lunarFinderPlanet2Combo_->currentText().trimmed() : QString();
+                if (!planet2.isEmpty() && planet2.compare("None", Qt::CaseInsensitive) != 0 && planet2 != planetName) {
+                    finderPlanets << planet2;
+                }
+            }
+            bool yearMatched = false;
+            for (const QString& pName : finderPlanets) {
+                if (yearMatched) {
+                    break;
+                }
+                double bodyLon = 0.0;
+                if (!findBodyLongitude(chart, pName, &bodyLon)) {
+                    continue;
+                }
                 const int houseWhole = calcHouseForLongitude(bodyLon, {}, chart.angles.asc, HouseSystem::WholeSign);
                 int housePlacidus = 0;
                 const bool hasPlacidusCusps = (chart.cusps.size() == 12);
@@ -14574,6 +15096,10 @@ void MainWindow::handleLunarPlacementFinderRun() {
                 } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
                     ++failedCount;
                     warnings.push_back(QString("%1: Placidus cusps unavailable.").arg(stamp));
+                    placidusBlocked = true;
+                } else if (houseMode == SolarPlacementFinderHouseMode::BothAnd) {
+                    ++failedCount;
+                    warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(stamp));
                     placidusBlocked = true;
                 } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
                     rowWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
@@ -14593,6 +15119,9 @@ void MainWindow::handleLunarPlacementFinderRun() {
                             break;
                         case SolarPlacementFinderHouseMode::Both:
                             matchedHouse = (matchedWhole || matchedPlacidus);
+                            break;
+                        case SolarPlacementFinderHouseMode::BothAnd:
+                            matchedHouse = (matchedWhole && matchedPlacidus);
                             break;
                     }
 
@@ -14643,7 +15172,7 @@ void MainWindow::handleLunarPlacementFinderRun() {
                             LunarPlacementFinderResult result;
                             result.localDateTime = chart.localDateTime;
                             result.returnUtc = curUtc;
-                            result.bodyName = planetName;
+                            result.bodyName = pName;
                             result.houseWhole = houseWhole;
                             result.housePlacidus = housePlacidus;
                             result.matchedWhole = matchedWhole;
@@ -14653,6 +15182,7 @@ void MainWindow::handleLunarPlacementFinderRun() {
                             result.conjunctionOrb = matchedConjunctionOrb;
                             result.warning = rowWarning;
                             matches.push_back(result);
+                            yearMatched = true;
                         }
                     }
                 }
@@ -14697,6 +15227,10 @@ void MainWindow::handleLunarPlacementFinderRun() {
     lunarPlacementFinderLastStelliumMode_ = stelliumMode;
     lunarPlacementFinderLastStelliumMin_ = stelliumMin;
     lunarPlacementFinderLastAnyHouse_ = anyHouse;
+    lunarPlacementFinderLastRulerMode_ = rulerMode;
+    lunarPlacementFinderLastRulerOfHouse_ = rulerOfHouse;
+    lunarPlacementFinderLastRulerModern_ = rulerModern;
+    lunarPlacementFinderLastProfectionMode_ = profectionMode;
 
     if (lunarFinderStatusLabel_) {
         if (lunarPlacementFinderResults_.isEmpty()) {
@@ -14799,6 +15333,44 @@ void MainWindow::showLunarPlacementFinderResults() {
         return;
     }
 
+    if (lunarPlacementFinderLastRulerMode_ || lunarPlacementFinderLastProfectionMode_) {
+        auto houseLabel = [](int house) {
+            return (house >= 1 && house <= 12) ? QString("H%1").arg(house) : QString("-");
+        };
+        const QString rulerHeader = lunarPlacementFinderLastProfectionMode_ ? QString("Lord") : QString("Ruler");
+        setupTable(rightTopTable_, {"LR Date/Time", rulerHeader, "In House (Whole)", "In House (Placidus)", "Match"},
+                   lunarPlacementFinderResults_.size());
+        if (auto* header = rightTopTable_->horizontalHeader()) {
+            header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(4, QHeaderView::Stretch);
+        }
+        for (int i = 0; i < lunarPlacementFinderResults_.size(); ++i) {
+            const auto& result = lunarPlacementFinderResults_[i];
+            rightTopTable_->setItem(i, 0, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm")));
+            QString rulerCell = result.rulerNameWhole;
+            if (!result.rulerNamePlacidus.isEmpty() && result.rulerNamePlacidus != result.rulerNameWhole) {
+                rulerCell = QString("%1 / %2").arg(result.rulerNameWhole.isEmpty() ? "-" : result.rulerNameWhole,
+                                                   result.rulerNamePlacidus);
+            }
+            rightTopTable_->setItem(i, 1, makeCell(rulerCell.isEmpty() ? result.bodyName : rulerCell));
+            rightTopTable_->setItem(i, 2, makeCell(houseLabel(result.houseWhole), Qt::AlignCenter));
+            rightTopTable_->setItem(i, 3, makeCell(houseLabel(result.housePlacidus), Qt::AlignCenter));
+            auto* matchItem = makeCell(matchedByLabel(result));
+            if (!result.warning.isEmpty()) {
+                matchItem->setToolTip(result.warning);
+            }
+            rightTopTable_->setItem(i, 4, matchItem);
+        }
+        const int maxIndex = std::max(0, static_cast<int>(lunarPlacementFinderResults_.size()) - 1);
+        lunarPlacementFinderSelectedIndex_ = std::clamp(lunarPlacementFinderSelectedIndex_, 0, maxIndex);
+        rightTopTable_->selectRow(lunarPlacementFinderSelectedIndex_);
+        showLunarPlacementFinderDetails(lunarPlacementFinderSelectedIndex_);
+        return;
+    }
+
     setupTable(rightTopTable_, {"LR Date/Time", "Planet", "House (Whole)", "House (Placidus)",
                                 "House Match", "Conjunction"},
                lunarPlacementFinderResults_.size());
@@ -14849,7 +15421,9 @@ void MainWindow::showLunarPlacementFinderDetails(int index) {
             case SolarPlacementFinderHouseMode::Placidus:
                 return QString("Placidus");
             case SolarPlacementFinderHouseMode::Both:
-                return QString("Both");
+                return QString("Both (OR)");
+            case SolarPlacementFinderHouseMode::BothAnd:
+                return QString("Both (AND)");
             case SolarPlacementFinderHouseMode::WholeSign:
             default:
                 return QString("Whole Sign");
@@ -14884,21 +15458,38 @@ void MainWindow::showLunarPlacementFinderDetails(int index) {
     const QString stateLabel = lunarPlacementFinderStale_
         ? "Stale (filters/inputs changed)"
         : "Current";
-    const QString criteriaLabel = lunarPlacementFinderLastStelliumMode_
-        ? QString("Stellium: >= %1 planets in %2")
-              .arg(lunarPlacementFinderLastStelliumMin_)
-              .arg(lunarPlacementFinderLastAnyHouse_ ? QString("a single house")
-                                                     : QString("House %1").arg(lunarPlacementFinderLastHouse_))
-        : QString("%1 in %2").arg(lunarPlacementFinderLastPlanet_,
-              lunarPlacementFinderLastAnyHouse_ ? QString("Any house")
-                                                : QString("House %1").arg(lunarPlacementFinderLastHouse_));
+    QString criteriaLabel;
+    if (lunarPlacementFinderLastProfectionMode_) {
+        criteriaLabel = QString("Lord of the Year (%1) in House %2")
+                            .arg(lunarPlacementFinderLastRulerModern_ ? "Modern" : "Traditional")
+                            .arg(lunarPlacementFinderLastHouse_);
+    } else if (lunarPlacementFinderLastRulerMode_) {
+        criteriaLabel = QString("Ruler of House %1 (%2) in House %3")
+                            .arg(lunarPlacementFinderLastRulerOfHouse_)
+                            .arg(lunarPlacementFinderLastRulerModern_ ? "Modern" : "Traditional")
+                            .arg(lunarPlacementFinderLastHouse_);
+    } else if (lunarPlacementFinderLastStelliumMode_) {
+        criteriaLabel = QString("Stellium: >= %1 planets in %2")
+                            .arg(lunarPlacementFinderLastStelliumMin_)
+                            .arg(lunarPlacementFinderLastAnyHouse_ ? QString("a single house")
+                                                                   : QString("House %1").arg(lunarPlacementFinderLastHouse_));
+    } else {
+        criteriaLabel = QString("%1 in %2").arg(lunarPlacementFinderLastPlanet_,
+                            lunarPlacementFinderLastAnyHouse_ ? QString("Any house")
+                                                              : QString("House %1").arg(lunarPlacementFinderLastHouse_));
+    }
+    const QString criteriaKeyLabel = lunarPlacementFinderLastProfectionMode_
+        ? QString("Profection Criteria")
+        : (lunarPlacementFinderLastRulerMode_
+               ? QString("House-Ruler Criteria")
+               : (lunarPlacementFinderLastStelliumMode_ ? QString("Stellium Criteria") : QString("Planet / House")));
 
     if (index < 0 || index >= lunarPlacementFinderResults_.size()) {
         setupTable(rightBottomTable_, {"Item", "Value"}, 9);
         int row = 0;
         rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
         rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
-        rightBottomTable_->setItem(row, 0, makeCell(lunarPlacementFinderLastStelliumMode_ ? "Stellium Criteria" : "Planet / House"));
+        rightBottomTable_->setItem(row, 0, makeCell(criteriaKeyLabel));
         rightBottomTable_->setItem(row++, 1, makeCell(criteriaLabel));
         rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
         rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(lunarPlacementFinderLastHouseMode_)));
@@ -14954,6 +15545,47 @@ void MainWindow::showLunarPlacementFinderDetails(int index) {
         rightBottomTable_->setItem(row++, 1, makeCell(matchedBy));
         rightBottomTable_->setItem(row, 0, makeCell("Bodies"));
         rightBottomTable_->setItem(row++, 1, makeCell(result.stelliumBodies.isEmpty() ? "-" : result.stelliumBodies));
+        rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
+        rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("Matched Returns"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(lunarPlacementFinderResults_.size())));
+        rightBottomTable_->setItem(row, 0, makeCell("Row Notes"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.warning.isEmpty() ? "-" : result.warning));
+        rightBottomTable_->setWordWrap(true);
+        rightBottomTable_->resizeRowsToContents();
+        return;
+    }
+
+    if (result.isHouseRuler) {
+        auto houseLabel = [](int house) {
+            return (house >= 1 && house <= 12) ? QString("House %1").arg(house) : QString("-");
+        };
+        QString matchedBy = "-";
+        if (result.matchedWhole && result.matchedPlacidus) {
+            matchedBy = "Whole + Placidus";
+        } else if (result.matchedWhole) {
+            matchedBy = "Whole";
+        } else if (result.matchedPlacidus) {
+            matchedBy = "Placidus";
+        }
+        setupTable(rightBottomTable_, {"Item", "Value"}, 12);
+        int row = 0;
+        rightBottomTable_->setItem(row, 0, makeCell("LR Local Date/Time"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+        rightBottomTable_->setItem(row, 0, makeCell("Criteria"));
+        rightBottomTable_->setItem(row++, 1, makeCell(criteriaLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(lunarPlacementFinderLastHouseMode_)));
+        rightBottomTable_->setItem(row, 0, makeCell("Ruler (Whole)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.rulerNameWhole.isEmpty() ? "-" : result.rulerNameWhole));
+        rightBottomTable_->setItem(row, 0, makeCell("Ruler (Placidus)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.rulerNamePlacidus.isEmpty() ? "-" : result.rulerNamePlacidus));
+        rightBottomTable_->setItem(row, 0, makeCell("In House (Whole)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseLabel(result.houseWhole)));
+        rightBottomTable_->setItem(row, 0, makeCell("In House (Placidus)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseLabel(result.housePlacidus)));
+        rightBottomTable_->setItem(row, 0, makeCell("Matched By"));
+        rightBottomTable_->setItem(row++, 1, makeCell(matchedBy));
         rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
         rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
         rightBottomTable_->setItem(row, 0, makeCell("Matched Returns"));
@@ -15813,20 +16445,32 @@ void MainWindow::refreshSolarTechniqueView() {
 }
 
 void MainWindow::updateSolarFinderModeAvailability() {
-    const bool stellium = (solarFinderModeCombo_ && solarFinderModeCombo_->currentIndex() == 1);
+    const int modeIdx = solarFinderModeCombo_ ? solarFinderModeCombo_->currentIndex() : 0;
+    const bool single = (modeIdx == 0);
+    const bool stellium = (modeIdx == 1);
+    const bool ruler = (modeIdx == 2);
+    const bool profection = (modeIdx == 3);
     if (solarFinderPlanetCombo_) {
-        solarFinderPlanetCombo_->setEnabled(!stellium);
+        solarFinderPlanetCombo_->setEnabled(single);
+    }
+    if (solarFinderPlanet2Combo_) {
+        solarFinderPlanet2Combo_->setEnabled(single);
     }
     if (solarFinderStelliumCountSpin_) {
         solarFinderStelliumCountSpin_->setEnabled(stellium);
     }
-    // Conjunction-to-angle only applies to single-planet searches; the orb stays
-    // editable for single-planet mode (it was previously stuck/disabled).
+    if (solarFinderRulerHouseCombo_) {
+        solarFinderRulerHouseCombo_->setEnabled(ruler);
+    }
+    if (solarFinderRulerSchemeCombo_) {
+        solarFinderRulerSchemeCombo_->setEnabled(ruler || profection);
+    }
+    // Conjunction-to-angle only applies to single-planet searches.
     if (solarFinderConjunctionTargetCombo_) {
-        solarFinderConjunctionTargetCombo_->setEnabled(!stellium);
+        solarFinderConjunctionTargetCombo_->setEnabled(single);
     }
     if (solarFinderConjunctionOrbSpin_) {
-        solarFinderConjunctionOrbSpin_->setEnabled(!stellium);
+        solarFinderConjunctionOrbSpin_->setEnabled(single);
     }
 }
 
@@ -15876,10 +16520,14 @@ void MainWindow::handleSolarPlacementFinderRun() {
     }
 
     const bool stelliumMode = (solarFinderModeCombo_ && solarFinderModeCombo_->currentIndex() == 1);
+    const bool rulerMode = (solarFinderModeCombo_ && solarFinderModeCombo_->currentIndex() == 2);
+    const bool profectionMode = (solarFinderModeCombo_ && solarFinderModeCombo_->currentIndex() == 3);
     const int stelliumMin = solarFinderStelliumCountSpin_ ? solarFinderStelliumCountSpin_->value() : 3;
+    const int rulerOfHouse = solarFinderRulerHouseCombo_ ? solarFinderRulerHouseCombo_->currentData().toInt() : 7;
+    const bool rulerModern = (solarFinderRulerSchemeCombo_ && solarFinderRulerSchemeCombo_->currentData().toInt() == 1);
 
     const QString planetName = solarFinderPlanetCombo_->currentText().trimmed();
-    if (!stelliumMode && planetName.isEmpty()) {
+    if (!stelliumMode && !rulerMode && !profectionMode && planetName.isEmpty()) {
         if (solarFinderStatusLabel_) {
             solarFinderStatusLabel_->setText("Idle");
         }
@@ -15904,7 +16552,7 @@ void MainWindow::handleSolarPlacementFinderRun() {
 
     int modeValue = solarFinderHouseSystemCombo_->currentData().toInt();
     if (modeValue < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
-        || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::Both)) {
+        || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::BothAnd)) {
         modeValue = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
     }
     const SolarPlacementFinderHouseMode houseMode = static_cast<SolarPlacementFinderHouseMode>(modeValue);
@@ -15916,12 +16564,20 @@ void MainWindow::handleSolarPlacementFinderRun() {
         ? std::max(0.01, (solarFinderConjunctionOrbSpin_ ? solarFinderConjunctionOrbSpin_->value() : 1.0))
         : 0.0;
 
-    if (!stelliumMode && anyHouse && !useConjunction) {
+    if (!stelliumMode && !rulerMode && !profectionMode && anyHouse && !useConjunction) {
         if (solarFinderStatusLabel_) {
             solarFinderStatusLabel_->setText("Idle");
         }
         setStatusMessage("Single-planet search with \"Any house\" needs a conjunction-to-angle filter, "
                          "otherwise every year matches. Pick a house or set a conjunction target.");
+        refreshSolarPlacementFinderView();
+        return;
+    }
+    if ((rulerMode || profectionMode) && anyHouse) {
+        if (solarFinderStatusLabel_) {
+            solarFinderStatusLabel_->setText("Idle");
+        }
+        setStatusMessage("This search needs a specific target House (not \"Any house\").");
         refreshSolarPlacementFinderView();
         return;
     }
@@ -16010,10 +16666,12 @@ void MainWindow::handleSolarPlacementFinderRun() {
             };
 
             const bool checkWhole = (houseMode == SolarPlacementFinderHouseMode::WholeSign
-                                     || houseMode == SolarPlacementFinderHouseMode::Both);
+                                     || houseMode == SolarPlacementFinderHouseMode::Both
+                                     || houseMode == SolarPlacementFinderHouseMode::BothAnd);
             const bool checkPlacidus = hasPlacidusCusps
                                        && (houseMode == SolarPlacementFinderHouseMode::Placidus
-                                           || houseMode == SolarPlacementFinderHouseMode::Both);
+                                           || houseMode == SolarPlacementFinderHouseMode::Both
+                                           || houseMode == SolarPlacementFinderHouseMode::BothAnd);
 
             int wholeHouse = 0;
             int wholeCount = 0;
@@ -16066,27 +16724,194 @@ void MainWindow::handleSolarPlacementFinderRun() {
             continue;
         }
 
-        double bodyLon = 0.0;
-        if (!findBodyLongitude(chart, planetName, &bodyLon)) {
-            ++failedCount;
-            warnings.push_back(QString("%1: %2 position unavailable in computed chart.").arg(year).arg(planetName));
+        if (rulerMode) {
+            const int ascSign = signIndex(chart.angles.asc);
+            const bool hasPlacidusCusps = (chart.cusps.size() == 12);
+
+            // Whole-sign: the sign on house X is X signs from the rising sign.
+            const int signXWhole = (ascSign + (rulerOfHouse - 1)) % 12;
+            const QString rulerWhole = houseRulerForSign(signXWhole, rulerModern);
+            int rulerHouseWhole = 0;
+            bool wholeMatch = false;
+            double rlonW = 0.0;
+            if (!rulerWhole.isEmpty() && findBodyLongitude(chart, rulerWhole, &rlonW)) {
+                rulerHouseWhole = calcHouseForLongitude(rlonW, {}, chart.angles.asc, HouseSystem::WholeSign);
+                wholeMatch = (rulerHouseWhole == targetHouse);
+            }
+
+            QString rulerPlac;
+            int rulerHousePlac = 0;
+            bool placMatch = false;
+            if (hasPlacidusCusps) {
+                const int signXPlac = signIndex(chart.cusps[rulerOfHouse - 1].longitude);
+                rulerPlac = houseRulerForSign(signXPlac, rulerModern);
+                double rlonP = 0.0;
+                if (!rulerPlac.isEmpty() && findBodyLongitude(chart, rulerPlac, &rlonP)) {
+                    rulerHousePlac = calcHouseForLongitude(rlonP, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+                    placMatch = (rulerHousePlac == targetHouse);
+                }
+            } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Placidus cusps unavailable for this year.").arg(year));
+                continue;
+            } else if (houseMode == SolarPlacementFinderHouseMode::BothAnd) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(year));
+                continue;
+            } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+                yearWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
+                warnings.push_back(QString("%1: %2").arg(year).arg(yearWarning));
+            }
+
+            bool matchedRuler = false;
+            switch (houseMode) {
+                case SolarPlacementFinderHouseMode::WholeSign:
+                    matchedRuler = wholeMatch;
+                    break;
+                case SolarPlacementFinderHouseMode::Placidus:
+                    matchedRuler = placMatch;
+                    break;
+                case SolarPlacementFinderHouseMode::Both:
+                    matchedRuler = (wholeMatch || placMatch);
+                    break;
+                case SolarPlacementFinderHouseMode::BothAnd:
+                    matchedRuler = (wholeMatch && placMatch);
+                    break;
+            }
+            if (!matchedRuler) {
+                continue;
+            }
+
+            SolarPlacementFinderResult result;
+            result.year = year;
+            result.localDateTime = chart.localDateTime;
+            result.isHouseRuler = true;
+            result.rulerOfHouse = rulerOfHouse;
+            result.rulerNameWhole = rulerWhole;
+            result.rulerNamePlacidus = rulerPlac;
+            result.bodyName = !rulerWhole.isEmpty() ? rulerWhole : rulerPlac;
+            result.houseWhole = rulerHouseWhole;
+            result.housePlacidus = rulerHousePlac;
+            result.matchedWhole = wholeMatch;
+            result.matchedPlacidus = placMatch;
+            result.warning = yearWarning;
+            matches.push_back(result);
             continue;
         }
 
-        const int houseWhole = calcHouseForLongitude(bodyLon, {}, chart.angles.asc, HouseSystem::WholeSign);
-        int housePlacidus = 0;
+        if (profectionMode) {
+            const int birthYear = currentChart_.localDateTime.isValid()
+                ? currentChart_.localDateTime.date().year()
+                : year;
+            const int age = std::max(0, year - birthYear);
+            const int ageMod = ((age % 12) + 12) % 12;
+            const int profectedHouse = ageMod + 1;
+            const int natalAscSign = signIndex(currentChart_.angles.asc);
+            const int profectedSignIdx = (natalAscSign + ageMod) % 12;
+            const QString lord = houseRulerForSign(profectedSignIdx, rulerModern);
+
+            double lordLon = 0.0;
+            if (lord.isEmpty() || !findBodyLongitude(chart, lord, &lordLon)) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Lord of the year (%2) unavailable.").arg(year).arg(lord));
+                continue;
+            }
+            const int lordHouseWhole = calcHouseForLongitude(lordLon, {}, chart.angles.asc, HouseSystem::WholeSign);
+            int lordHousePlac = 0;
+            const bool hasPlac = (chart.cusps.size() == 12);
+            if (hasPlac) {
+                lordHousePlac = calcHouseForLongitude(lordLon, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+            } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Placidus cusps unavailable for this year.").arg(year));
+                continue;
+            } else if (houseMode == SolarPlacementFinderHouseMode::BothAnd) {
+                ++failedCount;
+                warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(year));
+                continue;
+            } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+                yearWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
+                warnings.push_back(QString("%1: %2").arg(year).arg(yearWarning));
+            }
+
+            const bool wholeMatch = (lordHouseWhole == targetHouse);
+            const bool placMatch = (lordHousePlac == targetHouse);
+            bool matchedLord = false;
+            switch (houseMode) {
+                case SolarPlacementFinderHouseMode::WholeSign:
+                    matchedLord = wholeMatch;
+                    break;
+                case SolarPlacementFinderHouseMode::Placidus:
+                    matchedLord = placMatch;
+                    break;
+                case SolarPlacementFinderHouseMode::Both:
+                    matchedLord = (wholeMatch || placMatch);
+                    break;
+                case SolarPlacementFinderHouseMode::BothAnd:
+                    matchedLord = (wholeMatch && placMatch);
+                    break;
+            }
+            if (!matchedLord) {
+                continue;
+            }
+
+            SolarPlacementFinderResult result;
+            result.year = year;
+            result.localDateTime = chart.localDateTime;
+            result.isHouseRuler = true;
+            result.isProfectionLord = true;
+            result.rulerOfHouse = profectedHouse;
+            result.rulerNameWhole = lord;
+            result.rulerNamePlacidus = lord;
+            result.bodyName = lord;
+            result.houseWhole = lordHouseWhole;
+            result.housePlacidus = lordHousePlac;
+            result.matchedWhole = wholeMatch;
+            result.matchedPlacidus = placMatch;
+            result.warning = yearWarning;
+            matches.push_back(result);
+            continue;
+        }
+
+        // Single-planet (mode 0), optionally OR'd with a second planet.
+        QStringList finderPlanets;
+        finderPlanets << planetName;
+        {
+            const QString planet2 = solarFinderPlanet2Combo_ ? solarFinderPlanet2Combo_->currentText().trimmed() : QString();
+            if (!planet2.isEmpty() && planet2.compare("None", Qt::CaseInsensitive) != 0 && planet2 != planetName) {
+                finderPlanets << planet2;
+            }
+        }
         const bool hasPlacidusCusps = (chart.cusps.size() == 12);
-        if (hasPlacidusCusps) {
-            housePlacidus = calcHouseForLongitude(bodyLon, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
-        } else if (houseMode == SolarPlacementFinderHouseMode::Placidus) {
+        if (!hasPlacidusCusps && houseMode == SolarPlacementFinderHouseMode::Placidus) {
             ++failedCount;
             warnings.push_back(QString("%1: Placidus cusps unavailable for this year.").arg(year));
             continue;
-        } else if (houseMode == SolarPlacementFinderHouseMode::Both) {
+        }
+        if (!hasPlacidusCusps && houseMode == SolarPlacementFinderHouseMode::BothAnd) {
             ++failedCount;
+            warnings.push_back(QString("%1: Placidus cusps unavailable; AND match not possible.").arg(year));
+            continue;
+        }
+        if (!hasPlacidusCusps && houseMode == SolarPlacementFinderHouseMode::Both) {
             yearWarning = "Placidus cusps unavailable; matched by Whole Sign only.";
             warnings.push_back(QString("%1: %2").arg(year).arg(yearWarning));
         }
+
+        bool yearMatched = false;
+        for (const QString& pName : finderPlanets) {
+            if (yearMatched) {
+                break;
+            }
+            double bodyLon = 0.0;
+            if (!findBodyLongitude(chart, pName, &bodyLon)) {
+                continue;
+            }
+            const int houseWhole = calcHouseForLongitude(bodyLon, {}, chart.angles.asc, HouseSystem::WholeSign);
+            int housePlacidus = 0;
+            if (hasPlacidusCusps) {
+                housePlacidus = calcHouseForLongitude(bodyLon, chart.cusps, chart.angles.asc, HouseSystem::Placidus);
+            }
 
         const bool matchedWhole = anyHouse ? (houseWhole >= 1 && houseWhole <= 12) : (houseWhole == targetHouse);
         const bool matchedPlacidus = anyHouse ? (housePlacidus >= 1 && housePlacidus <= 12) : (housePlacidus == targetHouse);
@@ -16100,6 +16925,9 @@ void MainWindow::handleSolarPlacementFinderRun() {
                 break;
             case SolarPlacementFinderHouseMode::Both:
                 matchedHouse = (matchedWhole || matchedPlacidus);
+                break;
+            case SolarPlacementFinderHouseMode::BothAnd:
+                matchedHouse = (matchedWhole && matchedPlacidus);
                 break;
         }
         if (!matchedHouse) {
@@ -16177,7 +17005,7 @@ void MainWindow::handleSolarPlacementFinderRun() {
         SolarPlacementFinderResult result;
         result.year = year;
         result.localDateTime = chart.localDateTime;
-        result.bodyName = planetName;
+        result.bodyName = pName;
         result.houseWhole = houseWhole;
         result.housePlacidus = housePlacidus;
         result.matchedWhole = matchedWhole;
@@ -16187,6 +17015,8 @@ void MainWindow::handleSolarPlacementFinderRun() {
         result.conjunctionOrb = matchedConjunctionOrb;
         result.warning = yearWarning;
         matches.push_back(result);
+        yearMatched = true;
+        }
     }
 
     solarPlacementFinderResults_ = matches;
@@ -16206,6 +17036,10 @@ void MainWindow::handleSolarPlacementFinderRun() {
     solarPlacementFinderLastStelliumMode_ = stelliumMode;
     solarPlacementFinderLastStelliumMin_ = stelliumMin;
     solarPlacementFinderLastAnyHouse_ = anyHouse;
+    solarPlacementFinderLastRulerMode_ = rulerMode;
+    solarPlacementFinderLastRulerOfHouse_ = rulerOfHouse;
+    solarPlacementFinderLastRulerModern_ = rulerModern;
+    solarPlacementFinderLastProfectionMode_ = profectionMode;
 
     if (solarFinderStatusLabel_) {
         if (solarPlacementFinderResults_.isEmpty()) {
@@ -16322,6 +17156,49 @@ void MainWindow::showSolarPlacementFinderResults() {
         return;
     }
 
+    if (solarPlacementFinderLastRulerMode_ || solarPlacementFinderLastProfectionMode_) {
+        auto houseLabel = [](int house) {
+            return (house >= 1 && house <= 12) ? QString("H%1").arg(house) : QString("-");
+        };
+        const QString rulerHeader = solarPlacementFinderLastProfectionMode_ ? QString("Lord") : QString("Ruler");
+        setupTable(rightTopTable_, {"Year", "SR Local Date/Time", rulerHeader, "In House (Whole)",
+                                    "In House (Placidus)", "Match"},
+                   solarPlacementFinderResults_.size());
+        if (auto* header = rightTopTable_->horizontalHeader()) {
+            header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(5, QHeaderView::Stretch);
+        }
+        for (int i = 0; i < solarPlacementFinderResults_.size(); ++i) {
+            const auto& result = solarPlacementFinderResults_[i];
+            auto* yearItem = makeCell(QString::number(result.year), Qt::AlignCenter);
+            yearItem->setData(Qt::UserRole, result.year);
+            rightTopTable_->setItem(i, 0, yearItem);
+            rightTopTable_->setItem(i, 1, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+            QString rulerCell = result.rulerNameWhole;
+            if (!result.rulerNamePlacidus.isEmpty() && result.rulerNamePlacidus != result.rulerNameWhole) {
+                rulerCell = QString("%1 / %2").arg(result.rulerNameWhole.isEmpty() ? "-" : result.rulerNameWhole,
+                                                   result.rulerNamePlacidus);
+            }
+            rightTopTable_->setItem(i, 2, makeCell(rulerCell.isEmpty() ? result.bodyName : rulerCell));
+            rightTopTable_->setItem(i, 3, makeCell(houseLabel(result.houseWhole), Qt::AlignCenter));
+            rightTopTable_->setItem(i, 4, makeCell(houseLabel(result.housePlacidus), Qt::AlignCenter));
+            auto* matchItem = makeCell(matchedByLabel(result));
+            if (!result.warning.isEmpty()) {
+                matchItem->setToolTip(result.warning);
+            }
+            rightTopTable_->setItem(i, 5, matchItem);
+        }
+        const int maxIndex = std::max(0, static_cast<int>(solarPlacementFinderResults_.size()) - 1);
+        solarPlacementFinderSelectedIndex_ = std::clamp(solarPlacementFinderSelectedIndex_, 0, maxIndex);
+        rightTopTable_->selectRow(solarPlacementFinderSelectedIndex_);
+        showSolarPlacementFinderDetails(solarPlacementFinderSelectedIndex_);
+        return;
+    }
+
     setupTable(rightTopTable_, {"Year", "SR Local Date/Time", "Planet", "House (Whole)", "House (Placidus)",
                                 "House Match", "Conjunction"},
                solarPlacementFinderResults_.size());
@@ -16376,7 +17253,9 @@ void MainWindow::showSolarPlacementFinderDetails(int index) {
             case SolarPlacementFinderHouseMode::Placidus:
                 return QString("Placidus");
             case SolarPlacementFinderHouseMode::Both:
-                return QString("Both");
+                return QString("Both (OR)");
+            case SolarPlacementFinderHouseMode::BothAnd:
+                return QString("Both (AND)");
             case SolarPlacementFinderHouseMode::WholeSign:
             default:
                 return QString("Whole Sign");
@@ -16415,18 +17294,36 @@ void MainWindow::showSolarPlacementFinderDetails(int index) {
     const QString houseTargetLabel = solarPlacementFinderLastAnyHouse_
         ? QString("Any house")
         : QString("House %1").arg(solarPlacementFinderLastHouse_);
-    const QString criteriaLabel = solarPlacementFinderLastStelliumMode_
-        ? QString("Stellium: >= %1 planets in %2")
-              .arg(solarPlacementFinderLastStelliumMin_)
-              .arg(solarPlacementFinderLastAnyHouse_ ? QString("a single house") : QString("House %1").arg(solarPlacementFinderLastHouse_))
-        : QString("%1 in %2").arg(solarPlacementFinderLastPlanet_, houseTargetLabel);
+    QString criteriaLabel;
+    if (solarPlacementFinderLastProfectionMode_) {
+        criteriaLabel = QString("Lord of the Year (%1) in House %2")
+                            .arg(solarPlacementFinderLastRulerModern_ ? "Modern" : "Traditional")
+                            .arg(solarPlacementFinderLastHouse_);
+    } else if (solarPlacementFinderLastRulerMode_) {
+        criteriaLabel = QString("Ruler of House %1 (%2) in House %3")
+                            .arg(solarPlacementFinderLastRulerOfHouse_)
+                            .arg(solarPlacementFinderLastRulerModern_ ? "Modern" : "Traditional")
+                            .arg(solarPlacementFinderLastHouse_);
+    } else if (solarPlacementFinderLastStelliumMode_) {
+        criteriaLabel = QString("Stellium: >= %1 planets in %2")
+                            .arg(solarPlacementFinderLastStelliumMin_)
+                            .arg(solarPlacementFinderLastAnyHouse_ ? QString("a single house")
+                                                                   : QString("House %1").arg(solarPlacementFinderLastHouse_));
+    } else {
+        criteriaLabel = QString("%1 in %2").arg(solarPlacementFinderLastPlanet_, houseTargetLabel);
+    }
+    const QString criteriaKeyLabel = solarPlacementFinderLastProfectionMode_
+        ? QString("Profection Criteria")
+        : (solarPlacementFinderLastRulerMode_
+               ? QString("House-Ruler Criteria")
+               : (solarPlacementFinderLastStelliumMode_ ? QString("Stellium Criteria") : QString("Planet / House")));
 
     if (index < 0 || index >= solarPlacementFinderResults_.size()) {
         setupTable(rightBottomTable_, {"Item", "Value"}, 9);
         int row = 0;
         rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
         rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
-        rightBottomTable_->setItem(row, 0, makeCell(solarPlacementFinderLastStelliumMode_ ? "Stellium Criteria" : "Planet / House"));
+        rightBottomTable_->setItem(row, 0, makeCell(criteriaKeyLabel));
         rightBottomTable_->setItem(row++, 1, makeCell(criteriaLabel));
         rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
         rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(solarPlacementFinderLastHouseMode_)));
@@ -16492,6 +17389,49 @@ void MainWindow::showSolarPlacementFinderDetails(int index) {
         rightBottomTable_->setItem(row++, 1, makeCell(stateLabel));
         rightBottomTable_->setItem(row, 0, makeCell("Row Notes"));
         rightBottomTable_->setItem(row++, 1, makeCell(result.warning.isEmpty() ? "-" : result.warning));
+        rightBottomTable_->setWordWrap(true);
+        rightBottomTable_->resizeRowsToContents();
+        return;
+    }
+
+    if (result.isHouseRuler) {
+        auto houseLabel = [](int house) {
+            return (house >= 1 && house <= 12) ? QString("House %1").arg(house) : QString("-");
+        };
+        QString matchedBy = "-";
+        if (result.matchedWhole && result.matchedPlacidus) {
+            matchedBy = "Whole + Placidus";
+        } else if (result.matchedWhole) {
+            matchedBy = "Whole";
+        } else if (result.matchedPlacidus) {
+            matchedBy = "Placidus";
+        }
+        setupTable(rightBottomTable_, {"Item", "Value"}, 13);
+        int row = 0;
+        rightBottomTable_->setItem(row, 0, makeCell("Year"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.year)));
+        rightBottomTable_->setItem(row, 0, makeCell("SR Local Date/Time"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.localDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+        rightBottomTable_->setItem(row, 0, makeCell("Criteria"));
+        rightBottomTable_->setItem(row++, 1, makeCell(criteriaLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("House Mode"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseModeLabel(solarPlacementFinderLastHouseMode_)));
+        rightBottomTable_->setItem(row, 0, makeCell("Ruler (Whole)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.rulerNameWhole.isEmpty() ? "-" : result.rulerNameWhole));
+        rightBottomTable_->setItem(row, 0, makeCell("Ruler (Placidus)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(result.rulerNamePlacidus.isEmpty() ? "-" : result.rulerNamePlacidus));
+        rightBottomTable_->setItem(row, 0, makeCell("In House (Whole)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseLabel(result.houseWhole)));
+        rightBottomTable_->setItem(row, 0, makeCell("In House (Placidus)"));
+        rightBottomTable_->setItem(row++, 1, makeCell(houseLabel(result.housePlacidus)));
+        rightBottomTable_->setItem(row, 0, makeCell("Matched By"));
+        rightBottomTable_->setItem(row++, 1, makeCell(matchedBy));
+        rightBottomTable_->setItem(row, 0, makeCell("Run Range"));
+        rightBottomTable_->setItem(row++, 1, makeCell(rangeLabel));
+        rightBottomTable_->setItem(row, 0, makeCell("Matched Years"));
+        rightBottomTable_->setItem(row++, 1, makeCell(QString::number(solarPlacementFinderResults_.size())));
+        rightBottomTable_->setItem(row, 0, makeCell("Result State"));
+        rightBottomTable_->setItem(row++, 1, makeCell(stateLabel));
         rightBottomTable_->setWordWrap(true);
         rightBottomTable_->resizeRowsToContents();
         return;
@@ -17561,6 +18501,7 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
 }
 
 }  // namespace dracoved
+
 
 
 

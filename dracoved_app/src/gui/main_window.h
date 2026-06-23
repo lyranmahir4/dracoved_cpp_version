@@ -94,6 +94,7 @@ public:
         double sunLon = 0.0;
         double moonLon = 0.0;
         int eclipseFlags = 0;
+        QString conjunctionSummary;
     };
     struct DayScanResult {
         QDate date;
@@ -129,6 +130,7 @@ private:
         Progression,
         SolarReturn,
         LunarReturn,
+        Lunations,
         Relocation,
         Astrocartography,
     };
@@ -172,7 +174,8 @@ private:
     enum class SolarPlacementFinderHouseMode {
         WholeSign,
         Placidus,
-        Both,
+        Both,     // Both (OR): matches if either system places it in the house
+        BothAnd,  // Both (AND): matches only if both systems agree
     };
     enum class RelocationAspectView {
         Relocation,
@@ -270,6 +273,11 @@ private:
         int stelliumCountWhole = 0;
         int stelliumCountPlacidus = 0;
         QString stelliumBodies;
+        bool isHouseRuler = false;
+        int rulerOfHouse = 0;
+        QString rulerNameWhole;
+        QString rulerNamePlacidus;
+        bool isProfectionLord = false;
     };
 
     struct LunarPlacementFinderResult {
@@ -290,6 +298,11 @@ private:
         int stelliumCountWhole = 0;
         int stelliumCountPlacidus = 0;
         QString stelliumBodies;
+        bool isHouseRuler = false;
+        int rulerOfHouse = 0;
+        QString rulerNameWhole;
+        QString rulerNamePlacidus;
+        bool isProfectionLord = false;
     };
 
     void setupUi();
@@ -477,6 +490,8 @@ private:
     void showLunationDetails(const LunationResult& result);
     void applyLunationResult(const LunationResult& result);
     void updateLunationCopyButtonState();
+    bool inLunationsView() const;
+    void refreshLunationsTab();
     QString buildTransitSearchDetailsClipboardText() const;
     QString buildTransitCalendarDetailsClipboardText() const;
     QString buildTransitConjunctionDetailsClipboardText() const;
@@ -666,6 +681,17 @@ private:
     QDoubleSpinBox* lunationDegreeRangeStartSpin_ = nullptr;
     QDoubleSpinBox* lunationDegreeRangeEndSpin_ = nullptr;
     QComboBox* lunationEclipseRuleCombo_ = nullptr;
+    QCheckBox* lunationPlanetConjCheck_ = nullptr;
+    QComboBox* lunationPlanetCombo_ = nullptr;
+    QCheckBox* lunationConjSunCheck_ = nullptr;
+    QCheckBox* lunationConjMoonCheck_ = nullptr;
+    QCheckBox* lunationConjNorthNodeCheck_ = nullptr;
+    QCheckBox* lunationConjSouthNodeCheck_ = nullptr;
+    QDoubleSpinBox* lunationConjOrbSpin_ = nullptr;
+    QCheckBox* lunationOverlayCheck_ = nullptr;
+    bool lunationOverlay_ = true;
+    QWidget* lunationsPanel_ = nullptr;
+    int lunationsDataStackIndex_ = -1;
     QLabel* lunationTimezoneLabel_ = nullptr;
     QPushButton* lunationRunButton_ = nullptr;
     QPushButton* lunationStopButton_ = nullptr;
@@ -778,6 +804,9 @@ private:
     QComboBox* lunarFinderHouseSystemCombo_ = nullptr;
     QComboBox* lunarFinderConjunctionTargetCombo_ = nullptr;
     QDoubleSpinBox* lunarFinderConjunctionOrbSpin_ = nullptr;
+    QComboBox* lunarFinderRulerHouseCombo_ = nullptr;
+    QComboBox* lunarFinderRulerSchemeCombo_ = nullptr;
+    QComboBox* lunarFinderPlanet2Combo_ = nullptr;
     QPushButton* lunarFinderRunButton_ = nullptr;
     QLabel* lunarFinderStatusLabel_ = nullptr;
     QComboBox* solarTechniqueModeCombo_ = nullptr;
@@ -806,6 +835,9 @@ private:
     QComboBox* solarFinderHouseSystemCombo_ = nullptr;
     QComboBox* solarFinderConjunctionTargetCombo_ = nullptr;
     QDoubleSpinBox* solarFinderConjunctionOrbSpin_ = nullptr;
+    QComboBox* solarFinderRulerHouseCombo_ = nullptr;
+    QComboBox* solarFinderRulerSchemeCombo_ = nullptr;
+    QComboBox* solarFinderPlanet2Combo_ = nullptr;
     QPushButton* solarFinderRunButton_ = nullptr;
     QLabel* solarFinderStatusLabel_ = nullptr;
     QWidget* relocationControls_ = nullptr;
@@ -968,6 +1000,10 @@ private:
     bool solarPlacementFinderLastStelliumMode_ = false;
     int solarPlacementFinderLastStelliumMin_ = 3;
     bool solarPlacementFinderLastAnyHouse_ = false;
+    bool solarPlacementFinderLastRulerMode_ = false;
+    int solarPlacementFinderLastRulerOfHouse_ = 7;
+    bool solarPlacementFinderLastRulerModern_ = false;
+    bool solarPlacementFinderLastProfectionMode_ = false;
     QVector<LunarPlacementFinderResult> lunarPlacementFinderResults_;
     QStringList lunarPlacementFinderWarnings_;
     bool lunarPlacementFinderRan_ = false;
@@ -985,6 +1021,10 @@ private:
     bool lunarPlacementFinderLastStelliumMode_ = false;
     int lunarPlacementFinderLastStelliumMin_ = 3;
     bool lunarPlacementFinderLastAnyHouse_ = false;
+    bool lunarPlacementFinderLastRulerMode_ = false;
+    int lunarPlacementFinderLastRulerOfHouse_ = 7;
+    bool lunarPlacementFinderLastRulerModern_ = false;
+    bool lunarPlacementFinderLastProfectionMode_ = false;
     LunationAnalysisMode lunationAnalysisMode_ = LunationAnalysisMode::List;
     QThread* lunationThread_ = nullptr;
     QObject* lunationWorker_ = nullptr;

@@ -104,6 +104,13 @@ struct LunationParams {
     bool useDegreeRange = false;
     double degreeRangeStart = 0.0;
     double degreeRangeEnd = 29.99;
+    bool requirePlanetConjunction = false;
+    QString conjunctionPlanet;
+    bool targetSun = true;
+    bool targetMoon = true;
+    bool targetNorthNode = false;
+    bool targetSouthNode = false;
+    double conjunctionOrb = 3.0;
     QTimeZone tz;
     QString tzLabel;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
@@ -2407,6 +2414,96 @@ private:
         return true;
     }
 
+    // Longitude of the conjunction-test planet at a given instant. Handles the
+    // South Node (Mean node + 180) since bodyIdForName maps it to the Mean node.
+    bool conjunctionPlanetLonAtUtc(const QDateTime& utc, double* outLon, QString* error) {
+        if (!outLon) {
+            return false;
+        }
+        const QString name = params_.conjunctionPlanet;
+        const int bodyId = transitcalc::bodyIdForName(name);
+        if (bodyId < 0) {
+            if (error) {
+                *error = QString("Unsupported conjunction planet: %1").arg(name);
+            }
+            return false;
+        }
+        const QDate date = utc.date();
+        const QTime time = utc.time();
+        const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
+        const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
+        double lon = 0.0;
+        QString calcErr;
+        if (!swe_.calcUt(jd, bodyId, calcFlags_, &lon, &calcErr)) {
+            if (error) {
+                *error = calcErr;
+            }
+            return false;
+        }
+        if (name == "South Node") {
+            lon += 180.0;
+        }
+        *outLon = normalizeDegrees(lon);
+        return true;
+    }
+
+    // Returns true if the event passes the optional planet-conjunction filter.
+    // When it passes, *outSummary describes the tightest matching conjunction.
+    bool passesPlanetConjunction(const QDateTime& utc, double sunLon, double moonLon, QString* outSummary) {
+        if (!params_.requirePlanetConjunction) {
+            if (outSummary) {
+                outSummary->clear();
+            }
+            return true;
+        }
+        double planetLon = 0.0;
+        if (!conjunctionPlanetLonAtUtc(utc, &planetLon, nullptr)) {
+            return false;
+        }
+        double nodeLon = 0.0;
+        bool haveNode = false;
+        if (params_.targetNorthNode || params_.targetSouthNode) {
+            haveNode = nodeLonAtUtc(utc, &nodeLon, nullptr);
+        }
+        auto sep = [](double a, double b) {
+            double d = std::fabs(normalizeDegrees(a) - normalizeDegrees(b));
+            if (d > 180.0) {
+                d = 360.0 - d;
+            }
+            return d;
+        };
+        double bestOrb = 1e9;
+        QString bestTarget;
+        auto consider = [&](const QString& name, double tlon) {
+            const double d = sep(planetLon, tlon);
+            if (d < bestOrb) {
+                bestOrb = d;
+                bestTarget = name;
+            }
+        };
+        if (params_.targetSun) {
+            consider("Sun", sunLon);
+        }
+        if (params_.targetMoon) {
+            consider("Moon", moonLon);
+        }
+        if (params_.targetNorthNode && haveNode) {
+            consider("North Node", nodeLon);
+        }
+        if (params_.targetSouthNode && haveNode) {
+            consider("South Node", nodeLon + 180.0);
+        }
+        if (bestTarget.isEmpty() || bestOrb > params_.conjunctionOrb) {
+            return false;
+        }
+        if (outSummary) {
+            *outSummary = QString("%1 conj %2 (%3%4)")
+                              .arg(params_.conjunctionPlanet, bestTarget,
+                                   QString::number(bestOrb, 'f', 1), QString(QChar(0x00B0)));
+        }
+        return true;
+    }
+
     bool passesSiderealWholeSignEclipseRule(bool solar, const QDateTime& eventUtc,
                                             double sunLon, double moonLon, QString* error) {
         if (params_.zodiacSystem != ZodiacSystem::Sidereal) {
@@ -2612,6 +2709,10 @@ private:
 
     void addResult(const QDateTime& utc, const QString& eventLabel, const QString& eclipseType, int eclipseFlags,
                    double sunLon, double moonLon) {
+        QString conjunctionSummary;
+        if (!passesPlanetConjunction(utc, sunLon, moonLon, &conjunctionSummary)) {
+            return;  // optional planet-conjunction filter rejected this event
+        }
         MainWindow::LunationResult incoming;
         incoming.timeUtc = utc;
         incoming.timeLocal = utc.toTimeZone(params_.tz);
@@ -2621,6 +2722,7 @@ private:
         incoming.sunLon = sunLon;
         incoming.moonLon = moonLon;
         incoming.eclipseFlags = eclipseFlags;
+        incoming.conjunctionSummary = conjunctionSummary;
 
         constexpr int kMergeToleranceSeconds = 120;
         for (auto& existing : results_) {
@@ -2640,6 +2742,9 @@ private:
             }
             existing.sunLon = incoming.sunLon;
             existing.moonLon = incoming.moonLon;
+            if (existing.conjunctionSummary.isEmpty()) {
+                existing.conjunctionSummary = incoming.conjunctionSummary;
+            }
             return;
         }
 
