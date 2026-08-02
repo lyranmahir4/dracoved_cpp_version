@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QString>
 #include <QStringList>
@@ -25,6 +25,7 @@ public:
     double julianDay(int year, int month, int day, double hour, int gregFlag) const;
     bool revJul(double jd, int gregFlag, int* year, int* month, int* day, double* hour, QString* error) const;
     bool calcUt(double jdUt, int body, int flags, double* outLon, QString* error) const;
+    bool calcUtFull(double jdUt, int body, int flags, double* outValues, QString* error) const;
     bool fixstarUt(const QString& starName, double jdUt, int flags,
                    double* outLon, QString* outResolvedName, QString* error) const;
     bool houses(double jdUt, double geoLat, double geoLon, char hsys, double* cusps, double* ascmc, QString* error) const;
@@ -33,6 +34,10 @@ public:
     bool getAyanamsaUt(double jdUt, double* outAyanamsa, QString* error) const;
     int solEclipseWhenGlob(double jdStart, int flags, int typeFlags, double* tret, int backward, QString* error) const;
     int lunEclipseWhen(double jdStart, int flags, int typeFlags, double* tret, int backward, QString* error) const;
+    int riseTrans(double jdStartUt, int body, int flags, int riseSetFlags,
+                  double geoLon, double geoLat, double altitudeMeters,
+                  double pressureHPa, double temperatureC,
+                  double* outJd, QString* error) const;
 
 private:
     void unload();
@@ -53,6 +58,8 @@ private:
     using SweGetAyanamsaUt = double (*)(double);
     using SweSolEclipseWhenGlob = int (*)(double, int, int, double*, int, char*);
     using SweLunEclipseWhen = int (*)(double, int, int, double*, int, char*);
+    using SweRiseTrans = int (*)(double, int, char*, int, int, double*,
+                                 double, double, double*, char*);
 
     SweSetEphePath sweSetEphePath_ = nullptr;
     SweSetSidMode sweSetSidMode_ = nullptr;
@@ -67,11 +74,14 @@ private:
     SweGetAyanamsaUt sweGetAyanamsaUt_ = nullptr;
     SweSolEclipseWhenGlob sweSolEclipseWhenGlob_ = nullptr;
     SweLunEclipseWhen sweLunEclipseWhen_ = nullptr;
+    SweRiseTrans sweRiseTrans_ = nullptr;
 };
 
 // Minimal constants needed for tropical natal calculations.
 constexpr int SE_GREG_CAL = 1;
 constexpr int SEFLG_SIDEREAL = (64 * 1024);
+constexpr int SEFLG_EQUATORIAL = (2 * 1024);
+constexpr int SEFLG_SPEED = 256;
 constexpr int SE_ECL_NUT = -1;
 constexpr int SE_SUN = 0;
 constexpr int SE_MOON = 1;
@@ -99,5 +109,9 @@ constexpr int SE_ECL_ANNULAR = 8;
 constexpr int SE_ECL_PARTIAL = 16;
 constexpr int SE_ECL_ANNULAR_TOTAL = 32;
 constexpr int SE_ECL_PENUMBRAL = 64;
+
+// Rise/set flags (from Swiss Ephemeris: swephexp.h).
+constexpr int SE_CALC_RISE = 1;
+constexpr int SE_CALC_SET = 2;
 
 }  // namespace dracoved

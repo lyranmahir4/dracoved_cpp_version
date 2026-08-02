@@ -71,6 +71,14 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     houseCombo_ = new QComboBox(formWidget);
     houseCombo_->addItem("Whole Sign");
     houseCombo_->addItem("Placidus");
+    nodeModeCombo_ = new QComboBox(formWidget);
+    nodeModeCombo_->addItem("Use application default", -1);
+    nodeModeCombo_->addItem("Mean Nodes", static_cast<int>(LunarNodeMode::MeanOnly));
+    nodeModeCombo_->addItem("True Nodes", static_cast<int>(LunarNodeMode::TrueOnly));
+    nodeModeCombo_->addItem("Show Both", static_cast<int>(LunarNodeMode::Both));
+    nodePrimaryCombo_ = new QComboBox(formWidget);
+    nodePrimaryCombo_->addItem("Mean primary", static_cast<int>(LunarNodeType::Mean));
+    nodePrimaryCombo_->addItem("True primary", static_cast<int>(LunarNodeType::True));
     genderCombo_->addItem("Unspecified", static_cast<int>(Gender::Unspecified));
     genderCombo_->addItem("Male", static_cast<int>(Gender::Male));
     genderCombo_->addItem("Female", static_cast<int>(Gender::Female));
@@ -106,7 +114,13 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     row++;
     grid->addWidget(new QLabel("Longitude:", formWidget), row, 0);
     grid->addWidget(lonSpin_, row, 1);
+    grid->addWidget(new QLabel("Lunar nodes:", formWidget), row, 2);
+    grid->addWidget(nodeModeCombo_, row, 3);
     grid->setColumnStretch(1, 1);
+
+    row++;
+    grid->addWidget(new QLabel("If showing both:", formWidget), row, 2);
+    grid->addWidget(nodePrimaryCombo_, row, 3);
 
     row++;
     grid->addWidget(geocodeButton_, row, 0);
@@ -130,6 +144,12 @@ ChartSetupDialog::ChartSetupDialog(QNetworkAccessManager* net, QWidget* parent)
     connect(cancelButton_, &QPushButton::clicked, this, &QDialog::reject);
     connect(applyButton_, &QPushButton::clicked, this, &QDialog::accept);
     connect(geocodeButton_, &QPushButton::clicked, this, &ChartSetupDialog::handleGeocode);
+    connect(nodeModeCombo_, &QComboBox::currentIndexChanged, this, [this]() {
+        const bool both = nodeModeCombo_ && nodeModeCombo_->currentData().toInt() == static_cast<int>(LunarNodeMode::Both);
+        if (nodePrimaryCombo_) {
+            nodePrimaryCombo_->setEnabled(both);
+        }
+    });
 
     applyDefaults();
 }
@@ -138,6 +158,19 @@ void ChartSetupDialog::setDefaultHouseSystem(dracoved::HouseSystem system) {
     defaultHouseSystem_ = system;
     if (houseCombo_) {
         houseCombo_->setCurrentIndex(system == HouseSystem::Placidus ? 1 : 0);
+    }
+}
+
+void ChartSetupDialog::setDefaultLunarNodePolicy(const dracoved::LunarNodePolicy& policy) {
+    defaultLunarNodePolicy_ = policy;
+    if (nodeModeCombo_) {
+        nodeModeCombo_->setCurrentIndex(0);
+        nodeModeCombo_->setToolTip(QString("Application default: %1").arg(lunarNodePolicySummary(policy)));
+    }
+    if (nodePrimaryCombo_) {
+        const int index = nodePrimaryCombo_->findData(static_cast<int>(policy.primary));
+        nodePrimaryCombo_->setCurrentIndex(index >= 0 ? index : 0);
+        nodePrimaryCombo_->setEnabled(false);
     }
 }
 
@@ -167,6 +200,7 @@ void ChartSetupDialog::applyDefaults() {
         lonSpin_->setValue(0.0);
     }
     setDefaultHouseSystem(defaultHouseSystem_);
+    setDefaultLunarNodePolicy(defaultLunarNodePolicy_);
 }
 
 void ChartSetupDialog::setInput(const dracoved::NatalInput& input, const QString& locationName) {
@@ -197,6 +231,20 @@ void ChartSetupDialog::setInput(const dracoved::NatalInput& input, const QString
         lonSpin_->setValue(input.longitude);
     }
     setDefaultHouseSystem(input.houseSystem);
+    if (nodeModeCombo_) {
+        if (input.useDefaultLunarNodePolicy) {
+            nodeModeCombo_->setCurrentIndex(0);
+        } else {
+            const int index = nodeModeCombo_->findData(static_cast<int>(input.lunarNodePolicy.mode));
+            nodeModeCombo_->setCurrentIndex(index >= 0 ? index : 1);
+        }
+    }
+    if (nodePrimaryCombo_) {
+        const int index = nodePrimaryCombo_->findData(static_cast<int>(input.lunarNodePolicy.primary));
+        nodePrimaryCombo_->setCurrentIndex(index >= 0 ? index : 0);
+        nodePrimaryCombo_->setEnabled(input.lunarNodePolicy.mode == LunarNodeMode::Both
+                                      && !input.useDefaultLunarNodePolicy);
+    }
 }
 
 dracoved::NatalInput ChartSetupDialog::input() const {
@@ -213,6 +261,20 @@ dracoved::NatalInput ChartSetupDialog::input() const {
     input.houseSystem = (houseCombo_ && houseCombo_->currentText().contains("Placidus", Qt::CaseInsensitive))
         ? dracoved::HouseSystem::Placidus
         : dracoved::HouseSystem::WholeSign;
+    input.useDefaultLunarNodePolicy = !nodeModeCombo_ || nodeModeCombo_->currentData().toInt() < 0;
+    if (input.useDefaultLunarNodePolicy) {
+        input.lunarNodePolicy = defaultLunarNodePolicy_;
+    } else {
+        input.lunarNodePolicy.mode = static_cast<LunarNodeMode>(nodeModeCombo_->currentData().toInt());
+        input.lunarNodePolicy.primary = nodePrimaryCombo_
+            ? static_cast<LunarNodeType>(nodePrimaryCombo_->currentData().toInt())
+            : LunarNodeType::Mean;
+        if (input.lunarNodePolicy.mode == LunarNodeMode::MeanOnly) {
+            input.lunarNodePolicy.primary = LunarNodeType::Mean;
+        } else if (input.lunarNodePolicy.mode == LunarNodeMode::TrueOnly) {
+            input.lunarNodePolicy.primary = LunarNodeType::True;
+        }
+    }
     return input;
 }
 

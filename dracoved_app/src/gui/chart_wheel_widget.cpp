@@ -1,4 +1,4 @@
-﻿#include "chart_wheel_widget.h"
+#include "chart_wheel_widget.h"
 
 #include "../core/fixed_stars.h"
 #include "../core/formatting.h"
@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QPaintEvent>
 #include <QSvgRenderer>
 #include <QLineF>
@@ -52,8 +53,17 @@ QColor aspectTypeColor(const QString& label) {
 // The two lunar nodes are always exactly 180 deg apart, so an aspect line
 // between them carries no information and only crowds the wheel.
 bool isLunarNodePair(const QString& a, const QString& b) {
-    return (a == "North Node" && b == "South Node")
-        || (a == "South Node" && b == "North Node");
+    if (!isLunarNodeName(a) || !isLunarNodeName(b)
+        || isNorthLunarNodeName(a) == isNorthLunarNodeName(b)) {
+        return false;
+    }
+    const bool aGeneric = a == "North Node" || a == "South Node";
+    const bool bGeneric = b == "North Node" || b == "South Node";
+    if (aGeneric || bGeneric) {
+        return aGeneric && bGeneric;
+    }
+    return lunarNodeTypeForName(a, LunarNodeType::Mean)
+        == lunarNodeTypeForName(b, LunarNodeType::Mean);
 }
 
 // Chart angles are fixed relative to one another (AC/DC and MC/IC are exact
@@ -198,6 +208,9 @@ void ChartWheelWidget::setAspectDisplayMaxOrb(double maxOrb) {
 
 void ChartWheelWidget::setZoom(double zoom) {
     zoom_ = std::clamp(zoom, 0.6, 1.8);
+    if (zoom_ <= 1.0) {
+        panOffset_ = {0.0, 0.0};
+    }
     updateCursor();
     update();
 }
@@ -415,6 +428,9 @@ void ChartWheelWidget::clearChart() {
     mode_ = Mode::NatalOnly;
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
+    planetHitAreas_.clear();
+    planetTooltips_.clear();
+    planetHitNames_.clear();
     hasHighlight_ = false;
     highlightBody_.clear();
     highlightLabel_.clear();
@@ -515,22 +531,6 @@ int ChartWheelWidget::houseForLongitude(double lon, const QVector<double>& cusps
     return house;
 }
 
-double ChartWheelWidget::distanceToSegment(const QPointF& point, const QLineF& line) const {
-    const QPointF a = line.p1();
-    const QPointF b = line.p2();
-    const QPointF ab = b - a;
-    const QPointF ap = point - a;
-    const double abLen2 = ab.x() * ab.x() + ab.y() * ab.y();
-    if (abLen2 <= 0.0001) {
-        return std::hypot(ap.x(), ap.y());
-    }
-    double t = (ap.x() * ab.x() + ap.y() * ab.y()) / abLen2;
-    t = std::clamp(t, 0.0, 1.0);
-    const QPointF proj = a + ab * t;
-    const QPointF diff = point - proj;
-    return std::hypot(diff.x(), diff.y());
-}
-
 bool ChartWheelWidget::isAsteroidVisible(const QString& name) const {
     if (!isAsteroidBody(name)) {
         return true;
@@ -552,8 +552,6 @@ int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
     }
     const bool focusActive = focusActiveNow();
     const double threshold = 5.0 * fontScale_;
-    double best = threshold;
-    int bestIndex = -1;
     for (int i = 0; i < aspectLines_.size(); ++i) {
         const auto& info = aspectLines_[i];
         // In focus mode only the focused body's lines are visible/interactive.
@@ -563,13 +561,14 @@ int ChartWheelWidget::hitTestAspect(const QPointF& point) const {
         if (info.symbolRect.contains(point)) {
             return i;
         }
-        const double dist = distanceToSegment(point, info.line);
-        if (dist < best) {
-            best = dist;
-            bestIndex = i;
+        QPainterPathStroker stroker;
+        stroker.setWidth(threshold * 2.0);
+        stroker.setCapStyle(Qt::RoundCap);
+        if (stroker.createStroke(info.path).contains(point)) {
+            return i;
         }
     }
-    return bestIndex;
+    return -1;
 }
 
 bool ChartWheelWidget::focusActiveNow() const {
@@ -597,6 +596,17 @@ void ChartWheelWidget::mouseMoveEvent(QMouseEvent* event) {
     if (panning_) {
         const QPointF delta = event->position() - lastPanPos_;
         panOffset_ += delta;
+        const double availableWidth = std::max(0.0, width() - 24.0);
+        const double availableHeight = std::max(0.0, height() - 24.0);
+        const double size = std::min(availableWidth, availableHeight);
+        const double decorationBudget = 35.0 * fontScale_ + 34.0;
+        const double fittedOuter = std::max(72.0, size * 0.5 - decorationBudget);
+        const double zodiacRadius = std::min(size * 0.42, fittedOuter) * zoom_;
+        const double contentRadius = zodiacRadius + decorationBudget;
+        const double maxX = std::max(0.0, width() * 0.5 + contentRadius - 24.0);
+        const double maxY = std::max(0.0, height() * 0.5 + contentRadius - 24.0);
+        panOffset_.setX(std::clamp(panOffset_.x(), -maxX, maxX));
+        panOffset_.setY(std::clamp(panOffset_.y(), -maxY, maxY));
         lastPanPos_ = event->position();
         update();
         return;
@@ -737,9 +747,17 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
     const QPointF& center) const
 {
     // Filter and build initial list
-    struct BodyDraw { QString name; double lon; bool retrograde; };
+    struct BodyDraw {
+        QString name;
+        double lon;
+        bool retrograde;
+        bool lockLongitude;
+        LunarNodeType lunarNodeType;
+    };
     QVector<BodyDraw> drawList;
     drawList.reserve(bodies.size());
+    bool hasMeanLunarNodes = false;
+    bool hasTrueLunarNodes = false;
     for (const auto& pos : bodies) {
         if (isAsteroidBody(pos.name) && (!showAsteroids_ || !isAsteroidVisible(pos.name)))
             continue;
@@ -747,7 +765,12 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
             continue;
         if (pos.name == "Vertex" && !showDerivedPoints_)
             continue;
-        drawList.push_back({pos.name, pos.longitude, pos.retrograde});
+        drawList.push_back({pos.name, pos.longitude, pos.retrograde,
+                            pos.isLunarNode, pos.lunarNodeType});
+        if (pos.isLunarNode) {
+            hasMeanLunarNodes = hasMeanLunarNodes || pos.lunarNodeType == LunarNodeType::Mean;
+            hasTrueLunarNodes = hasTrueLunarNodes || pos.lunarNodeType == LunarNodeType::True;
+        }
     }
     std::sort(drawList.begin(), drawList.end(), [](const BodyDraw& a, const BodyDraw& b) {
         return a.lon < b.lon;
@@ -762,7 +785,8 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
         result[i].displayRadius = baseRadius;
         result[i].radialLayer = 0;
         result[i].retrograde = drawList[i].retrograde;
-        result[i].needsLeaderLine = false;
+        result[i].lockLongitude = drawList[i].lockLongitude;
+        result[i].lunarNodeType = drawList[i].lunarNodeType;
     }
 
     if (result.size() <= 1)
@@ -847,6 +871,16 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
             result[cluster[k]].displayLon = placed[k];
     }
 
+    // Lunar nodes are calculated axes, not ordinary labels. Their glyphs must
+    // remain tied to the exact ephemeris longitude while dates are stepped.
+    // Let radial layering handle nearby bodies instead of allowing a node to
+    // jump several degrees when a collision cluster changes membership.
+    for (auto& item : result) {
+        if (item.lockLongitude) {
+            item.displayLon = normalizeDegrees(item.trueLon);
+        }
+    }
+
     // --- Phase 2: Pixel-space overlap detection ---
     const double pad = 3.0;
     const double halfG = glyphSize * 0.5;
@@ -862,7 +896,7 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
     QVector<int> parent(result.size());
     for (int i = 0; i < result.size(); ++i) parent[i] = i;
 
-    std::function<int(int)> findRoot = [&](int x) -> int {
+    auto findRoot = [&](int x) -> int {
         while (parent[x] != x) {
             parent[x] = parent[parent[x]];
             x = parent[x];
@@ -891,7 +925,9 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
     }
 
     // --- Phase 3: Radial layer assignment ---
-    const double radialStep = glyphSize * 1.1;
+    // Keep radial lanes far enough apart to help dense clusters, while still
+    // fitting inside the deliberately narrow natal/transit bands.
+    const double radialStep = glyphSize * 0.7;
     static constexpr int kMaxLayers = 2;
 
     for (auto it = groupMap.begin(); it != groupMap.end(); ++it) {
@@ -928,62 +964,92 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
             // Clamp to allowed range
             newRadius = std::clamp(newRadius, minRadius, maxRadius);
             result[group[k]].displayRadius = newRadius;
-            result[group[k]].radialLayer = layer;
-            result[group[k]].needsLeaderLine = (layer != 0);
+            result[group[k]].radialLayer = qRound((newRadius - baseRadius) / radialStep);
         }
     }
 
-    // --- Phase 4: Per-layer angular re-check ---
-    // Re-run a mini angular spread among planets on the same layer that still overlap
-    for (int layer = -kMaxLayers; layer <= kMaxLayers; ++layer) {
-        QVector<int> layerIndices;
-        for (int i = 0; i < result.size(); ++i) {
-            if (result[i].radialLayer == layer)
-                layerIndices.append(i);
-        }
-        if (layerIndices.size() <= 1)
+    // --- Phase 4: Per-radius angular re-check ---
+    // Group by the actual post-clamp radius. This prevents nominal layers that
+    // collapsed onto one radius from being treated as separate, non-colliding lanes.
+    QMap<int, QVector<int>> radiusGroups;
+    for (int i = 0; i < result.size(); ++i) {
+        radiusGroups[qRound(result[i].displayRadius * 10.0)].append(i);
+    }
+    for (auto it = radiusGroups.begin(); it != radiusGroups.end(); ++it) {
+        QVector<int> indices = it.value();
+        if (indices.size() <= 1) {
             continue;
-
-        // Sort by displayLon
-        std::sort(layerIndices.begin(), layerIndices.end(), [&](int a, int b) {
+        }
+        std::sort(indices.begin(), indices.end(), [&](int a, int b) {
             return normalizeDegrees(result[a].displayLon) < normalizeDegrees(result[b].displayLon);
         });
 
-        const double layerRadius = baseRadius + layer * radialStep;
-        const double layerMinSpacing = std::max(2.0, (glyphSize * 1.15 / std::max(layerRadius, 1.0)) * qRadiansToDegrees(1.0));
-
-        QVector<double> layerLons(layerIndices.size());
-        for (int k = 0; k < layerIndices.size(); ++k)
-            layerLons[k] = normalizeDegrees(result[layerIndices[k]].displayLon);
-
-        // Unwrap
-        QVector<double> unwrapped(layerLons.size());
-        unwrapped[0] = layerLons[0];
-        for (int k = 1; k < layerLons.size(); ++k) {
-            double lon = layerLons[k];
-            if (lon < unwrapped[k - 1]) lon += 360.0;
-            unwrapped[k] = lon;
+        // Start immediately after the largest circular gap so the unwrap seam
+        // cannot split a cluster at 0/360 degrees.
+        int startIndex = 0;
+        double largestGap = -1.0;
+        for (int k = 0; k < indices.size(); ++k) {
+            const double here = normalizeDegrees(result[indices[k]].displayLon);
+            const double next = normalizeDegrees(result[indices[(k + 1) % indices.size()]].displayLon);
+            const double gap = (k + 1 < indices.size()) ? (next - here) : (next + 360.0 - here);
+            if (gap > largestGap) {
+                largestGap = gap;
+                startIndex = (k + 1) % indices.size();
+            }
         }
 
+        QVector<int> ordered;
+        QVector<double> unwrapped;
+        ordered.reserve(indices.size());
+        unwrapped.reserve(indices.size());
+        for (int step = 0; step < indices.size(); ++step) {
+            const int idx = indices[(startIndex + step) % indices.size()];
+            double lon = normalizeDegrees(result[idx].displayLon);
+            if (!unwrapped.isEmpty() && lon < unwrapped.back()) {
+                lon += 360.0;
+            }
+            ordered.append(idx);
+            unwrapped.append(lon);
+        }
+
+        double radiusSum = 0.0;
+        for (const int idx : ordered) {
+            radiusSum += result[idx].displayRadius;
+        }
+        const double actualRadius = radiusSum / static_cast<double>(ordered.size());
+        const double minSpacing = std::max(
+            2.0, (glyphSize * 1.15 / std::max(actualRadius, 1.0)) * qRadiansToDegrees(1.0));
         QVector<double> placed = unwrapped;
         for (int k = 1; k < placed.size(); ++k) {
-            if (placed[k] < placed[k - 1] + layerMinSpacing)
-                placed[k] = placed[k - 1] + layerMinSpacing;
+            placed[k] = std::max(placed[k], placed[k - 1] + minSpacing);
         }
-        for (int k = placed.size() - 2; k >= 0; --k) {
-            if (placed[k] > placed[k + 1] - layerMinSpacing)
-                placed[k] = placed[k + 1] - layerMinSpacing;
+        double recenter = 0.0;
+        for (int k = 0; k < placed.size(); ++k) {
+            recenter += unwrapped[k] - placed[k];
         }
-        double deltaSum = 0.0;
-        for (int k = 0; k < placed.size(); ++k)
-            deltaSum += (unwrapped[k] - placed[k]);
-        const double delta = deltaSum / static_cast<double>(placed.size());
-        for (int k = 0; k < placed.size(); ++k)
-            placed[k] += delta;
-
-        for (int k = 0; k < layerIndices.size(); ++k)
-            result[layerIndices[k]].displayLon = placed[k];
+        recenter /= static_cast<double>(placed.size());
+        for (int k = 0; k < placed.size(); ++k) {
+            result[ordered[k]].displayLon = placed[k] + recenter;
+        }
     }
+
+    const bool showBothNodeModels = hasMeanLunarNodes && hasTrueLunarNodes;
+    for (auto& item : result) {
+        if (!item.lockLongitude) {
+            continue;
+        }
+        item.displayLon = normalizeDegrees(item.trueLon);
+        item.displayRadius = showBothNodeModels
+            ? (item.lunarNodeType == LunarNodeType::True ? maxRadius : minRadius)
+            : baseRadius;
+        item.radialLayer = qRound((item.displayRadius - baseRadius)
+                                  / std::max(glyphSize * 0.7, 1.0));
+    }
+    // Draw anchored node glyphs after ordinary bodies so a nearby low-priority
+    // point cannot cover the node at its exact degree.
+    std::stable_sort(result.begin(), result.end(), [](const PlacedBody& a, const PlacedBody& b) {
+        return !a.lockLongitude && b.lockLongitude;
+    });
 
     return result;
 }
@@ -999,16 +1065,53 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     const QPointF center(bounds.center().x() + panOffset_.x(), bounds.center().y() + panOffset_.y());
 
     // --- Astro.com-style geometry: planets OUTSIDE the zodiac ring ---
-    const double zodiacOuter = size * 0.42 * zoom_;       // outer edge of zodiac sign ring
+    // At the default zoom, reserve enough room for the planet lane and angle
+    // degrees. User zoom is then applied on top, preserving intentional overflow
+    // and panning instead of silently disabling magnification.
+    // Degree labels need a real lane of their own beyond the body glyphs. The
+    // previous fixed budget left that lane inside the glyph rectangles, so the
+    // collision checker correctly rejected almost every body-degree label.
+    const double outerDecorationBudget = showDegrees_
+        ? 112.0 * fontScale_ + 12.0
+        : 35.0 * fontScale_ + 34.0;
+    const double fittedOuter = std::max(72.0, size * 0.5 - outerDecorationBudget);
+    const double baseZodiacOuter = std::min(size * 0.42, fittedOuter);
+    const double zodiacOuter = baseZodiacOuter * zoom_;    // outer edge of zodiac sign ring
     const double zodiacInner = zodiacOuter * 0.86;         // inner edge of zodiac sign ring
     const double houseOuter  = zodiacInner - 4.0;          // outer edge of house area
     const double houseInner  = zodiacOuter * 0.52;         // inner edge of house area
     const double aspectRadius = houseInner - 8.0;          // aspect line endpoints
     const double houseLabelRadius = (houseOuter + houseInner) * 0.5; // center of house area
     // Planet lane sits outside the zodiac ring
-    const double outer = zodiacOuter;                       // main chart circle = zodiac outer
     const double planetLaneRadius = zodiacOuter + 18.0 * fontScale_; // center of planet glyph lane
-    const double transitLaneRadius = planetLaneRadius + 22.0 * fontScale_; // transit lane (overlay)
+
+    // Paint opaque zodiac fills before structural strokes and ticks so those
+    // details remain visible rather than being covered later in the frame.
+    if (hasChart_) {
+        const QVector<QColor> elementColors = {
+            theme_.elementFire,
+            theme_.elementEarth,
+            theme_.elementAir,
+            theme_.elementWater,
+        };
+        painter.save();
+        painter.setPen(Qt::NoPen);
+        for (int s = 0; s < 12; ++s) {
+            painter.setBrush(elementColors[elementIndexForSign(s)]);
+            const double startAngle = angleForLongitude(s * 30.0);
+            QPainterPath path;
+            const QRectF outerRect(center.x() - zodiacOuter, center.y() - zodiacOuter,
+                                   zodiacOuter * 2.0, zodiacOuter * 2.0);
+            const QRectF innerRect(center.x() - zodiacInner, center.y() - zodiacInner,
+                                   zodiacInner * 2.0, zodiacInner * 2.0);
+            path.arcMoveTo(outerRect, startAngle);
+            path.arcTo(outerRect, startAngle, 30.0);
+            path.arcTo(innerRect, startAngle + 30.0, -30.0);
+            path.closeSubpath();
+            painter.drawPath(path);
+        }
+        painter.restore();
+    }
 
     painter.save();
     // Zodiac outer ring - the main circle
@@ -1027,7 +1130,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
     if (!hasChart_) {
         painter.setPen(theme_.placeholderText);
-        painter.drawText(rect(), Qt::AlignCenter, "Chart wheel placeholder");
+        const QRectF placeholderRect(center.x() - 120.0, center.y() - 20.0, 240.0, 40.0);
+        painter.drawText(placeholderRect, Qt::AlignCenter, "Chart wheel placeholder");
         return;
     }
 
@@ -1038,7 +1142,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         int infoY = 8;
 
         // Date line - prominent
-        QFont dateFont("Segoe UI", 10);
+        QFont dateFont("Segoe UI");
+        dateFont.setPointSizeF(10.0 * fontScale_);
         dateFont.setWeight(QFont::DemiBold);
         dateFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
         painter.setFont(dateFont);
@@ -1055,7 +1160,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             infoY += painter.fontMetrics().height() + 1;
 
             // Time + timezone - secondary, lighter
-            QFont timeFont("Segoe UI", 8);
+            QFont timeFont("Segoe UI");
+            timeFont.setPointSizeF(8.0 * fontScale_);
             timeFont.setWeight(QFont::Normal);
             painter.setFont(timeFont);
             QColor timeColor = theme_.body;
@@ -1072,7 +1178,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         // Optional context note (e.g., Solar Return profected house).
         if (!chartNote_.isEmpty()) {
             infoY += 2;
-            QFont noteFont("Segoe UI", 8);
+            QFont noteFont("Segoe UI");
+            noteFont.setPointSizeF(8.0 * fontScale_);
             noteFont.setWeight(QFont::DemiBold);
             noteFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.2);
             painter.setFont(noteFont);
@@ -1085,7 +1192,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         // If overlay, show transit date on a second line
         if (overlay && overlayChart_.localDateTime.isValid()) {
             infoY += 3;
-            QFont transitLabelFont("Segoe UI", 7);
+            QFont transitLabelFont("Segoe UI");
+            transitLabelFont.setPointSizeF(7.0 * fontScale_);
             transitLabelFont.setWeight(QFont::Medium);
             transitLabelFont.setCapitalization(QFont::AllUppercase);
             transitLabelFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.8);
@@ -1097,7 +1205,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawText(infoX, infoY + painter.fontMetrics().ascent(), label);
             infoY += painter.fontMetrics().height() + 1;
 
-            QFont transitDateFont("Segoe UI", 9);
+            QFont transitDateFont("Segoe UI");
+            transitDateFont.setPointSizeF(9.0 * fontScale_);
             transitDateFont.setWeight(QFont::DemiBold);
             painter.setFont(transitDateFont);
             QColor transitColor = theme_.transitBody;
@@ -1108,7 +1217,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawText(infoX, infoY + painter.fontMetrics().ascent(), transitDate);
             infoY += painter.fontMetrics().height() + 1;
 
-            QFont transitTimeFont("Segoe UI", 8);
+            QFont transitTimeFont("Segoe UI");
+            transitTimeFont.setPointSizeF(8.0 * fontScale_);
             painter.setFont(transitTimeFont);
             transitColor.setAlpha(140);
             painter.setPen(transitColor);
@@ -1122,12 +1232,11 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         painter.restore();
     }
 
-    QFont glyphFont("Segoe UI Symbol", 14 * fontScale_);
-    QFont smallFont("Segoe UI", 9 * fontScale_);
+    QFont smallFont("Segoe UI");
+    smallFont.setPointSizeF(9.0 * fontScale_);
     QFont angleFont = smallFont;
     angleFont.setPointSizeF(smallFont.pointSizeF() + 2.0);
     angleFont.setBold(true);
-    painter.setFont(glyphFont);
     const double glyphSize = 20.0 * fontScale_;
     const double glyphHalf = glyphSize * 0.5;
     const double degWidth = 42.0 * fontScale_;
@@ -1136,10 +1245,25 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     const double angleLabelWidth = 36.0 * fontScale_;
     const double angleLabelHeight = 20.0 * fontScale_;
     const double angleDegWidth = 46.0 * fontScale_;
-    const double degreeOffset = glyphHalf + 8.0;
-    // Angle labels sit just beyond the planet lane
+    // Angle labels sit just beyond the planet lane.
     const double angleLabelRadius = planetLaneRadius + glyphHalf + 14.0;
-    const double angleDegRadius = angleLabelRadius + 20.0;
+
+    // Axis-aligned text rectangles need different radial clearances at
+    // different points around the wheel: their width is radial at AC/DC while
+    // their height is radial at MC/IC.
+    auto radialHalfExtent = [](double width, double height, double angleDeg) {
+        const double radians = qDegreesToRadians(angleDeg);
+        return 0.5 * (std::fabs(std::cos(radians)) * width
+                      + std::fabs(std::sin(radians)) * height);
+    };
+    auto angleDegreeRadiusFor = [&](double angleDeg) {
+        const double nameExtent = radialHalfExtent(
+            angleLabelWidth, angleLabelHeight, angleDeg);
+        const double degreeExtent = radialHalfExtent(
+            angleDegWidth, degHeight, angleDeg);
+        return angleLabelRadius + nameExtent + degreeExtent
+            + 5.0 * fontScale_;
+    };
 
     // Degree ticks on the inner edge of the zodiac ring (Astro.com style).
     if (showTicks_) {
@@ -1167,39 +1291,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     }
 
     // Sign boundaries + glyphs.
-    const auto signs = zodiacSigns();
-    const auto signGlyphs = zodiacSignGlyphs();
-    
-    // Draw element-colored zodiac pie segments
-    const QVector<QColor> elementColors = {
-        theme_.elementFire,   // 0 = Fire
-        theme_.elementEarth,  // 1 = Earth
-        theme_.elementAir,    // 2 = Air
-        theme_.elementWater,  // 3 = Water
-    };
-    painter.save();
-    painter.setPen(Qt::NoPen);
-    for (int s = 0; s < 12; ++s) {
-        const int elemIdx = elementIndexForSign(s);
-        painter.setBrush(elementColors[elemIdx]);
-        // Draw pie segment from zodiacInner to zodiacOuter
-        const double startAngle = angleForLongitude(s * 30.0);
-        const double spanAngle = 30.0;
-        QPainterPath path;
-        QRectF outerRect(center.x() - zodiacOuter, center.y() - zodiacOuter, zodiacOuter * 2, zodiacOuter * 2);
-        QRectF innerRect(center.x() - zodiacInner, center.y() - zodiacInner, zodiacInner * 2, zodiacInner * 2);
-        path.arcMoveTo(outerRect, startAngle);
-        path.arcTo(outerRect, startAngle, spanAngle);
-        path.arcTo(innerRect, startAngle + spanAngle, -spanAngle);
-        path.closeSubpath();
-        painter.drawPath(path);
-    }
-    painter.restore();
-    
-    // Draw sign boundary lines
     painter.setPen(QPen(theme_.signBoundary, 1.5));
     // Resource paths for zodiac icons
-    const QStringList svgPaths = {
+    static const QStringList svgPaths = {
         ":/resources/icons/zodiac/aries.svg",
         ":/resources/icons/zodiac/taurus.svg",
         ":/resources/icons/zodiac/gemini.svg",
@@ -1225,8 +1319,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         const double midLon = lon + 15.0;
         const QPointF pos = pointOnCircle(center, (zodiacOuter + zodiacInner) * 0.5, angleForLongitude(midLon));
         
-        // Rect for the icon
-        QRectF iconRect(pos.x() - 14, pos.y() - 14, 28, 28);
+        const double iconSize = std::clamp((zodiacOuter - zodiacInner) * 0.70,
+                                           18.0 * fontScale_, 32.0 * fontScale_);
+        QRectF iconRect(pos.x() - iconSize * 0.5, pos.y() - iconSize * 0.5,
+                        iconSize, iconSize);
         
         if (s < svgPaths.size()) {
             const QPixmap px = coloredSvgPixmap(svgPaths[s], theme_.signGlyph,
@@ -1263,7 +1359,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     for (int i = 0; i < angleLons.size(); ++i) {
         const double angleVal = angleForLongitude(angleLons[i]);
         // Inner portion through house area
-        painter.setPen(QPen(angleColors[i], 2.2));
+        painter.setPen(QPen(angleColors[i], 2.2 * fontScale_));
         const QPointF outerPt = pointOnCircle(center, zodiacOuter, angleVal);
         const QPointF innerPt = pointOnCircle(center, houseInner, angleVal);
         painter.drawLine(outerPt, innerPt);
@@ -1271,6 +1367,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
     // Draw house numbers with angular house emphasis
     painter.setFont(smallFont);
+    QVector<QRectF> houseLabelRects;
+    houseLabelRects.reserve(12);
     for (int i = 0; i < cusps.size(); ++i) {
         const double a1 = angleForLongitude(cusps[i]);
         const double a2 = angleForLongitude(cusps[(i + 1) % cusps.size()]);
@@ -1293,9 +1391,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.setPen(theme_.houseLabel);
             painter.setFont(smallFont);
         }
-        painter.drawText(QRectF(pos.x() - houseLabelSize * 0.5, pos.y() - houseLabelSize * 0.5,
-                                houseLabelSize, houseLabelSize),
-                         Qt::AlignCenter, QString::number(houseNum));
+        const QRectF houseRect(pos.x() - houseLabelSize * 0.5, pos.y() - houseLabelSize * 0.5,
+                               houseLabelSize, houseLabelSize);
+        painter.drawText(houseRect, Qt::AlignCenter, QString::number(houseNum));
+        houseLabelRects.append(houseRect.adjusted(-3, -3, 3, 3));
     }
 
     const bool overlay = (mode_ == Mode::Overlay && hasOverlay_);
@@ -1322,15 +1421,19 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     // Aspect lines.
     aspectLines_.clear();
     if (showAspects_) {
+        QVector<QRectF> aspectSymbolRects;
+        aspectSymbolRects.reserve(64);
+        const QString natalScope = QStringLiteral("Natal ");
+        const QString transitScope = QStringLiteral("Transit ");
+        const QString overlayScope = overlayPrefix + " ";
         auto shouldIncludeOrb = [this](double orb) {
             return aspectDisplayMaxOrb_ <= 0.0 || orb <= aspectDisplayMaxOrb_;
         };
         auto appendAspectLine = [&](double lonA, double lonB,
                                     const QString& nameA, const QString& nameB,
                                     const QString& label, double orb, double maxOrb,
-                                    const QColor& color, Qt::PenStyle style,
-                                    double opacityScale, const QString& tooltipPrefix) {
-            Q_UNUSED(color);
+                                    Qt::PenStyle style, double opacityScale,
+                                    const QString& tooltipPrefix) {
             if (!shouldIncludeOrb(orb)) {
                 return;
             }
@@ -1338,28 +1441,43 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             const QColor lineColor = aspectTypeColor(label);
             // Strip scope prefixes to recover the raw body name for click-to-focus.
             auto stripPrefix = [&](const QString& n) -> QString {
-                const QStringList prefixes = {QStringLiteral("Natal "), QStringLiteral("Transit "), overlayPrefix + " "};
-                for (const auto& p : prefixes) {
-                    if (!p.trimmed().isEmpty() && n.startsWith(p)) {
-                        return n.mid(p.size());
-                    }
+                if (n.startsWith(natalScope)) return n.mid(natalScope.size());
+                if (n.startsWith(transitScope)) return n.mid(transitScope.size());
+                if (!overlayScope.trimmed().isEmpty() && n.startsWith(overlayScope)) {
+                    return n.mid(overlayScope.size());
                 }
                 return n;
             };
             const QString rawA = stripPrefix(nameA);
             const QString rawB = stripPrefix(nameB);
+            auto displayScopedName = [&](const QString& scopedName) -> QString {
+                QString prefix;
+                const LunarNodePolicy* policy = &chart_.lunarNodePolicy;
+                QString rawName = scopedName;
+                if (scopedName.startsWith(natalScope)) {
+                    prefix = natalScope;
+                    rawName = scopedName.mid(natalScope.size());
+                    policy = &chart_.lunarNodePolicy;
+                } else if (!overlayScope.trimmed().isEmpty() && scopedName.startsWith(overlayScope)) {
+                    prefix = overlayScope;
+                    rawName = scopedName.mid(overlayScope.size());
+                    policy = hasOverlay_ ? &overlayChart_.lunarNodePolicy : &chart_.lunarNodePolicy;
+                } else if (scopedName.startsWith(transitScope)) {
+                    prefix = transitScope;
+                    rawName = scopedName.mid(transitScope.size());
+                    policy = hasOverlay_ ? &overlayChart_.lunarNodePolicy : &chart_.lunarNodePolicy;
+                }
+                return prefix + lunarNodeDisplayName(rawName, *policy);
+            };
             // Suppress structurally redundant aspect lines within a single chart:
             //   - North Node / South Node are always exactly opposite.
             //   - Chart angles (AC/MC/DC/IC) are fixed relative to each other.
             // Detect "same chart" by comparing scope prefixes so a genuine
             // transit-node-to-natal-node aspect is still drawn in overlays.
             auto scopeOf = [&](const QString& n) -> QString {
-                const QStringList prefixes = {QStringLiteral("Natal "), QStringLiteral("Transit "), overlayPrefix + " "};
-                for (const auto& p : prefixes) {
-                    if (!p.trimmed().isEmpty() && n.startsWith(p)) {
-                        return p;
-                    }
-                }
+                if (n.startsWith(natalScope)) return natalScope;
+                if (n.startsWith(transitScope)) return transitScope;
+                if (!overlayScope.trimmed().isEmpty() && n.startsWith(overlayScope)) return overlayScope;
                 return QString();
             };
             const bool sameChart = (scopeOf(nameA) == scopeOf(nameB));
@@ -1371,34 +1489,67 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             const QPointF p1 = pointOnCircle(center, aspectRadius, angleForLongitude(lonA));
             const QPointF p2 = pointOnCircle(center, aspectRadius, angleForLongitude(lonB));
             const QLineF line(p1, p2);
+            const QPointF chord = p2 - p1;
+            const double chordLength = std::hypot(chord.x(), chord.y());
+            const QPointF midpoint = (p1 + p2) * 0.5;
+            const double relativeLength = std::clamp(
+                chordLength / std::max(2.0 * aspectRadius, 1.0), 0.0, 1.0);
+            const double bendFactor = 0.08 + 0.22 * relativeLength;
+            const QPointF control = midpoint + (center - midpoint) * bendFactor;
+            QPainterPath path(p1);
+            path.quadTo(control, p2);
             double strength = 0.5;
             if (maxOrb > 0.0) {
                 strength = 1.0 - (orb / maxOrb);
             }
             strength = std::clamp(strength, 0.0, 1.0);
-            // Reduced opacity for cleaner look reducing visual noise
-            double baseOpacity = 0.15 + (0.55 * strength);
-            baseOpacity *= opacityScale;
+            double baseOpacity = std::max(0.12, (0.24 + 0.56 * strength) * opacityScale);
             const double baseWidth = 0.6 + (1.2 * strength);
             QString tooltip = QString("%1%2 - %3 - %4 (orb %5 deg)")
                 .arg(tooltipPrefix)
-                .arg(nameA)
+                .arg(displayScopedName(nameA))
                 .arg(label)
-                .arg(nameB)
+                .arg(displayScopedName(nameB))
                 .arg(QString::number(orb, 'f', 2));
             if (maxOrb > 0.0) {
                 tooltip += QString(", max %1 deg").arg(QString::number(maxOrb, 'f', 1));
             }
-            QPointF labelPos = (p1 + p2) * 0.5;
-            const QPointF vec = p2 - p1;
-            const double len = std::hypot(vec.x(), vec.y());
-            if (len > 12.0) {
-                const QPointF perp(-vec.y() / len, vec.x() / len);
-                labelPos += perp * (6.0 * fontScale_);
+            QPointF labelPos = (p1 + control * 2.0 + p2) * 0.25;
+            QPointF tangent = p2 - p1;
+            const double tangentLength = std::hypot(tangent.x(), tangent.y());
+            QPointF perpendicular;
+            if (tangentLength > 1.0) {
+                tangent /= tangentLength;
+                perpendicular = QPointF(-tangent.y(), tangent.x());
+                labelPos += perpendicular * (4.0 * fontScale_);
             }
-            QRectF symbolRect(labelPos.x() - 8, labelPos.y() - 8, 16, 16);
+            const double symbolSize = std::clamp(16.0 * fontScale_, 14.0, 24.0);
+            QRectF symbolRect;
+            const QVector<QPointF> symbolOffsets = {
+                QPointF(), perpendicular * symbolSize, perpendicular * -symbolSize,
+                tangent * symbolSize, tangent * -symbolSize,
+            };
+            for (const QPointF& offset : symbolOffsets) {
+                const QPointF candidate = labelPos + offset;
+                const QRectF candidateRect(candidate.x() - symbolSize * 0.5,
+                                           candidate.y() - symbolSize * 0.5,
+                                           symbolSize, symbolSize);
+                bool overlaps = false;
+                for (const QRectF& used : aspectSymbolRects) {
+                    if (candidateRect.adjusted(-2, -2, 2, 2).intersects(used)) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    symbolRect = candidateRect;
+                    aspectSymbolRects.append(candidateRect.adjusted(-2, -2, 2, 2));
+                    break;
+                }
+            }
             aspectLines_.push_back(AspectLineInfo{
                 line,
+                path,
                 symbolRect,
                 tooltip,
                 lineColor,
@@ -1460,14 +1611,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                         if (!aspectFor(diff, aspectOrbs_, &label, &orb, &maxOrb)) {
                             continue;
                         }
-                        QColor color(theme_.aspectLineNeutral);
-                        if (label == "Square" || label == "Opposition") {
-                            color = QColor("#e05555");
-                        } else if (label == "Trine" || label == "Sextile") {
-                            color = QColor("#4aa3ff");
-                        }
                         appendAspectLine(t.lon, n.lon, overlayPrefix + " " + t.name, "Natal " + n.name,
-                                         label, orb, maxOrb, color, Qt::SolidLine, 1.0, "");
+                                         label, orb, maxOrb, Qt::SolidLine, 1.0, "");
                     }
                 }
             }
@@ -1486,14 +1631,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                         if (!aspectFor(diff, aspectOrbs_, &label, &orb, &maxOrb)) {
                             continue;
                         }
-                        QColor color(theme_.aspectLineTransitTransit);
-                        if (label == "Square" || label == "Opposition") {
-                            color = QColor("#c76b6b");
-                        } else if (label == "Trine" || label == "Sextile") {
-                            color = QColor("#6aa0d8");
-                        }
                         appendAspectLine(a.lon, b.lon, overlayPrefix + " " + a.name, overlayPrefix + " " + b.name,
-                                         label, orb, maxOrb, color, Qt::DashLine, 0.65, "");
+                                         label, orb, maxOrb, Qt::DashLine, 0.65, "");
                     }
                 }
             }
@@ -1508,6 +1647,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 bodyMap.insert("IC", chart_.angles.ic);
                 for (int i = 0; i < chart_.aspects.bodyOrder.size(); ++i) {
                     for (int j = i + 1; j < chart_.aspects.bodyOrder.size(); ++j) {
+                        if (i >= chart_.aspects.cells.size()
+                            || j >= chart_.aspects.cells[i].size()) {
+                            continue;
+                        }
                         const auto& cell = chart_.aspects.cells[i][j];
                         if (!cell.hasAspect) {
                             continue;
@@ -1520,15 +1663,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                         if (skipHiddenAspect(aName, bName)) {
                             continue;
                         }
-                        QColor color(theme_.aspectLineNatalNatal);
-                        if (cell.label == "Square" || cell.label == "Opposition") {
-                            color = QColor("#a65b5b");
-                        } else if (cell.label == "Trine" || cell.label == "Sextile") {
-                            color = QColor("#5f86b3");
-                        }
                         appendAspectLine(bodyMap.value(aName), bodyMap.value(bName),
                                          "Natal " + aName, "Natal " + bName,
-                                         cell.label, cell.orb, cell.maxOrb, color, Qt::DotLine, 0.45, "");
+                                         cell.label, cell.orb, cell.maxOrb, Qt::DotLine, 0.45, "");
                     }
                 }
             }
@@ -1559,6 +1696,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
             for (int i = 0; i < chart_.aspects.bodyOrder.size(); ++i) {
                 for (int j = i + 1; j < chart_.aspects.bodyOrder.size(); ++j) {
+                    if (i >= chart_.aspects.cells.size()
+                        || j >= chart_.aspects.cells[i].size()) {
+                        continue;
+                    }
                     const auto& cell = chart_.aspects.cells[i][j];
                     if (!cell.hasAspect) {
                         continue;
@@ -1571,14 +1712,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     if (skipHiddenAspect(aName, bName)) {
                         continue;
                     }
-                    QColor color(theme_.aspectLineNeutral);
-                    if (cell.label == "Square" || cell.label == "Opposition") {
-                        color = QColor("#e05555");
-                    } else if (cell.label == "Trine" || cell.label == "Sextile") {
-                        color = QColor("#4aa3ff");
-                    }
                     appendAspectLine(bodyMap.value(aName), bodyMap.value(bName), aName, bName,
-                                     cell.label, cell.orb, cell.maxOrb, color, Qt::SolidLine, 1.0, "");
+                                     cell.label, cell.orb, cell.maxOrb, Qt::SolidLine, 1.0, "");
                 }
             }
         }
@@ -1599,8 +1734,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 }
             }
         }
-        QFont aspectFont("Segoe UI Symbol", 8 * fontScale_);
+        QFont aspectFont("Segoe UI Symbol");
+        aspectFont.setPointSizeF(8.0 * fontScale_);
         aspectFont.setBold(true);
+        const bool denseAspectField = aspectLines_.size() > 60;
         for (int i = 0; i < aspectLines_.size(); ++i) {
             const auto& info = aspectLines_[i];
             const bool isHover = (i == hoveredAspectIndex_);
@@ -1632,20 +1769,13 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             pen.setCapStyle(Qt::RoundCap);
             painter.setPen(pen);
             painter.setBrush(Qt::NoBrush);
-            // Curve each chord gently toward the centre so overlapping lines
-            // separate visually and are easier to trace than straight chords.
-            const QPointF a = info.line.p1();
-            const QPointF b = info.line.p2();
-            const QPointF mid = (a + b) * 0.5;
-            const QPointF ctrl = mid + (center - mid) * 0.30;
-            QPainterPath path(a);
-            path.quadTo(ctrl, b);
-            painter.drawPath(path);
+            painter.drawPath(info.path);
             painter.restore();
 
             const bool focusSuppressed = focusActive && !involvesFocus;
-            const bool showSymbol = !info.symbol.isEmpty() && !focusSuppressed
-                && (showAspectSymbols_ || isHover);
+            const bool showSymbol = !info.symbol.isEmpty() && !info.symbolRect.isEmpty()
+                && !focusSuppressed
+                && (isHover || (showAspectSymbols_ && (!denseAspectField || focusActive)));
             if (showSymbol) {
                 painter.save();
                 const double symbolOpacity = showAspectSymbols_
@@ -1654,7 +1784,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 painter.setOpacity(symbolOpacity);
                 painter.setBrush(theme_.aspectSymbolBg);
                 painter.setPen(Qt::NoPen);
-                painter.drawRoundedRect(info.symbolRect.adjusted(-2, -2, 2, 2), 4, 4);
+                painter.drawEllipse(info.symbolRect.adjusted(-1, -1, 1, 1));
                 painter.setFont(aspectFont);
                 painter.setPen(info.color);
                 painter.drawText(info.symbolRect, Qt::AlignCenter, info.symbol);
@@ -1667,33 +1797,44 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     planetHitAreas_.clear();
     planetTooltips_.clear();
     planetHitNames_.clear();
-    QVector<QRectF> occupiedRects;
+    QVector<QRectF> occupiedRects = houseLabelRects;
     occupiedRects.reserve(128);
 
     QFont degreeFont = smallFont;
     degreeFont.setBold(true);
     degreeFont.setPointSizeF(smallFont.pointSizeF() + 0.5);
 
-    auto placeRadialRect = [&](double angleDeg, double baseRad, double width, double height) {
+    auto placeRadialRect = [&](double angleDeg, double baseRad, double width, double height,
+                               double minRad, double maxRad, int preferredDirection) {
         const double step = 6.0 * fontScale_;
-        QRectF rect;
-        double r = baseRad;
-        for (int attempt = 0; attempt < 6; ++attempt) {
-            const QPointF p = pointOnCircle(center, r, angleDeg);
-            rect = QRectF(p.x() - width * 0.5, p.y() - height * 0.5, width, height);
-            bool hit = false;
-            for (const auto& occ : occupiedRects) {
-                if (rect.intersects(occ)) {
-                    hit = true;
-                    break;
+        const int direction = preferredDirection >= 0 ? 1 : -1;
+        const QVector<double> angleOffsets = {
+            0.0, 2.5, -2.5, 5.0, -5.0, 7.5, -7.5,
+        };
+        for (int attempt = 0; attempt < 15; ++attempt) {
+            const int distanceStep = (attempt + 1) / 2;
+            const int attemptDirection = (attempt == 0)
+                ? 0
+                : ((attempt % 2 == 1) ? direction : -direction);
+            const double r = std::clamp(baseRad + attemptDirection * distanceStep * step,
+                                        minRad, maxRad);
+            for (double angleOffset : angleOffsets) {
+                const QPointF p = pointOnCircle(center, r, angleDeg + angleOffset);
+                const QRectF rect(p.x() - width * 0.5, p.y() - height * 0.5,
+                                  width, height);
+                bool hit = false;
+                for (const auto& occ : occupiedRects) {
+                    if (rect.intersects(occ)) {
+                        hit = true;
+                        break;
+                    }
+                }
+                if (!hit) {
+                    return rect;
                 }
             }
-            if (!hit) {
-                return rect;
-            }
-            r += step;
         }
-        return rect;
+        return QRectF();
     };
 
     // Reserve angle label/degree areas so planet degree labels avoid them.
@@ -1703,59 +1844,58 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         const QRectF labelRect(labelPos.x() - angleLabelWidth * 0.5, labelPos.y() - angleLabelHeight * 0.5,
                                angleLabelWidth, angleLabelHeight);
         occupiedRects.push_back(labelRect.adjusted(-6, -4, 6, 4));
-        const QPointF degPos = pointOnCircle(center, angleDegRadius, angleForLongitude(angleLon));
-        const QRectF degRect(degPos.x() - angleDegWidth * 0.5, degPos.y() - degHeight * 0.5,
-                             angleDegWidth, degHeight);
-        occupiedRects.push_back(degRect.adjusted(-6, -4, 6, 4));
+        if (showDegrees_) {
+            const double angle = angleForLongitude(angleLon);
+            const double angleDegRadius = angleDegreeRadiusFor(angle);
+            const QPointF degPos = pointOnCircle(center, angleDegRadius, angle);
+            const QRectF degRect(degPos.x() - angleDegWidth * 0.5,
+                                 degPos.y() - degHeight * 0.5,
+                                 angleDegWidth, degHeight);
+            occupiedRects.push_back(degRect.adjusted(-6, -4, 6, 4));
+        }
     }
 
     // Helper lambdas for planet rendering
     auto getPlanetChar = [](const QString& name) -> QChar {
-        if (name == "Sun") return QChar(0x2609);
-        if (name == "Moon") return QChar(0x263E);
-        if (name == "Mercury") return QChar(0x263F);
-        if (name == "Venus") return QChar(0x2640);
-        if (name == "Mars") return QChar(0x2642);
-        if (name == "Jupiter") return QChar(0x2643);
-        if (name == "Saturn") return QChar(0x2644);
-        if (name == "Uranus") return QChar(0x26E2);
-        if (name == "Neptune") return QChar(0x2646);
-        if (name == "Pluto") return QChar(0x2647);
-        if (name == "Chiron") return QChar(0x26B7);
-        if (name == "Ceres") return QChar(0x26B3);
-        if (name == "Pallas") return QChar(0x26B4);
-        if (name == "Juno") return QChar(0x26B5);
-        if (name == "Vesta") return QChar(0x26B6);
-        if (name == "North Node") return QChar(0x260A);
-        if (name == "South Node") return QChar(0x260B);
-        if (name == "Lilith") return QChar(0x26B8);
-        if (name == "Part of Fortune") return QChar(0x2297);
-        return QChar();
+        static const QHash<QString, QChar> characters = {
+            {"Sun", QChar(0x2609)}, {"Moon", QChar(0x263E)},
+            {"Mercury", QChar(0x263F)}, {"Venus", QChar(0x2640)},
+            {"Mars", QChar(0x2642)}, {"Jupiter", QChar(0x2643)},
+            {"Saturn", QChar(0x2644)}, {"Uranus", QChar(0x26E2)},
+            {"Neptune", QChar(0x2646)}, {"Pluto", QChar(0x2647)},
+            {"Chiron", QChar(0x26B7)}, {"Ceres", QChar(0x26B3)},
+            {"Pallas", QChar(0x26B4)}, {"Juno", QChar(0x26B5)},
+            {"Vesta", QChar(0x26B6)}, {"North Node", QChar(0x260A)},
+            {"South Node", QChar(0x260B)}, {"Lilith", QChar(0x26B8)},
+            {"Part of Fortune", QChar(0x2297)},
+        };
+        const QString lookupName = isLunarNodeName(name)
+            ? (isNorthLunarNodeName(name) ? QString("North Node") : QString("South Node"))
+            : name;
+        return characters.value(lookupName);
     };
 
     auto planetSvgPath = [](const QString& name) -> QString {
-        if (name == "Sun") return ":/resources/icons/planets/sun.svg";
-        if (name == "Moon") return ":/resources/icons/planets/moon.svg";
-        if (name == "Mercury") return ":/resources/icons/planets/mercury.svg";
-        if (name == "Venus") return ":/resources/icons/planets/venus.svg";
-        if (name == "Mars") return ":/resources/icons/planets/mars.svg";
-        if (name == "Jupiter") return ":/resources/icons/planets/jupiter.svg";
-        if (name == "Saturn") return ":/resources/icons/planets/saturn.svg";
-        if (name == "Uranus") return ":/resources/icons/planets/uranus.svg";
-        if (name == "Neptune") return ":/resources/icons/planets/neptune.svg";
-        if (name == "Pluto") return ":/resources/icons/planets/pluto.svg";
-        if (name == "Chiron") return ":/resources/icons/planets/chiron.svg";
-        if (name == "North Node") return ":/resources/icons/planets/north_node.svg";
-        if (name == "South Node") return ":/resources/icons/planets/south_node.svg";
-        return "";
+        return bodySvgResourcePath(name);
     };
 
-    auto drawPlacedBodies = [&](const QVector<PlacedBody>& placements, double baseRad,
-                                double tickTargetRadius,
-                                const QColor& color, const QString& prefix, bool isTransit) {
+    auto drawPlacedBodies = [&](const QVector<PlacedBody>& placements, double tickTargetRadius,
+                                const QColor& color, const QString& prefix, bool isTransit,
+                                const LunarNodePolicy& nodePolicy) {
         QFont planetFont("Segoe UI Symbol");
-        planetFont.setPixelSize(static_cast<int>(16 * fontScale_));
+        planetFont.setPointSizeF(12.0 * fontScale_);
         painter.setFont(planetFont);
+
+        // Reserve every glyph before placing any degree label. Otherwise an
+        // early label can occupy the space needed by a later planet glyph.
+        for (const auto& item : placements) {
+            const double angle = angleForLongitude(normalizeDegrees(item.displayLon));
+            const QPointF glyphPos = pointOnCircle(center, item.displayRadius, angle);
+            const QRectF reservedGlyph(glyphPos.x() - glyphSize * 0.5,
+                                       glyphPos.y() - glyphSize * 0.5,
+                                       glyphSize, glyphSize);
+            occupiedRects.push_back(reservedGlyph.adjusted(-2, -2, 2, 2));
+        }
 
         for (int i = 0; i < placements.size(); ++i) {
             const auto& item = placements[i];
@@ -1780,7 +1920,12 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 const double dir = (item.displayRadius >= tickTargetRadius) ? 1.0 : -1.0;
                 const QPointF ringPt = pointOnCircle(center, tickTargetRadius, trueAngle);
                 const QPointF stubPt = pointOnCircle(center, tickTargetRadius + dir * 5.0 * fontScale_, trueAngle);
-                const double glyphEdgeR = item.displayRadius - dir * (gs * 0.5 + 1.0);
+                double glyphEdgeR = item.displayRadius - dir * (gs * 0.5 + 1.0);
+                if (dir > 0.0) {
+                    glyphEdgeR = std::max(glyphEdgeR, tickTargetRadius + 5.0 * fontScale_);
+                } else {
+                    glyphEdgeR = std::min(glyphEdgeR, tickTargetRadius - 5.0 * fontScale_);
+                }
                 const QPointF glyphPt = pointOnCircle(center, glyphEdgeR, displayAngle);
                 const bool displaced = (angularDiff(item.displayLon, item.trueLon) > 0.4)
                     || (item.radialLayer != 0);
@@ -1794,7 +1939,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 // Only when the glyph has been moved to avoid overlap: a thin, faint
                 // leader from the exact-degree tick to the glyph. Keeping it thin and
                 // only-when-needed keeps dense clusters legible.
-                if (displaced) {
+                if (displaced && QLineF(stubPt, glyphPt).length() >= 4.0 * fontScale_) {
                     QColor leadColor = bodyColor;
                     leadColor.setAlpha(115);
                     painter.setPen(QPen(leadColor, 0.8, Qt::SolidLine, Qt::RoundCap));
@@ -1826,8 +1971,23 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 painter.setPen(bodyColor);
                 painter.drawText(glyphR, Qt::AlignCenter, glyph);
             }
-            occupiedRects.push_back(glyphR.adjusted(-2, -2, 2, 2));
-
+            if (isLunarNodeName(item.name)) {
+                painter.save();
+                QFont nodeModelFont = smallFont;
+                nodeModelFont.setPointSizeF(std::max(6.0, smallFont.pointSizeF() * 0.68));
+                nodeModelFont.setBold(true);
+                painter.setFont(nodeModelFont);
+                painter.setPen(bodyColor);
+                const LunarNodeType nodeType = lunarNodeTypeForName(
+                    item.name, effectivePrimaryNodeType(nodePolicy));
+                const QRectF modelRect(glyphR.right() - 1.0 * fontScale_,
+                                       glyphR.bottom() - 7.0 * fontScale_,
+                                       9.0 * fontScale_, 9.0 * fontScale_);
+                painter.drawText(modelRect, Qt::AlignCenter,
+                                 nodeType == LunarNodeType::True ? "T" : "M");
+                painter.restore();
+                occupiedRects.push_back(modelRect.adjusted(-1, -1, 1, 1));
+            }
             // Draw Retrograde indicator (℞) as superscript next to glyph
             if (item.retrograde) {
                 painter.save();
@@ -1836,31 +1996,62 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 retroFont.setBold(true);
                 painter.setFont(retroFont);
                 painter.setPen(theme_.retrogradeIndicator);
-                QRectF retroRect(glyphR.right() - 2, glyphR.top() - 2, 10, 10);
+                const double retroSize = 10.0 * fontScale_;
+                QRectF retroRect(glyphR.right() - 2.0 * fontScale_,
+                                 glyphR.top() - 2.0 * fontScale_,
+                                 retroSize, retroSize);
                 painter.drawText(retroRect, Qt::AlignCenter, QString::fromUtf8(u8"℞"));
                 painter.restore();
+                occupiedRects.push_back(retroRect.adjusted(-1, -1, 1, 1));
             }
 
             // Degree label placed just outside the glyph along the radial direction
             if (showDegrees_) {
                 painter.save();
                 painter.setFont(degreeFont);
-                const double degRad = item.displayRadius + degreeOffset;
-                QRectF textRect = placeRadialRect(displayAngle, degRad, degWidth, degHeight);
-                painter.setPen(bodyColor);
-                painter.drawText(textRect, Qt::AlignCenter, degLabel);
+                const bool outsideWheel = item.displayRadius >= zodiacOuter;
+                const int labelDirection = outsideWheel ? 1 : -1;
+                const double labelExtent = radialHalfExtent(
+                    degWidth, degHeight, displayAngle);
+                const double degRad = item.displayRadius
+                    + labelDirection * (glyphHalf + labelExtent
+                                        + 3.0 * fontScale_);
+                const double minLabelRadius = outsideWheel
+                    ? zodiacOuter + labelExtent + 2.0 * fontScale_
+                    : houseInner + labelExtent + 2.0 * fontScale_;
+                const double rawMaxLabelRadius = outsideWheel
+                    ? zodiacOuter + outerDecorationBudget - labelExtent
+                        - 8.0 * fontScale_
+                    : houseOuter - labelExtent - 2.0 * fontScale_;
+                const double maxLabelRadius = std::max(minLabelRadius, rawMaxLabelRadius);
+                const QRectF textRect = placeRadialRect(displayAngle, degRad, degWidth, degHeight,
+                                                        minLabelRadius, maxLabelRadius, labelDirection);
+                if (!textRect.isEmpty()) {
+                    QColor haloColor = theme_.background;
+                    haloColor.setAlpha(230);
+                    painter.setPen(haloColor);
+                    painter.drawText(textRect.translated(-1, 0), Qt::AlignCenter, degLabel);
+                    painter.drawText(textRect.translated(1, 0), Qt::AlignCenter, degLabel);
+                    painter.drawText(textRect.translated(0, -1), Qt::AlignCenter, degLabel);
+                    painter.drawText(textRect.translated(0, 1), Qt::AlignCenter, degLabel);
+                    painter.setPen(bodyColor);
+                    painter.drawText(textRect, Qt::AlignCenter, degLabel);
+                    occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
+                }
                 painter.restore();
-                occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
                 painter.setFont(planetFont);
             }
 
             const int house = houseForLongitude(item.trueLon, cusps);
             const QString retroLabel = item.retrograde ? " (R)" : "";
+            const double roundedLon = normalizeDegrees(
+                std::round(normalizeDegrees(item.trueLon) * 120.0) / 120.0);
+            const QString displayName = lunarNodeDisplayName(item.name, nodePolicy);
             const QString tooltip = QString("%1%2%3 in %4 %5 (House %6)")
                 .arg(prefix)
-                .arg(item.name)
+                .arg(displayName)
                 .arg(retroLabel)
-                .arg(signName(signIndex(item.trueLon)))
+                .arg(signName(signIndex(roundedLon)))
                 .arg(degLabel)
                 .arg(house);
             planetHitAreas_.push_back(glyphR.adjusted(-2, -2, 2, 2));
@@ -1875,9 +2066,18 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             return;
         }
         QFont starFont("Segoe UI Symbol");
-        starFont.setPixelSize(static_cast<int>(10 * fontScale_));
-        QFont starDegFont("Segoe UI", static_cast<int>(8 * fontScale_));
+        starFont.setPointSizeF(7.5 * fontScale_);
+        QFont starDegFont("Segoe UI");
+        starDegFont.setPointSizeF(8.0 * fontScale_);
         starDegFont.setBold(true);
+
+        static const QVector<double> angleOffsets = {0.0, 2.5, -2.5};
+        const QVector<double> radialOffsets = {
+            0.0,
+            4.0 * fontScale_,
+            -4.0 * fontScale_,
+            8.0 * fontScale_,
+        };
 
         for (const auto& star : stars) {
             if (!isFixedStarVisible(star.name)) {
@@ -1885,16 +2085,19 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             }
             const double lon = normalizeDegrees(star.longitude);
             const double baseAngle = angleForLongitude(lon);
-            static const QVector<double> angleOffsets = {0.0, 2.5, -2.5, 5.0, -5.0, 7.5, -7.5};
-            const QVector<double> radialOffsets = {
-                0.0,
-                4.0 * fontScale_,
-                -4.0 * fontScale_,
-                8.0 * fontScale_,
-            };
+            const QPointF pInner = pointOnCircle(center, markerRadius - 3.5 * fontScale_, baseAngle);
+            const QPointF pOuter = pointOnCircle(center, markerRadius + 3.5 * fontScale_, baseAngle);
+
+            painter.save();
+            QColor lineColor = color;
+            lineColor.setAlpha(180);
+            painter.setPen(QPen(lineColor, 1.0, Qt::SolidLine, Qt::RoundCap));
+            painter.drawLine(pInner, pOuter);
+            painter.restore();
 
             QRectF symbolRect;
             double placedAngle = baseAngle;
+            double placedRadius = markerRadius + 8.5 * fontScale_;
             bool placed = false;
             for (double radialOffset : radialOffsets) {
                 for (double angleOffset : angleOffsets) {
@@ -1915,6 +2118,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                     if (!hit) {
                         symbolRect = testRect;
                         placedAngle = testAngle;
+                        placedRadius = markerRadius + 8.5 * fontScale_ + radialOffset;
                         placed = true;
                         break;
                     }
@@ -1924,17 +2128,19 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 }
             }
             if (!placed) {
+                // Keep the exact-position tick visible even if density leaves no
+                // honest place for a readable star symbol.
                 continue;
             }
 
-            const QPointF pInner = pointOnCircle(center, markerRadius - 3.5 * fontScale_, placedAngle);
-            const QPointF pOuter = pointOnCircle(center, markerRadius + 3.5 * fontScale_, placedAngle);
-
             painter.save();
-            QColor lineColor = color;
-            lineColor.setAlpha(180);
-            painter.setPen(QPen(lineColor, 1.0, Qt::SolidLine, Qt::RoundCap));
-            painter.drawLine(pInner, pOuter);
+            if (angularDiff(placedAngle, baseAngle) > 0.1
+                || std::fabs(placedRadius - (markerRadius + 8.5 * fontScale_)) > 0.1) {
+                QColor leaderColor = color;
+                leaderColor.setAlpha(90);
+                painter.setPen(QPen(leaderColor, 0.7, Qt::SolidLine, Qt::RoundCap));
+                painter.drawLine(pOuter, symbolRect.center());
+            }
             painter.restore();
 
             painter.save();
@@ -1946,18 +2152,44 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (showDegrees_) {
                 painter.save();
                 painter.setFont(starDegFont);
-                const QRectF textRect = placeRadialRect(placedAngle, markerRadius + degreeOffset + 6.0 * fontScale_,
-                                                        degWidth, degHeight);
-                painter.setPen(color);
-                painter.drawText(textRect, Qt::AlignCenter, formatDegShort(lon));
+                const bool outsideWheel = placedRadius >= zodiacOuter;
+                const int labelDirection = outsideWheel ? 1 : -1;
+                const double labelExtent = radialHalfExtent(
+                    degWidth, degHeight, placedAngle);
+                const double labelBase = placedRadius
+                    + labelDirection * (6.0 * fontScale_ + labelExtent);
+                const double minLabelRadius = outsideWheel
+                    ? zodiacOuter + labelExtent + 2.0 * fontScale_
+                    : houseInner + labelExtent + 2.0 * fontScale_;
+                const double rawMaxLabelRadius = outsideWheel
+                    ? zodiacOuter + outerDecorationBudget - labelExtent
+                        - 8.0 * fontScale_
+                    : houseOuter - labelExtent - 2.0 * fontScale_;
+                const double maxLabelRadius = std::max(minLabelRadius, rawMaxLabelRadius);
+                const QRectF textRect = placeRadialRect(placedAngle, labelBase, degWidth, degHeight,
+                                                        minLabelRadius, maxLabelRadius, labelDirection);
+                if (!textRect.isEmpty()) {
+                    QColor haloColor = theme_.background;
+                    haloColor.setAlpha(230);
+                    const QString starDegree = formatDegShort(lon);
+                    painter.setPen(haloColor);
+                    painter.drawText(textRect.translated(-1, 0), Qt::AlignCenter, starDegree);
+                    painter.drawText(textRect.translated(1, 0), Qt::AlignCenter, starDegree);
+                    painter.drawText(textRect.translated(0, -1), Qt::AlignCenter, starDegree);
+                    painter.drawText(textRect.translated(0, 1), Qt::AlignCenter, starDegree);
+                    painter.setPen(color);
+                    painter.drawText(textRect, Qt::AlignCenter, starDegree);
+                    occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
+                }
                 painter.restore();
-                occupiedRects.push_back(textRect.adjusted(-2, -2, 2, 2));
             }
 
+            const double roundedLon = normalizeDegrees(
+                std::round(normalizeDegrees(lon) * 120.0) / 120.0);
             const QString tooltip = QString("%1%2 in %3 %4 (House %5)")
                 .arg(prefix)
                 .arg(star.name)
-                .arg(signName(signIndex(lon)))
+                .arg(signName(signIndex(roundedLon)))
                 .arg(formatDegShort(lon))
                 .arg(star.house > 0 ? QString::number(star.house) : QString("-"));
             planetHitAreas_.push_back(symbolRect.adjusted(-2, -2, 2, 2));
@@ -1970,18 +2202,22 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     if (overlay) {
         // Natal planets INSIDE the wheel (between houseOuter and houseInner)
         // Tick lines point outward to zodiacInner
-        const double natalBaseR = (houseOuter + houseInner) * 0.5;
+        // Keep overlay natal bodies away from the house-number lane, which is
+        // centered in this band. The chart longitudes remain unchanged.
+        const double natalBaseR = houseInner + (houseOuter - houseInner) * 0.30;
         const double natalMin = houseInner + glyphHalf + 4.0;
         const double natalMax = houseOuter - glyphHalf - 2.0;
         auto natalPlacements = computePlanetPlacements(chart_.bodies, natalBaseR, natalMin, natalMax, glyphSize, center);
-        drawPlacedBodies(natalPlacements, natalBaseR, zodiacInner, theme_.natalBody, "Natal ", false);
+        drawPlacedBodies(natalPlacements, zodiacInner, theme_.natalBody, "Natal ", false,
+                         chart_.lunarNodePolicy);
 
         // Transit planets OUTSIDE the zodiac ring (planet lane)
         // Tick lines point inward to zodiacOuter
         const double transitMin = planetLaneRadius - glyphHalf - 4.0;
         const double transitMax = planetLaneRadius + glyphHalf + 4.0;
         auto transitPlacements = computePlanetPlacements(overlayChart_.bodies, planetLaneRadius, transitMin, transitMax, glyphSize, center);
-        drawPlacedBodies(transitPlacements, planetLaneRadius, zodiacOuter, theme_.transitBody, overlayPrefix + " ", true);
+        drawPlacedBodies(transitPlacements, zodiacOuter, theme_.transitBody, overlayPrefix + " ", true,
+                         overlayChart_.lunarNodePolicy);
         drawFixedStars(chart_.fixedStars, zodiacOuter - 6.0 * fontScale_, theme_.natalBody, "Natal ");
         drawFixedStars(overlayChart_.fixedStars, zodiacOuter + 6.0 * fontScale_, theme_.transitBody, overlayPrefix + " ");
     } else {
@@ -1989,7 +2225,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         const double minR = planetLaneRadius - glyphHalf - 4.0;
         const double maxR = planetLaneRadius + glyphHalf + 4.0;
         auto placements = computePlanetPlacements(chart_.bodies, planetLaneRadius, minR, maxR, glyphSize, center);
-        drawPlacedBodies(placements, planetLaneRadius, zodiacOuter, theme_.body, "", false);
+        drawPlacedBodies(placements, zodiacOuter, theme_.body, "", false,
+                         chart_.lunarNodePolicy);
         const QColor starColor = (mode_ == Mode::TransitOnly) ? theme_.transitBody : theme_.body;
         const QString starPrefix = (mode_ == Mode::TransitOnly) ? QString("Transit ") : QString();
         drawFixedStars(chart_.fixedStars, zodiacOuter + 6.0 * fontScale_, starColor, starPrefix);
@@ -2021,11 +2258,12 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         painter.setPen(angleColors[i]);
         painter.drawText(labelRect, Qt::AlignCenter, angleNames[i]);
         painter.restore();
-        planetHitAreas_.push_back(labelRect.adjusted(-2, -2, 2, 2));
-        planetHitNames_.push_back(angleFocusNames[i]);
+        QRectF angleHitRect = labelRect.adjusted(-2, -2, 2, 2);
         if (showDegrees_) {
             painter.setFont(degreeFont);
-            const QPointF degPos = pointOnCircle(center, angleDegRadius, angleForLongitude(angleLon));
+            const double angle = angleForLongitude(angleLon);
+            const double angleDegRadius = angleDegreeRadiusFor(angle);
+            const QPointF degPos = pointOnCircle(center, angleDegRadius, angle);
             const QRectF degRect(degPos.x() - angleDegWidth * 0.5, degPos.y() - degHeight * 0.5,
                                   angleDegWidth, degHeight);
             painter.save();
@@ -2043,18 +2281,31 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawText(degRect, Qt::AlignCenter, formatDegShort(angleLon));
             painter.restore();
             painter.setFont(angleLabelFont);
+            angleHitRect = angleHitRect.united(degRect.adjusted(-2, -2, 2, 2));
         }
+        const double roundedAngleLon = normalizeDegrees(
+            std::round(normalizeDegrees(angleLon) * 120.0) / 120.0);
         const QString tooltip = QString("%1 in %2 %3")
             .arg(angleNames[i])
-            .arg(signName(signIndex(angleLon)))
+            .arg(signName(signIndex(roundedAngleLon)))
             .arg(formatDegShort(angleLon));
+        planetHitAreas_.push_back(angleHitRect);
         planetTooltips_.push_back(tooltip);
+        planetHitNames_.push_back(angleFocusNames[i]);
     }
 
     // --- Aspect colour legend (bottom-left) ---
     if (hasChart_ && showAspects_ && showAspectLegend_ && !aspectLines_.isEmpty()) {
         const QStringList aspNames = {"Conjunction", "Sextile", "Square", "Trine", "Opposition"};
-        QFont legendFont("Segoe UI", static_cast<int>(8 * fontScale_));
+        const QStringList scopeNames = overlay
+            ? QStringList{overlayPrefix + " - Natal", overlayPrefix + " - " + overlayPrefix,
+                          "Natal - Natal"}
+            : QStringList{};
+        const QVector<Qt::PenStyle> scopeStyles = {
+            Qt::SolidLine, Qt::DashLine, Qt::DotLine,
+        };
+        QFont legendFont("Segoe UI");
+        legendFont.setPointSizeF(8.0 * fontScale_);
         painter.setFont(legendFont);
         const QFontMetrics fm(legendFont);
         const double rowH = fm.height() + 3.0;
@@ -2063,10 +2314,14 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         for (const auto& n : aspNames) {
             maxTextW = std::max(maxTextW, static_cast<double>(fm.horizontalAdvance(n)));
         }
+        for (const auto& n : scopeNames) {
+            maxTextW = std::max(maxTextW, static_cast<double>(fm.horizontalAdvance(n)));
+        }
         const double padX = 8.0;
         const double padY = 6.0;
         const double panelW = padX * 2 + sampleW + 8.0 + maxTextW + 14.0;
-        const double panelH = padY * 2 + rowH * aspNames.size();
+        const double scopeGap = scopeNames.isEmpty() ? 0.0 : 5.0;
+        const double panelH = padY * 2 + rowH * (aspNames.size() + scopeNames.size()) + scopeGap;
         const double px = 10.0;
         const double py = height() - panelH - 10.0;
 
@@ -2077,7 +2332,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         painter.setBrush(bg);
         painter.drawRoundedRect(QRectF(px, py, panelW, panelH), 6, 6);
 
-        QFont glyphLegendFont("Segoe UI Symbol", static_cast<int>(8 * fontScale_));
+        QFont glyphLegendFont("Segoe UI Symbol");
+        glyphLegendFont.setPointSizeF(8.0 * fontScale_);
         glyphLegendFont.setBold(true);
         for (int r = 0; r < aspNames.size(); ++r) {
             const QString& name = aspNames[r];
@@ -2097,6 +2353,19 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             painter.drawText(QRectF(lx + sampleW + 14.0, rowY - rowH * 0.5, maxTextW + 4.0, rowH),
                              Qt::AlignVCenter | Qt::AlignLeft, name);
         }
+        for (int r = 0; r < scopeNames.size(); ++r) {
+            const double rowY = py + padY + rowH * (aspNames.size() + r) + scopeGap + rowH * 0.5;
+            const double lx = px + padX;
+            QColor sampleColor = theme_.body;
+            sampleColor.setAlpha(190);
+            painter.setPen(QPen(sampleColor, 1.5, scopeStyles.value(r, Qt::SolidLine), Qt::RoundCap));
+            painter.drawLine(QPointF(lx, rowY), QPointF(lx + sampleW, rowY));
+            painter.setFont(legendFont);
+            painter.setPen(sampleColor);
+            painter.drawText(QRectF(lx + sampleW + 14.0, rowY - rowH * 0.5,
+                                    maxTextW + 4.0, rowH),
+                             Qt::AlignVCenter | Qt::AlignLeft, scopeNames[r]);
+        }
         painter.restore();
     }
 
@@ -2110,7 +2379,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             }
         }
         if (focusActive) {
-            QFont focusFont("Segoe UI", static_cast<int>(8.5 * fontScale_));
+            QFont focusFont("Segoe UI");
+            focusFont.setPointSizeF(8.5 * fontScale_);
             focusFont.setBold(true);
             painter.setFont(focusFont);
             const QString text = QString("Focus: %1  (click empty to clear)").arg(focusBody_);

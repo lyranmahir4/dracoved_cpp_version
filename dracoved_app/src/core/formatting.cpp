@@ -1,5 +1,7 @@
 #include "formatting.h"
+#include "chart_types.h"
 
+#include <QHash>
 #include <QMap>
 #include <algorithm>
 #include <cmath>
@@ -173,9 +175,9 @@ QString dignityLabel(const QString& planet, const QString& sign) {
     };
 
     QString planetKey = planet;
-    if (planet == "North Node") {
+    if (isNorthLunarNodeName(planet)) {
         planetKey = "Rahu";
-    } else if (planet == "South Node") {
+    } else if (isLunarNodeName(planet)) {
         planetKey = "Ketu";
     }
 
@@ -366,8 +368,18 @@ QString bodyLabel(const QString& name, bool glyph) {
     if (name == "Juno") return glyph ? QString(QChar(0x26B5)) : "Jn";
     if (name == "Vesta") return glyph ? QString(QChar(0x26B6)) : "Vs";
     if (name == "Pholus") return "Ph";
-    if (name == "North Node") return glyph ? QString(QChar(0x260A)) : "NN";
-    if (name == "South Node") return glyph ? QString(QChar(0x260B)) : "SN";
+    if (isNorthLunarNodeName(name)) {
+        if (glyph) return QString(QChar(0x260A));
+        if (name.startsWith("Mean ")) return "mNN";
+        if (name.startsWith("True ")) return "tNN";
+        return "NN";
+    }
+    if (isLunarNodeName(name)) {
+        if (glyph) return QString(QChar(0x260B));
+        if (name.startsWith("Mean ")) return "mSN";
+        if (name.startsWith("True ")) return "tSN";
+        return "SN";
+    }
     if (name == "Lilith") return glyph ? QString(QChar(0x26B8)) : "Li";
     if (name == "Part of Fortune") return glyph ? QString(QChar(0x2297)) : "PF";
     if (isArabicLotName(name)) return lotAbbrev(name);
@@ -387,6 +399,21 @@ QStringList tropicalBodyOrder() {
     };
     order.append(arabicLotOrder());
     order << "Vertex" << "Ascendant" << "Midheaven" << "Descendant" << "IC";
+    return order;
+}
+
+QStringList bodyOrderForLunarNodePolicy(const LunarNodePolicy& policy) {
+    QStringList order = tropicalBodyOrder();
+    if (policy.mode != LunarNodeMode::Both) {
+        return order;
+    }
+    const LunarNodeType secondary = effectivePrimaryNodeType(policy) == LunarNodeType::Mean
+        ? LunarNodeType::True
+        : LunarNodeType::Mean;
+    const int southIndex = order.indexOf("South Node");
+    const int insertionIndex = southIndex >= 0 ? southIndex + 1 : order.size();
+    order.insert(insertionIndex, explicitLunarNodeName(false, secondary));
+    order.insert(insertionIndex, explicitLunarNodeName(true, secondary));
     return order;
 }
 
@@ -421,6 +448,29 @@ bool isAsteroidBody(const QString& name) {
 
 QString bodyGlyph(const QString& name) {
     return bodyLabel(name, true);
+}
+
+QString bodySvgResourcePath(const QString& name) {
+    static const QHash<QString, QString> paths = {
+        {"Sun", ":/resources/icons/planets/sun.svg"},
+        {"Moon", ":/resources/icons/planets/moon.svg"},
+        {"Mercury", ":/resources/icons/planets/mercury.svg"},
+        {"Venus", ":/resources/icons/planets/venus.svg"},
+        {"Mars", ":/resources/icons/planets/mars.svg"},
+        {"Jupiter", ":/resources/icons/planets/jupiter.svg"},
+        {"Saturn", ":/resources/icons/planets/saturn.svg"},
+        {"Uranus", ":/resources/icons/planets/uranus.svg"},
+        {"Neptune", ":/resources/icons/planets/neptune.svg"},
+        {"Pluto", ":/resources/icons/planets/pluto.svg"},
+        {"Chiron", ":/resources/icons/planets/chiron.svg"},
+        {"North Node", ":/resources/icons/planets/north_node.svg"},
+        {"South Node", ":/resources/icons/planets/south_node.svg"},
+        {"Lilith", ":/resources/icons/planets/lilith.svg"},
+    };
+    const QString lookupName = isLunarNodeName(name)
+        ? (isNorthLunarNodeName(name) ? QString("North Node") : QString("South Node"))
+        : name;
+    return paths.value(lookupName);
 }
 
 }  // namespace dracoved

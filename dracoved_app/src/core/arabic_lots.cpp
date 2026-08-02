@@ -266,6 +266,19 @@ bool findPrenatalSyzygy(const SwissEph* swe, double jdUt, int calcFlags, Prenata
     return true;
 }
 
+double calculateLotOfErosLongitude(
+    double ascendant,
+    double spirit,
+    double venus,
+    bool isDay) {
+    // Paulus/Olympiodorus Hermetic lot used by Astrodienst's
+    // Hellenistic Zodiacal Releasing calculator:
+    // day = Ascendant + Venus - Spirit; night = Ascendant + Spirit - Venus.
+    return isDay
+        ? project(ascendant, venus, spirit)
+        : project(ascendant, spirit, venus);
+}
+
 QVector<BodyPosition> calculateArabicLots(const LotCalculationContext& ctx) {
     QVector<BodyPosition> lots;
     lots.reserve(96);
@@ -292,7 +305,8 @@ QVector<BodyPosition> calculateArabicLots(const LotCalculationContext& ctx) {
 
     const double fortune = ctx.isDay ? project(ctx.asc, moon, sun) : project(ctx.asc, sun, moon);
     const double spirit = ctx.isDay ? project(ctx.asc, sun, moon) : project(ctx.asc, moon, sun);
-    const double eros = ctx.isDay ? project(ctx.asc, spirit, fortune) : project(ctx.asc, fortune, spirit);
+    const double eros = calculateLotOfErosLongitude(ctx.asc, spirit, venus, ctx.isDay);
+    const double basis = ctx.isDay ? project(ctx.asc, spirit, fortune) : project(ctx.asc, fortune, spirit);
     const double necessity = ctx.isDay ? project(ctx.asc, fortune, spirit) : project(ctx.asc, spirit, fortune);
     const double courage = ctx.isDay ? project(ctx.asc, fortune, mars) : project(ctx.asc, mars, fortune);
     const double victory = ctx.isDay ? project(ctx.asc, jupiter, spirit) : project(ctx.asc, spirit, jupiter);
@@ -301,7 +315,7 @@ QVector<BodyPosition> calculateArabicLots(const LotCalculationContext& ctx) {
     appendLot(lots, ctx, "Part of Fortune", fortune);
     appendLot(lots, ctx, "Lot of Spirit", spirit);
     appendLot(lots, ctx, "Lot of Eros", eros);
-    appendLot(lots, ctx, "Lot of Basis", eros);
+    appendLot(lots, ctx, "Lot of Basis", basis);
     appendLot(lots, ctx, "Lot of Necessity", necessity);
     appendLot(lots, ctx, "Lot of Courage", courage);
     appendLot(lots, ctx, "Lot of Victory", victory);

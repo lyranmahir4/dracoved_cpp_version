@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QVariant>
 #include <QTimeZone>
+#include <QHash>
 
 #include <functional>
 
@@ -12,6 +13,8 @@
 #include "../core/swiss_eph.h"
 #include "../core/tropical_natal.h"
 #include "../core/progression.h"
+#include "../core/progressed_lunar_return.h"
+#include "../core/zodiacal_releasing.h"
 #include "aspect_matrix_delegate.h"
 
 class QDockWidget;
@@ -47,6 +50,13 @@ struct ChartWheelTheme;
 class ChartWheelWidget;
 class ChartSetupDialog;
 class SearchWorker;
+class AstroMapWidget;
+class ReturnFinderController;
+class PlanetaryHoursController;
+class ZodiacalReleasingController;
+class GeodeticEquivalentsController;
+struct ReturnFinderResult;
+struct ReturnFinderQuery;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -107,6 +117,33 @@ public:
         int challengeCount = 0;
         QStringList topAspects;
     };
+    struct TransitAspectPeakHit {
+        QString transitBody;
+        QString aspect;
+        QString natalTarget;
+        double transitLongitude = 0.0;
+        double natalLongitude = 0.0;
+        double orb = 0.0;
+        bool transitTransit = false;
+        double weight = 0.0;
+    };
+    struct TransitAspectPeakResult {
+        QDateTime startUtc;
+        QDateTime endUtc;
+        QDateTime peakUtc;
+        int peakHitCount = 0;
+        int transitNatalHitCount = 0;
+        int transitTransitHitCount = 0;
+        double positiveWeight = 0.0;
+        double negativeWeight = 0.0;
+        double netWeight = 0.0;
+        double tightness = 0.0;
+        int sampleCount = 0;
+        bool groupedPeriod = false;
+        QStringList transitBodies;
+        QStringList natalTargets;
+        QVector<TransitAspectPeakHit> peakHits;
+    };
     enum class TransitScanMode {
         TransitNatal,
         TransitTransit,
@@ -125,14 +162,18 @@ protected:
 
 private:
     enum class AppTab {
-        Natal,
-        Transits,
-        Progression,
-        SolarReturn,
-        LunarReturn,
-        Lunations,
-        Relocation,
-        Astrocartography,
+        Natal = 0,
+        Transits = 1,
+        Progression = 2,
+        SolarReturn = 3,
+        LunarReturn = 4,
+        ReturnFinder = 5,
+        PlanetaryHours = 9,
+        ZodiacalReleasing = 10,
+        Lunations = 6,
+        Relocation = 7,
+        Astrocartography = 8,
+        GeodeticEquivalents = 11,
     };
 
     enum class ThemeMode {
@@ -156,6 +197,38 @@ private:
     enum class SolarAspectView {
         SolarReturn,
         SolarNatal,
+    };
+    enum class SolarReportPreset {
+        Basic,
+        Full,
+        Custom,
+    };
+    enum class SolarReportLotScope {
+        None,
+        Core,
+        All,
+    };
+    enum class SolarReportAspectScope {
+        Tight,
+        Standard,
+        Configured,
+    };
+    struct SolarReportOptions {
+        SolarReportPreset preset = SolarReportPreset::Basic;
+        SolarReportLotScope lotScope = SolarReportLotScope::Core;
+        SolarReportAspectScope aspectScope = SolarReportAspectScope::Tight;
+        bool includeAnnualProfection = true;
+        bool includeNatalPositions = true;
+        bool includeSolarPositions = true;
+        bool includeHouseCusps = true;
+        bool includeHouseOverlays = true;
+        bool includeSolarNatalAspects = true;
+        bool includeSolarSolarAspects = true;
+        bool includeNatalNatalAspects = false;
+        bool includeMinorBodies = false;
+        bool includeDailyMotion = false;
+        bool includeDignities = true;
+        bool includeFixedStars = false;
     };
     enum class LunarAspectView {
         LunarReturn,
@@ -197,6 +270,7 @@ private:
         Calendar,
         Conjunctions,
         Scan,
+        AspectPeaks,
         Profections,
         Lunations,
     };
@@ -209,6 +283,11 @@ private:
         NatalOnly,
         ProgressedOnly,
         Overlay,
+    };
+    enum class AstroSourceMode {
+        Natal,
+        ProgressedNow,
+        ProgressedCustom,
     };
     enum class LunationAnalysisMode {
         List,
@@ -309,6 +388,7 @@ private:
     void setupConnections();
     void setupMenuBar();
     void setupDockLayout();
+    void refreshWindowTitle();
     void resetDockLayout();
     void setLayoutLocked(bool locked);
     void setStatusMessage(const QString& text);
@@ -332,6 +412,8 @@ private:
     void handleSolarGeocode();
     void fetchSolarTimezoneForCoords(double lat, double lon);
     void handleSolarCalculate();
+    void handleSolarShiftYear(int delta);
+    void handleSolarNow();
     void refreshSolarReturnView();
     void handleSolarPlacementFinderRun();
     void refreshSolarPlacementFinderView();
@@ -349,6 +431,7 @@ private:
     void fetchLunarTimezoneForCoords(double lat, double lon);
     void handleLunarCalculate();
     void handleLunarPrev();
+    void handleLunarNow();
     void handleLunarNext();
     void refreshLunarReturnView();
     void showLunarPlaceholder();
@@ -380,8 +463,16 @@ private:
     QStringList listProfiles() const;
     bool saveProfileByName(const QString& profileName, bool promptOverwrite);
     bool loadProfileByName(const QString& profileName);
+    bool saveCurrentChart();
+    bool confirmUnsavedChartChanges();
+    bool deleteProfileByName(const QString& profileName);
+    bool renameProfileByName(const QString& profileName);
+    void showChartManager();
+    void setCurrentChartModified(bool modified);
     void refreshProfileToolbar();
     void syncZodiacToolbarControls();
+    void syncLunarNodeToolbarControl();
+    void syncLunarNodeResearchSelectionDefaults();
     void applyZodiacToolbarSelection(bool recomputeIfChartLoaded);
     void loadUiState();
     void saveUiState();
@@ -390,10 +481,13 @@ private:
     void showFixedStarSelectionDialog();
     void applyChartReadabilityPreset(ChartReadabilityPreset preset);
     void markChartReadabilityCustom();
+    void applyAspectDisplayMaxOrb(double maxOrb, bool markCustom = true);
+    void refreshAspectMatrixForCurrentView();
+    void syncAspectOrbQuickControls();
     bool isAsteroidVisible(const QString& name) const;
     bool isFixedStarVisible(const QString& name) const;
 
-    void openChartSetupDialog(bool newChart);
+    bool openChartSetupDialog(bool newChart);
     bool computeChart(const dracoved::NatalInput& input, const QString& location);
     void handleRecompute();
     void handleNewChart();
@@ -402,7 +496,15 @@ private:
     void handleLoadProfile();
     void handleDeleteProfile();
     void handleAspectOrbs();
+    void handlePreferences();
     void handleMainTabChanged(int index);
+    void updateTransitWorkspaceLayout();
+    void updateTransitAspectGridVisibility();
+    void refreshReturnFinderDocks();
+    void handleReturnFinderOpen(const ReturnFinderResult& result, const ReturnFinderQuery& query);
+    void refreshPlanetaryHoursDocks();
+    void refreshZodiacalReleasingDocks();
+    void refreshGeodeticEquivalentsDocks();
     void handleTransitNow();
     void handleTransitShiftDays(int days);
     void handleTransitModeChanged();
@@ -427,6 +529,11 @@ private:
     void handleTransitScanCancel();
     void handleTransitScanResultActivated(int row, int column);
     void handleTransitScanFinished();
+    void handleTransitAspectPeakStart();
+    void handleTransitAspectPeakCancel();
+    void handleTransitAspectPeakResultActivated(int row, int column);
+    void handleTransitAspectPeakFinished();
+    void handleCopyTransitAspectPeakDetails();
     void handleCopyAspects();
     void handleCopyTransitSearchDetails();
     void handleCopyTransitCalendarDetails();
@@ -434,6 +541,10 @@ private:
     void handleCopyTransitScanDetails();
     void handleCopyLunationDetails();
     void handleCopyReport();
+    void applySolarReportBasicPreset();
+    void applySolarReportFullPreset();
+    void markSolarReportOptionsCustom();
+    void updateSolarReportOptionsUi();
     void markTransitPending();
     void applyTransitCalculation();
     void updateTransitTargetLabels();
@@ -456,6 +567,7 @@ private:
     void updateSolarTechniqueDockTitles();
     void handleProgressionNow();
     void handleProgressionCalculate();
+    void handleProgressedLunarReturn(int direction);
     void handleProgressionViewChanged();
     void refreshProgressionView();
     void showProgressionPlaceholder();
@@ -467,11 +579,15 @@ private:
     bool computeProgressionChart(const QDateTime& localTime, const QString& tzLabel, NatalChart* out, QString* error);
     void updateTransitSearchVisibility();
     void refreshTransitScanTab();
+    void refreshTransitAspectPeakTab();
     void refreshTransitProfectionTab();
     void syncTransitProfectionAgeFromTransitDate();
     void updateTransitScanResultsTable();
+    void updateTransitAspectPeakResultsTable();
     void scheduleTransitSearchResultsRefresh();
     void showTransitScanDetails(int index);
+    void showTransitAspectPeakDetails(int index);
+    QWidget* createTransitAspectPeakPanel(QWidget* parent);
     void updateTransitSearchTargets();
     void runTransitSearch();
     void showTransitSearchResults();
@@ -496,9 +612,11 @@ private:
     QString buildTransitCalendarDetailsClipboardText() const;
     QString buildTransitConjunctionDetailsClipboardText() const;
     QString buildTransitScanDetailsClipboardText() const;
+    QString buildTransitAspectPeakClipboardText() const;
     QString buildLunationDetailsClipboardText() const;
     void refreshNatalReport();
     QString buildNatalReportText() const;
+    QString buildSolarReturnReportMarkdown() const;
     QString buildAspectsClipboardText() const;
     bool computeTransitChartAt(const QDateTime& localTime, const QString& tzLabel, NatalChart* out, QString* error);
     bool canApplyLunationResult(QString* error = nullptr) const;
@@ -526,6 +644,8 @@ private:
                               const QString& rowPrefix, const QString& colPrefix);
     dracoved::AspectMatrixPalette buildAspectMatrixPalette(ThemeMode mode) const;
     void populateTransitList(const dracoved::NatalChart& transitChart, bool overlayMode);
+    void populateTransitAspectsInEffect(const dracoved::NatalChart& transitChart, bool overlayMode);
+    void updateTransitListFilterVisibility();
     void populateCurrentTransits(const dracoved::NatalChart& transitChart, const dracoved::NatalChart& natalChart);
     void populateIngressCountdown(const dracoved::NatalChart& transitChart, const dracoved::NatalInput& transitInput);
     bool computeTransitChart(const QDateTime& localTime, const QString& tzLabel, dracoved::NatalChart* out, QString* error);
@@ -534,12 +654,30 @@ private:
                              dracoved::NatalChart* out, QString* error);
     void refreshNatalTransitsPanels();
     void refreshTransitsTab();
+    void applyTransitHouseSystem(dracoved::HouseSystem system);
+    dracoved::NatalChart natalChartForTransitDisplay() const;
     QDateTime transitSelectedLocal() const;
     QString transitTimezoneLabel() const;
     dracoved::NatalInput transitInputFor(const QDateTime& localTime, const QString& tzLabel) const;
     void updateAstrocartographyModeUi();
+    void updateAstroSourceUi();
     void updateAstrocartographyView();
     void updateGeodeticOverlays();
+    void handleAstroMapClicked(double latitude, double longitude);
+    void handleAstroMapHovered(double latitude, double longitude);
+    void flushAstroHoverPreview();
+    void clearAstroHoverPreview();
+    void handleAstroProgressionNow();
+    void refreshAstroClickedLocationView();
+    QString astroHoverCacheKey(double latitude, double longitude, double* roundedLatitude, double* roundedLongitude) const;
+    QString astroHoverInfoFor(double latitude, double longitude);
+    AstroSourceMode astroSourceMode() const;
+    dracoved::HouseSystem astroClickedHouseSystem() const;
+    bool computeProgressionChartForInput(const dracoved::NatalInput& input, const QDateTime& localTime,
+                                         const QString& tzLabel, dracoved::NatalChart* out, QString* error);
+    bool computeAstroSourceChart(double latitude, double longitude, dracoved::HouseSystem houseSystem,
+                                 dracoved::NatalChart* outChart, dracoved::NatalInput* outInput,
+                                 QString* outSourceLabel, QString* error);
     void setWorldMapOverlays(const QVariantList& lineOverlays, const QVariantList& bandOverlays);
     bool resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
                                    QString* error) const;
@@ -552,26 +690,41 @@ private:
     bool applySolarReturnYear(int year, QString* error = nullptr);
     bool lunarReturnTimeUtc(const QDateTime& anchorUtc, int direction, double targetLon,
                             const QString& tzLabel, QDateTime* outUtc, QDateTime* outLocal, QString* error);
-    bool applyLunarReturnAnchor(int direction, bool fromAnchorDate, QString* error = nullptr);
+    bool applyLunarReturnAnchor(int direction, bool fromAnchorDate, QString* error = nullptr,
+                                const QDateTime& absoluteAnchorUtc = QDateTime());
 
     QDockWidget* dataDock_ = nullptr;
     QDockWidget* rightTopDock_ = nullptr;
+    QDockWidget* transitAspectsDock_ = nullptr;
     QDockWidget* rightBottomDock_ = nullptr;
     QAction* lockLayoutAction_ = nullptr;
     QTabBar* mainTabBar_ = nullptr;
     QFrame* profileToolbarFrame_ = nullptr;
     QComboBox* profileToolbarCombo_ = nullptr;
+    QToolButton* profileToolbarNewButton_ = nullptr;
     QToolButton* profileToolbarLoadButton_ = nullptr;
+    QToolButton* profileToolbarManageButton_ = nullptr;
     QToolButton* profileToolbarSaveButton_ = nullptr;
-    QToolButton* profileToolbarSaveAsButton_ = nullptr;
     QToolButton* profileToolbarEditButton_ = nullptr;
     QToolButton* profileToolbarDeleteButton_ = nullptr;
+    QAction* newChartAction_ = nullptr;
+    QAction* openChartAction_ = nullptr;
+    QAction* manageChartsAction_ = nullptr;
+    QAction* saveChartAction_ = nullptr;
+    QAction* editChartAction_ = nullptr;
+    QAction* deleteChartAction_ = nullptr;
     QRadioButton* zodiacToolbarTropicalRadio_ = nullptr;
     QRadioButton* zodiacToolbarSiderealRadio_ = nullptr;
     QComboBox* zodiacToolbarAyanamsaCombo_ = nullptr;
+    QToolButton* nodeSettingsButton_ = nullptr;
     QLabel* profileToolbarStateLabel_ = nullptr;
     QStackedWidget* dataStack_ = nullptr;
     QSplitter* leftSplitter_ = nullptr;
+    QSplitter* chartWorkspaceSplitter_ = nullptr;
+    QWidget* chartWheelHost_ = nullptr;
+    QList<int> nonTransitLeftSplitterSizes_;
+    QList<int> transitWorkspaceSplitterSizes_;
+    bool transitWorkspaceLayoutActive_ = false;
     QTabWidget* tabs_ = nullptr;
     QTabBar* aspectScopeTabs_ = nullptr;
     QTableWidget* summaryTable_ = nullptr;
@@ -581,6 +734,11 @@ private:
     QTableWidget* housesTable_ = nullptr;
     QTableWidget* aspectsTable_ = nullptr;
     QTableWidget* rightTopTable_ = nullptr;
+    QWidget* transitListFilterPanel_ = nullptr;
+    QComboBox* transitListFilterCombo_ = nullptr;
+    QTableWidget* transitAspectsTable_ = nullptr;
+    QLabel* transitAspectsCountLabel_ = nullptr;
+    QPushButton* transitAspectsCopyButton_ = nullptr;
     QTableWidget* rightBottomTable_ = nullptr;
     QPushButton* rightBottomCopyButton_ = nullptr;
     QWidget* transitPanel_ = nullptr;
@@ -590,6 +748,7 @@ private:
     QWidget* transitSearchPanel_ = nullptr;
     QWidget* transitCalendarPanel_ = nullptr;
     QWidget* transitConjunctionPanel_ = nullptr;
+    QWidget* transitAspectPeakPanel_ = nullptr;
     QWidget* transitProfectionPanel_ = nullptr;
     QWidget* aspectsPanel_ = nullptr;
     QRadioButton* transitOverlayRadio_ = nullptr;
@@ -601,10 +760,11 @@ private:
     QLineEdit* transitTimezoneEdit_ = nullptr;
     QLabel* transitTimezoneStatus_ = nullptr;
     QPushButton* transitResetTimeButton_ = nullptr;
+    QPushButton* transitMinusWeekButton_ = nullptr;
+    QPushButton* transitMinusDayButton_ = nullptr;
     QPushButton* transitNowButton_ = nullptr;
     QPushButton* transitPlusDayButton_ = nullptr;
     QPushButton* transitPlusWeekButton_ = nullptr;
-    QPushButton* transitPlusMonthButton_ = nullptr;
     QPushButton* transitCalculateButton_ = nullptr;
     QLabel* transitTargetLabel_ = nullptr;
     QLabel* transitStatusLabel_ = nullptr;
@@ -692,6 +852,11 @@ private:
     bool lunationOverlay_ = true;
     QWidget* lunationsPanel_ = nullptr;
     int lunationsDataStackIndex_ = -1;
+    int astrocartographyDataStackIndex_ = -1;
+    int returnFinderDataStackIndex_ = -1;
+    int planetaryHoursDataStackIndex_ = -1;
+    int zodiacalReleasingDataStackIndex_ = -1;
+    int geodeticEquivalentsDataStackIndex_ = -1;
     QLabel* lunationTimezoneLabel_ = nullptr;
     QPushButton* lunationRunButton_ = nullptr;
     QPushButton* lunationStopButton_ = nullptr;
@@ -729,12 +894,42 @@ private:
     QLabel* scanStatusLabel_ = nullptr;
     QComboBox* scanSortCombo_ = nullptr;
     QSpinBox* scanTopCountSpin_ = nullptr;
+    QGroupBox* aspectPeakRangeGroup_ = nullptr;
+    QGroupBox* aspectPeakSelectionGroup_ = nullptr;
+    QGroupBox* aspectPeakSettingsGroup_ = nullptr;
+    QGroupBox* aspectPeakWeightingGroup_ = nullptr;
+    QWidget* aspectPeakWeightingOptions_ = nullptr;
+    QDateEdit* aspectPeakStartDateEdit_ = nullptr;
+    QTimeEdit* aspectPeakStartTimeEdit_ = nullptr;
+    QDateEdit* aspectPeakEndDateEdit_ = nullptr;
+    QTimeEdit* aspectPeakEndTimeEdit_ = nullptr;
+    QLineEdit* aspectPeakTimezoneEdit_ = nullptr;
+    QComboBox* aspectPeakTransitBodiesCombo_ = nullptr;
+    QComboBox* aspectPeakNatalTargetsCombo_ = nullptr;
+    QComboBox* aspectPeakAspectsCombo_ = nullptr;
+    QDoubleSpinBox* aspectPeakOrbSpin_ = nullptr;
+    QComboBox* aspectPeakResolutionCombo_ = nullptr;
+    QComboBox* aspectPeakModeCombo_ = nullptr;
+    QCheckBox* aspectPeakIncludeTransitTransitCheck_ = nullptr;
+    QDoubleSpinBox* aspectPeakConjunctionWeightSpin_ = nullptr;
+    QDoubleSpinBox* aspectPeakSextileWeightSpin_ = nullptr;
+    QDoubleSpinBox* aspectPeakSquareWeightSpin_ = nullptr;
+    QDoubleSpinBox* aspectPeakTrineWeightSpin_ = nullptr;
+    QDoubleSpinBox* aspectPeakOppositionWeightSpin_ = nullptr;
+    QComboBox* aspectPeakWeightRankingCombo_ = nullptr;
+    QSpinBox* aspectPeakMinHitsSpin_ = nullptr;
+    QSpinBox* aspectPeakTopCountSpin_ = nullptr;
+    QPushButton* aspectPeakRunButton_ = nullptr;
+    QPushButton* aspectPeakCancelButton_ = nullptr;
+    QProgressBar* aspectPeakProgressBar_ = nullptr;
+    QLabel* aspectPeakStatusLabel_ = nullptr;
     QLabel* profectionReferenceLabel_ = nullptr;
     QSpinBox* profectionAgeSpin_ = nullptr;
     QPushButton* profectionUseTransitAgeButton_ = nullptr;
     QPushButton* profectionRunButton_ = nullptr;
     QLabel* profectionStatusLabel_ = nullptr;
     QToolButton* chartSettingsButton_ = nullptr;
+    QToolButton* transitAspectGridToggleButton_ = nullptr;
     QToolButton* zoomInButton_ = nullptr;
     QToolButton* zoomOutButton_ = nullptr;
     QToolButton* zoomResetButton_ = nullptr;
@@ -747,6 +942,11 @@ private:
     QAction* aspectHeaderFullAction_ = nullptr;
     QLabel* chartLegendLabel_ = nullptr;
     ChartWheelWidget* chartWheel_ = nullptr;
+    QFrame* aspectOrbQuickPanel_ = nullptr;
+    QToolButton* aspectOrbPreset1Button_ = nullptr;
+    QToolButton* aspectOrbPreset2Button_ = nullptr;
+    QToolButton* aspectOrbPreset3Button_ = nullptr;
+    QDoubleSpinBox* aspectOrbCustomSpin_ = nullptr;
     QWidget* progressionControls_ = nullptr;
     QRadioButton* progressionViewNatalRadio_ = nullptr;
     QRadioButton* progressionViewProgressedRadio_ = nullptr;
@@ -756,6 +956,9 @@ private:
     QLineEdit* progressionTimezoneEdit_ = nullptr;
     QLabel* progressionTimezoneStatus_ = nullptr;
     QPushButton* progressionNowButton_ = nullptr;
+    QPushButton* progressionLunarReturnPreviousButton_ = nullptr;
+    QPushButton* progressionLunarReturnNextButton_ = nullptr;
+    QLabel* progressionLunarReturnStatusLabel_ = nullptr;
     QPushButton* progressionCalculateButton_ = nullptr;
     QLabel* progressionStatusLabel_ = nullptr;
     QLabel* progressionLastLabel_ = nullptr;
@@ -763,7 +966,29 @@ private:
     QToolButton* aspectGridSettingsButton_ = nullptr;
     QWidget* reportPanel_ = nullptr;
     QTextEdit* reportText_ = nullptr;
+    QToolButton* reportOptionsButton_ = nullptr;
     QPushButton* reportCopyButton_ = nullptr;
+    QAction* solarReportBasicPresetAction_ = nullptr;
+    QAction* solarReportFullPresetAction_ = nullptr;
+    QAction* solarReportAnnualProfectionAction_ = nullptr;
+    QAction* solarReportNatalPositionsAction_ = nullptr;
+    QAction* solarReportSolarPositionsAction_ = nullptr;
+    QAction* solarReportHouseCuspsAction_ = nullptr;
+    QAction* solarReportHouseOverlaysAction_ = nullptr;
+    QAction* solarReportSolarNatalAspectsAction_ = nullptr;
+    QAction* solarReportSolarSolarAspectsAction_ = nullptr;
+    QAction* solarReportNatalNatalAspectsAction_ = nullptr;
+    QAction* solarReportMinorBodiesAction_ = nullptr;
+    QAction* solarReportDailyMotionAction_ = nullptr;
+    QAction* solarReportDignitiesAction_ = nullptr;
+    QAction* solarReportFixedStarsAction_ = nullptr;
+    QAction* solarReportNoLotsAction_ = nullptr;
+    QAction* solarReportCoreLotsAction_ = nullptr;
+    QAction* solarReportAllLotsAction_ = nullptr;
+    QAction* solarReportTightAspectsAction_ = nullptr;
+    QAction* solarReportStandardAspectsAction_ = nullptr;
+    QAction* solarReportConfiguredAspectsAction_ = nullptr;
+    SolarReportOptions solarReportOptions_;
     QWidget* solarControls_ = nullptr;
     QWidget* solarTechniquePanel_ = nullptr;
     QWidget* solarPlacementFinderPanel_ = nullptr;
@@ -776,6 +1001,9 @@ private:
     QDoubleSpinBox* solarLonSpin_ = nullptr;
     QLineEdit* solarTimezoneEdit_ = nullptr;
     QLabel* solarTimezoneStatus_ = nullptr;
+    QPushButton* solarPreviousButton_ = nullptr;
+    QPushButton* solarNowButton_ = nullptr;
+    QPushButton* solarNextButton_ = nullptr;
     QPushButton* solarCalculateButton_ = nullptr;
     QLabel* solarStatusLabel_ = nullptr;
     QLabel* solarLastLabel_ = nullptr;
@@ -790,6 +1018,7 @@ private:
     QLineEdit* lunarTimezoneEdit_ = nullptr;
     QLabel* lunarTimezoneStatus_ = nullptr;
     QPushButton* lunarPrevButton_ = nullptr;
+    QPushButton* lunarNowButton_ = nullptr;
     QPushButton* lunarNextButton_ = nullptr;
     QPushButton* lunarCalculateButton_ = nullptr;
     QLabel* lunarStatusLabel_ = nullptr;
@@ -854,22 +1083,60 @@ private:
     QLabel* relocationStatusLabel_ = nullptr;
     QLabel* relocationLastLabel_ = nullptr;
     QStackedWidget* centerStack_ = nullptr;
+    ReturnFinderController* returnFinderController_ = nullptr;
+    PlanetaryHoursController* planetaryHoursController_ = nullptr;
+    ZodiacalReleasingController* zodiacalReleasingController_ = nullptr;
+    GeodeticEquivalentsController* geodeticEquivalentsController_ = nullptr;
     QWidget* chartViewPanel_ = nullptr;
     QWidget* worldMapPanel_ = nullptr;
-    QQuickWidget* worldMapView_ = nullptr;
+    AstroMapWidget* astroMapWidget_ = nullptr;
     QObject* worldMapRoot_ = nullptr;
     QWidget* astrocartographyPanel_ = nullptr;
     QComboBox* astroModeCombo_ = nullptr;
     QLabel* astroModeHintLabel_ = nullptr;
     QGroupBox* geodeticGroup_ = nullptr;
+    QComboBox* astroSourceCombo_ = nullptr;
+    QLabel* astroProgressionTargetLabel_ = nullptr;
+    QWidget* astroProgressionTargetRow_ = nullptr;
+    QDateEdit* astroProgressionDateEdit_ = nullptr;
+    QTimeEdit* astroProgressionTimeEdit_ = nullptr;
+    QLineEdit* astroProgressionTimezoneEdit_ = nullptr;
+    QLabel* astroProgressionTimezoneStatus_ = nullptr;
+    QPushButton* astroProgressionNowButton_ = nullptr;
     QComboBox* geodeticPlanetCombo_ = nullptr;
     QRadioButton* geodeticExactRadio_ = nullptr;
     QRadioButton* geodeticOrbRadio_ = nullptr;
     QComboBox* geodeticOrbCombo_ = nullptr;
     QLabel* geodeticTimeLabel_ = nullptr;
+    QCheckBox* astroLineAcCheck_ = nullptr;
+    QCheckBox* astroLineDcCheck_ = nullptr;
+    QCheckBox* astroLineMcCheck_ = nullptr;
+    QCheckBox* astroLineIcCheck_ = nullptr;
+    QCheckBox* astroHarmoniousAspectsCheck_ = nullptr;
+    QCheckBox* astroDisharmoniousAspectsCheck_ = nullptr;
+    QComboBox* astroClickedHouseCombo_ = nullptr;
+    QGroupBox* astroPreviewGroup_ = nullptr;
+    ChartWheelWidget* astroPreviewWheel_ = nullptr;
+    QLabel* astroPreviewStatusLabel_ = nullptr;
+    QPushButton* astroWorldButton_ = nullptr;
+    QPushButton* astroBirthplaceButton_ = nullptr;
     QPushButton* geodeticRefreshButton_ = nullptr;
     QLabel* geodeticStatusLabel_ = nullptr;
+    QTimer* astroHoverTimer_ = nullptr;
+    QHash<QString, QString> astroHoverCache_;
+    QString astroPendingHoverKey_;
+    double astroPendingHoverLat_ = 0.0;
+    double astroPendingHoverLon_ = 0.0;
+    bool hasAstroPendingHover_ = false;
     bool worldMapReady_ = false;
+    bool hasAstroSelectedLocation_ = false;
+    double astroSelectedLat_ = 0.0;
+    double astroSelectedLon_ = 0.0;
+    bool hasAstroSourceChart_ = false;
+    QString astroSourceLabel_;
+    dracoved::NatalInput astroSourceInput_;
+    dracoved::NatalChart astroSourceChart_;
+    dracoved::NatalChart astroSelectedChart_;
     bool syncingZodiacToolbar_ = false;
     QByteArray defaultDockState_;
     bool layoutLocked_ = false;
@@ -881,6 +1148,7 @@ private:
     bool hasRelocationChart_ = false;
     QString currentLocation_;
     QString currentProfileName_;
+    bool currentChartModified_ = false;
     dracoved::NatalInput currentInput_;
     dracoved::NatalChart currentChart_;
     dracoved::NatalChart currentTransitChart_;
@@ -897,14 +1165,20 @@ private:
     QString currentRelocationLocation_;
     QVector<dracoved::HouseCusp> natalPlacidusCusps_;
     dracoved::HouseSystem defaultHouseSystem_ = dracoved::HouseSystem::WholeSign;
+    dracoved::LunarNodePolicy defaultLunarNodePolicy_;
+    dracoved::ZodiacalReleasingSettings defaultZodiacalReleasingSettings_;
     dracoved::AspectOrbs aspectOrbs_ = dracoved::defaultAspectOrbs();
     AppTab activeTab_ = AppTab::Natal;
     TransitMode transitMode_ = TransitMode::NatalOverlay;
     TransitAspectView transitAspectView_ = TransitAspectView::TransitNatal;
     TransitSubTab transitSubTab_ = TransitSubTab::Overview;
     dracoved::HouseSystem transitHouseSystem_ = dracoved::HouseSystem::WholeSign;
+    bool transitAspectGridVisible_ = true;
     bool transitPending_ = false;
+    bool transitSpaceNavigationHeld_ = false;
     bool progressionPending_ = false;
+    bool progressionIsLunarReturn_ = false;
+    dracoved::ProgressedLunarReturnEvent currentProgressedLunarReturn_;
     bool solarPending_ = false;
     bool lunarPending_ = false;
     bool relocationPending_ = false;
@@ -947,6 +1221,28 @@ private:
     bool transitScanRunning_ = false;
     QThread* scanThread_ = nullptr;
     QObject* scanWorker_ = nullptr;
+    QVector<TransitAspectPeakResult> transitAspectPeakResults_;
+    QVector<int> transitAspectPeakDisplayOrder_;
+    bool hasTransitAspectPeakSelection_ = false;
+    TransitAspectPeakResult lastTransitAspectPeakSelection_;
+    bool transitAspectPeakRunning_ = false;
+    QThread* aspectPeakThread_ = nullptr;
+    QObject* aspectPeakWorker_ = nullptr;
+    QTimeZone aspectPeakLastTz_;
+    QString aspectPeakLastTzLabel_;
+    QDateTime aspectPeakLastRangeStartUtc_;
+    QDateTime aspectPeakLastRangeEndUtc_;
+    QStringList aspectPeakLastTransitBodies_;
+    QStringList aspectPeakLastNatalTargets_;
+    QStringList aspectPeakLastAspects_;
+    double aspectPeakLastOrb_ = 1.0;
+    int aspectPeakLastResolutionMinutes_ = 360;
+    int aspectPeakLastMinHits_ = 2;
+    bool aspectPeakLastGroupedPeriods_ = false;
+    bool aspectPeakLastIncludeTransitTransit_ = false;
+    bool aspectPeakLastWeightingEnabled_ = false;
+    QMap<QString, double> aspectPeakLastAspectWeights_;
+    QString aspectPeakLastWeightRanking_ = "hits";
     QThread* searchThread_ = nullptr;
     SearchWorker* searchWorker_ = nullptr;
     QThread* calendarThread_ = nullptr;

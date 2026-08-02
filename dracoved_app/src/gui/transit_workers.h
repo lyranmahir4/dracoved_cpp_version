@@ -70,6 +70,7 @@ struct SearchParams {
     double orb = 0.0;
     double aspectAngle = 0.0;
     QString aspectLabel;
+    bool anyMajorAspect = false;
     int signFilter = -1;
     int houseFilter = 0;
     QStringList transitPlanets;
@@ -88,6 +89,7 @@ struct SearchParams {
     QString tzLabel;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
     QString ephePath;
     QStringList dllSearchPaths;
 };
@@ -115,6 +117,7 @@ struct LunationParams {
     QString tzLabel;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
     QString ephePath;
     QStringList dllSearchPaths;
 };
@@ -128,6 +131,7 @@ struct CalendarParams {
     QStringList dllSearchPaths;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
     QStringList planetNames;
     bool includeHouses = false;
     bool overlayMode = false;
@@ -147,6 +151,7 @@ struct ConjunctionParams {
     QStringList dllSearchPaths;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
     QStringList planetNames;
     int minCount = 2;
     bool useOrb = false;
@@ -232,7 +237,9 @@ public slots:
                     emit finished(true, planetErr);
                     return;
                 }
-                if (transitcalc::isNodeName(planetName)) {
+                if (transitcalc::isNodeName(planetName)
+                    && lunarNodeTypeForName(planetName, effectivePrimaryNodeType(params_.lunarNodePolicy))
+                        == LunarNodeType::Mean) {
                     speed = -std::abs(speed);
                 }
                 const double stepDays = transitcalc::clampStepDays(std::abs(speed));
@@ -296,7 +303,8 @@ signals:
 
 private:
     bool planetLongitude(const QDateTime& utc, const QString& name, double* outLon, QString* error) {
-        const int bodyId = transitcalc::bodyIdForName(name);
+        const int bodyId = transitcalc::bodyIdForName(
+            name, effectivePrimaryNodeType(params_.lunarNodePolicy));
         if (bodyId < 0) {
             if (error) {
                 *error = QString("Unsupported body: %1").arg(name);
@@ -316,7 +324,7 @@ private:
             return false;
         }
         lon = normalizeDegrees(lon);
-        if (name == "South Node") {
+        if (isLunarNodeName(name) && !isNorthLunarNodeName(name)) {
             lon = normalizeDegrees(lon + 180.0);
         }
         if (outLon) {
@@ -510,104 +518,146 @@ private:
     }
 
     void handleAspectEvent(const QDateTime& t0, const QDateTime& t1, double lon0, double lon1, const QString& planetName) {
+        const QStringList aspectLabels = params_.anyMajorAspect
+            ? QStringList{"Conjunction", "Sextile", "Square", "Trine", "Opposition"}
+            : QStringList{params_.aspectLabel};
         for (const auto& targetName : params_.targetNames) {
             if (!params_.natalTargets.contains(targetName)) {
                 continue;
             }
             const double targetLon = params_.natalTargets.value(targetName);
-            const double diff0 = transitcalc::angularDiffAbs(lon0, targetLon);
-            const double diff1 = transitcalc::angularDiffAbs(lon1, targetLon);
-            const double delta0 = diff0 - params_.aspectAngle;
-            const double delta1 = diff1 - params_.aspectAngle;
-
-            if (params_.aspectMode == AspectMode::Exact) {
-                const double exactTolerance = 0.1;
-                const double angle = params_.aspectAngle;
-                QVector<double> targets;
-                targets.reserve(2);
-                targets.push_back(normalizeDegrees(targetLon + angle));
-                if (angle > 0.01 && angle < 179.99) {
-                    const double opposite = normalizeDegrees(targetLon - angle);
-                    if (std::fabs(transitcalc::angularDiffSigned(opposite, targets[0])) > 0.01) {
-                        targets.push_back(opposite);
-                    }
-                }
-                for (double exactLon : targets) {
-                    const double f0 = transitcalc::angularDiffSigned(lon0, exactLon);
-                    const double f1 = transitcalc::angularDiffSigned(lon1, exactLon);
-                    if (std::fabs(f0) < 1e-6) {
-                        if (std::fabs(diff0 - params_.aspectAngle) <= exactTolerance) {
-                            emitAspectResult(t0, planetName, targetName, diff0);
-                        }
-                        continue;
-                    }
-                    if (f0 * f1 > 0.0) {
-                        continue;
-                    }
-                    QDateTime hi = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
-                        double lon = 0.0;
-                        if (!planetLongitude(t, planetName, &lon, nullptr)) {
-                            return 0.0;
-                        }
-                        const double diff = transitcalc::angularDiffSigned(lon, exactLon);
-                        if (outDiff) {
-                            *outDiff = diff;
-                        }
-                        return diff;
-                    });
-                    double diff = 0.0;
-                    if (planetLongitude(hi, planetName, &lon0, nullptr)) {
-                        diff = transitcalc::angularDiffAbs(lon0, targetLon);
-                    }
-                    if (std::fabs(diff - params_.aspectAngle) > exactTolerance) {
-                        continue;
-                    }
-                    emitAspectResult(hi, planetName, targetName, diff);
-                }
-            } else {
-                const double f0 = std::fabs(delta0) - params_.orb;
-                const double f1 = std::fabs(delta1) - params_.orb;
-                if (f0 > 0.0 && f1 <= 0.0) {
-                    QDateTime entry = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
-                        double lon = 0.0;
-                        if (!planetLongitude(t, planetName, &lon, nullptr)) {
-                            return 0.0;
-                        }
-                        const double diff = transitcalc::angularDiffAbs(lon, targetLon);
-                        if (outDiff) {
-                            *outDiff = diff;
-                        }
-                        const double delta = diff - params_.aspectAngle;
-                        return std::fabs(delta) - params_.orb;
-                    });
-                    const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
-                        ? QString("Degree Entry")
-                        : QString("Aspect Entry");
-                    emitAspectWindowResult(entry, planetName, targetName, eventLabel);
-                } else if (f0 <= 0.0 && f1 > 0.0) {
-                    QDateTime exit = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
-                        double lon = 0.0;
-                        if (!planetLongitude(t, planetName, &lon, nullptr)) {
-                            return 0.0;
-                        }
-                        const double diff = transitcalc::angularDiffAbs(lon, targetLon);
-                        if (outDiff) {
-                            *outDiff = diff;
-                        }
-                        const double delta = diff - params_.aspectAngle;
-                        return std::fabs(delta) - params_.orb;
-                    });
-                    const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
-                        ? QString("Degree Exit")
-                        : QString("Aspect Exit");
-                    emitAspectWindowResult(exit, planetName, targetName, eventLabel);
-                }
+            for (const auto& aspectLabel : aspectLabels) {
+                handleAspectForTarget(
+                    t0,
+                    t1,
+                    lon0,
+                    lon1,
+                    planetName,
+                    targetName,
+                    targetLon,
+                    transitcalc::aspectAngleForLabel(aspectLabel),
+                    aspectLabel);
             }
         }
     }
 
+    void handleAspectForTarget(
+        const QDateTime& t0,
+        const QDateTime& t1,
+        double lon0,
+        double lon1,
+        const QString& planetName,
+        const QString& targetName,
+        double targetLon,
+        double aspectAngle,
+        const QString& aspectLabel) {
+        const double diff0 = transitcalc::angularDiffAbs(lon0, targetLon);
+        const double diff1 = transitcalc::angularDiffAbs(lon1, targetLon);
+        const double delta0 = diff0 - aspectAngle;
+        const double delta1 = diff1 - aspectAngle;
+
+        if (params_.aspectMode == AspectMode::Exact) {
+            const double exactTolerance = 0.1;
+            QVector<double> targets;
+            targets.reserve(2);
+            targets.push_back(normalizeDegrees(targetLon + aspectAngle));
+            if (aspectAngle > 0.01 && aspectAngle < 179.99) {
+                const double opposite = normalizeDegrees(targetLon - aspectAngle);
+                if (std::fabs(transitcalc::angularDiffSigned(opposite, targets[0])) > 0.01) {
+                    targets.push_back(opposite);
+                }
+            }
+            for (double exactLon : targets) {
+                const double f0 = transitcalc::angularDiffSigned(lon0, exactLon);
+                const double f1 = transitcalc::angularDiffSigned(lon1, exactLon);
+                if (std::fabs(f0) < 1e-6) {
+                    if (std::fabs(diff0 - aspectAngle) <= exactTolerance) {
+                        emitAspectResult(
+                            t0, planetName, targetName, diff0, aspectAngle, aspectLabel);
+                    }
+                    continue;
+                }
+                if (f0 * f1 > 0.0) {
+                    continue;
+                }
+                QDateTime hi = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
+                    double lon = 0.0;
+                    if (!planetLongitude(t, planetName, &lon, nullptr)) {
+                        return 0.0;
+                    }
+                    const double diff = transitcalc::angularDiffSigned(lon, exactLon);
+                    if (outDiff) {
+                        *outDiff = diff;
+                    }
+                    return diff;
+                });
+                double diff = 0.0;
+                double eventLon = 0.0;
+                if (planetLongitude(hi, planetName, &eventLon, nullptr)) {
+                    diff = transitcalc::angularDiffAbs(eventLon, targetLon);
+                }
+                if (std::fabs(diff - aspectAngle) > exactTolerance) {
+                    continue;
+                }
+                emitAspectResult(
+                    hi, planetName, targetName, diff, aspectAngle, aspectLabel);
+            }
+        } else {
+            const double f0 = std::fabs(delta0) - params_.orb;
+            const double f1 = std::fabs(delta1) - params_.orb;
+            if (f0 > 0.0 && f1 <= 0.0) {
+                QDateTime entry = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
+                    double lon = 0.0;
+                    if (!planetLongitude(t, planetName, &lon, nullptr)) {
+                        return 0.0;
+                    }
+                    const double diff = transitcalc::angularDiffAbs(lon, targetLon);
+                    if (outDiff) {
+                        *outDiff = diff;
+                    }
+                    const double delta = diff - aspectAngle;
+                    return std::fabs(delta) - params_.orb;
+                });
+                const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
+                    ? QString("Degree Entry")
+                    : QString("Aspect Entry");
+                emitAspectWindowResult(
+                    entry,
+                    planetName,
+                    targetName,
+                    eventLabel,
+                    aspectAngle,
+                    aspectLabel);
+            } else if (f0 <= 0.0 && f1 > 0.0) {
+                QDateTime exit = bisectRoot(t0, t1, [&](const QDateTime& t, double* outDiff) {
+                    double lon = 0.0;
+                    if (!planetLongitude(t, planetName, &lon, nullptr)) {
+                        return 0.0;
+                    }
+                    const double diff = transitcalc::angularDiffAbs(lon, targetLon);
+                    if (outDiff) {
+                        *outDiff = diff;
+                    }
+                    const double delta = diff - aspectAngle;
+                    return std::fabs(delta) - params_.orb;
+                });
+                const QString eventLabel = (params_.eventType == SearchEventType::DegreeHit)
+                    ? QString("Degree Exit")
+                    : QString("Aspect Exit");
+                emitAspectWindowResult(
+                    exit,
+                    planetName,
+                    targetName,
+                    eventLabel,
+                    aspectAngle,
+                    aspectLabel);
+            }
+        }
+    }
     void handleStationEvent(const QDateTime& t0, const QDateTime& t1, const QString& planetName) {
-        if (transitcalc::isNodeName(planetName)) {
+        if (transitcalc::isNodeName(planetName)
+            && lunarNodeTypeForName(planetName, effectivePrimaryNodeType(params_.lunarNodePolicy))
+                == LunarNodeType::Mean) {
             return;
         }
         double speed0 = 0.0;
@@ -665,8 +715,14 @@ private:
         return b;
     }
 
-    void emitAspectResult(const QDateTime& utc, const QString& planetName, const QString& targetName, double diff) {
-        const double orb = std::fabs(diff - params_.aspectAngle);
+    void emitAspectResult(
+        const QDateTime& utc,
+        const QString& planetName,
+        const QString& targetName,
+        double diff,
+        double aspectAngle,
+        const QString& aspectLabel) {
+        const double orb = std::fabs(diff - aspectAngle);
         QString signHouse;
         double lon = 0.0;
         if (planetLongitude(utc, planetName, &lon, nullptr)) {
@@ -676,25 +732,30 @@ private:
         const QString eventLabel = degreeMode ? QString("Degree Hit") : QString("Aspect");
         const QString detailLabel = degreeMode
             ? targetName
-            : QString("%1 %2").arg(params_.aspectLabel, targetName);
+            : QString("%1 %2").arg(aspectLabel, targetName);
         emitResult(utc, planetName, eventLabel, signHouse, detailLabel, orb, true);
     }
 
-    void emitAspectWindowResult(const QDateTime& utc, const QString& planetName, const QString& targetName, const QString& eventLabel) {
+    void emitAspectWindowResult(
+        const QDateTime& utc,
+        const QString& planetName,
+        const QString& targetName,
+        const QString& eventLabel,
+        double aspectAngle,
+        const QString& aspectLabel) {
         double lon = 0.0;
         if (!planetLongitude(utc, planetName, &lon, nullptr)) {
             return;
         }
         const double targetLon = params_.natalTargets.value(targetName);
         const double diff = transitcalc::angularDiffAbs(lon, targetLon);
-        const double orb = std::fabs(diff - params_.aspectAngle);
+        const double orb = std::fabs(diff - aspectAngle);
         const QString signHouse = signName(signIndex(lon));
         const QString detailLabel = (params_.eventType == SearchEventType::DegreeHit)
             ? targetName
-            : QString("%1 %2").arg(params_.aspectLabel, targetName);
+            : QString("%1 %2").arg(aspectLabel, targetName);
         emitResult(utc, planetName, eventLabel, signHouse, detailLabel, orb, true);
     }
-
     void emitResult(const QDateTime& utc, const QString& planetName, const QString& eventLabel,
                     const QString& signHouse, const QString& aspectLabel, double orb, bool hasOrb) {
         MainWindow::TransitSearchResult result;
@@ -804,7 +865,9 @@ public slots:
                     emit finished(false, planetErr);
                     return;
                 }
-                if (transitcalc::isNodeName(planetName)) {
+                if (transitcalc::isNodeName(planetName)
+                    && lunarNodeTypeForName(planetName, effectivePrimaryNodeType(params_.lunarNodePolicy))
+                        == LunarNodeType::Mean) {
                     speed = -std::abs(speed);
                 }
                 const double stepDays = transitcalc::clampStepDays(std::abs(speed));
@@ -908,7 +971,8 @@ private:
     }
 
     bool planetLongitude(const QDateTime& utc, const QString& name, double* outLon, QString* error) {
-        const int bodyId = transitcalc::bodyIdForName(name);
+        const int bodyId = transitcalc::bodyIdForName(
+            name, effectivePrimaryNodeType(params_.lunarNodePolicy));
         if (bodyId < 0) {
             if (error) {
                 *error = QString("Unsupported body: %1").arg(name);
@@ -928,7 +992,7 @@ private:
             return false;
         }
         lon = normalizeDegrees(lon);
-        if (name == "South Node") {
+        if (isLunarNodeName(name) && !isNorthLunarNodeName(name)) {
             lon = normalizeDegrees(lon + 180.0);
         }
         if (outLon) {
@@ -1120,7 +1184,9 @@ private:
     }
 
     void handleStationEvent(const QDateTime& t0, const QDateTime& t1, const QString& planetName, QVector<StationMarker>* stations) {
-        if (transitcalc::isNodeName(planetName)) {
+        if (transitcalc::isNodeName(planetName)
+            && lunarNodeTypeForName(planetName, effectivePrimaryNodeType(params_.lunarNodePolicy))
+                == LunarNodeType::Mean) {
             return;
         }
         double speed0 = 0.0;
@@ -1541,7 +1607,8 @@ private:
     };
 
     bool planetLongitude(const QDateTime& utc, const QString& name, double* outLon, QString* error) {
-        const int bodyId = transitcalc::bodyIdForName(name);
+        const int bodyId = transitcalc::bodyIdForName(
+            name, effectivePrimaryNodeType(params_.lunarNodePolicy));
         if (bodyId < 0) {
             if (error) {
                 *error = QString("Unsupported body: %1").arg(name);
@@ -1561,7 +1628,7 @@ private:
             return false;
         }
         lon = normalizeDegrees(lon);
-        if (name == "South Node") {
+        if (isLunarNodeName(name) && !isNorthLunarNodeName(name)) {
             lon = normalizeDegrees(lon + 180.0);
         }
         if (outLon) {
@@ -1677,6 +1744,11 @@ private:
                 ordered.push_back(name);
             }
         }
+        for (const auto& sample : samples) {
+            if (!ordered.contains(sample.name)) {
+                ordered.push_back(sample.name);
+            }
+        }
         eval.planets = ordered;
 
         if (!params_.useOrb) {
@@ -1762,6 +1834,11 @@ private:
         for (const auto& name : tropicalBodyOrder()) {
             if (clusterNameSet.contains(name)) {
                 clusterNames.push_back(name);
+            }
+        }
+        for (const auto& sample : samples) {
+            if (clusterNameSet.contains(sample.name) && !clusterNames.contains(sample.name)) {
+                clusterNames.push_back(sample.name);
             }
         }
 
@@ -2404,7 +2481,10 @@ private:
         const double hour = time.hour() + time.minute() / 60.0 + time.second() / 3600.0 + time.msec() / 3600000.0;
         const double jd = swe_.julianDay(date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
         QString calcErr;
-        if (!swe_.calcUt(jd, SE_MEAN_NODE, calcFlags_, outNorthNode, &calcErr)) {
+        const int nodeId = effectivePrimaryNodeType(params_.lunarNodePolicy) == LunarNodeType::True
+            ? SE_TRUE_NODE
+            : SE_MEAN_NODE;
+        if (!swe_.calcUt(jd, nodeId, calcFlags_, outNorthNode, &calcErr)) {
             if (error) {
                 *error = calcErr;
             }
@@ -2414,14 +2494,15 @@ private:
         return true;
     }
 
-    // Longitude of the conjunction-test planet at a given instant. Handles the
-    // South Node (Mean node + 180) since bodyIdForName maps it to the Mean node.
+    // Longitude of the conjunction-test planet at a given instant. Swiss
+    // Ephemeris exposes a north-node body for each model; south is opposite it.
     bool conjunctionPlanetLonAtUtc(const QDateTime& utc, double* outLon, QString* error) {
         if (!outLon) {
             return false;
         }
         const QString name = params_.conjunctionPlanet;
-        const int bodyId = transitcalc::bodyIdForName(name);
+        const int bodyId = transitcalc::bodyIdForName(
+            name, effectivePrimaryNodeType(params_.lunarNodePolicy));
         if (bodyId < 0) {
             if (error) {
                 *error = QString("Unsupported conjunction planet: %1").arg(name);
@@ -2440,7 +2521,7 @@ private:
             }
             return false;
         }
-        if (name == "South Node") {
+        if (isLunarNodeName(name) && !isNorthLunarNodeName(name)) {
             lon += 180.0;
         }
         *outLon = normalizeDegrees(lon);
@@ -2488,17 +2569,18 @@ private:
             consider("Moon", moonLon);
         }
         if (params_.targetNorthNode && haveNode) {
-            consider("North Node", nodeLon);
+            consider(lunarNodeDisplayName("North Node", params_.lunarNodePolicy), nodeLon);
         }
         if (params_.targetSouthNode && haveNode) {
-            consider("South Node", nodeLon + 180.0);
+            consider(lunarNodeDisplayName("South Node", params_.lunarNodePolicy), nodeLon + 180.0);
         }
         if (bestTarget.isEmpty() || bestOrb > params_.conjunctionOrb) {
             return false;
         }
         if (outSummary) {
             *outSummary = QString("%1 conj %2 (%3%4)")
-                              .arg(params_.conjunctionPlanet, bestTarget,
+                              .arg(lunarNodeDisplayName(params_.conjunctionPlanet, params_.lunarNodePolicy),
+                                   bestTarget,
                                    QString::number(bestOrb, 'f', 1), QString(QChar(0x00B0)));
         }
         return true;
@@ -3114,6 +3196,56 @@ private:
     QVector<MainWindow::LunationResult> results_;
 };
 
+class TransitAspectPeakWorker : public QObject {
+    Q_OBJECT
+
+public:
+    struct Config {
+        QDateTime startUtc;
+        QDateTime endUtc;
+        QTimeZone timezone;
+        QString timezoneLabel;
+        ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
+        SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+        LunarNodePolicy lunarNodePolicy;
+        QStringList transitBodies;
+        QMap<QString, double> natalTargets;
+        QStringList aspectLabels;
+        double orb = 1.0;
+        int sampleMinutes = 360;
+        int minimumHits = 2;
+        bool groupPeriods = false;
+        bool includeTransitTransit = false;
+        bool weightingEnabled = false;
+        QMap<QString, double> aspectWeights;
+        QString ephePath;
+        QStringList dllSearchPaths;
+    };
+
+    explicit TransitAspectPeakWorker(const Config& config);
+
+    const QVector<MainWindow::TransitAspectPeakResult>& results() const;
+    bool wasCancelled() const;
+
+public slots:
+    void run();
+    void cancel();
+
+signals:
+    void progress(int done, int total);
+    void error(const QString& message);
+    void finished();
+
+private:
+    bool planetLongitude(const QDateTime& utc, const QString& name,
+                         double* outLongitude, QString* error);
+
+    Config config_;
+    SwissEph swe_;
+    int calcFlags_ = 0;
+    std::atomic<bool> cancelled_{false};
+    QVector<MainWindow::TransitAspectPeakResult> results_;
+};
 class TransitScanWorker : public QObject {
     Q_OBJECT
 
@@ -3424,6 +3556,10 @@ public slots:
                 if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
                     continue;
                 }
+                if (body.isLunarNode
+                    && body.lunarNodeType != effectivePrimaryNodeType(solarChart.lunarNodePolicy)) {
+                    continue;
+                }
                 if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
                     continue;
                 }
@@ -3448,6 +3584,10 @@ public slots:
                 if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
                     continue;
                 }
+                if (body.isLunarNode
+                    && body.lunarNodeType != effectivePrimaryNodeType(transitChart.lunarNodePolicy)) {
+                    continue;
+                }
                 if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
                     continue;
                 }
@@ -3458,6 +3598,10 @@ public slots:
             targetNames.reserve(targetChart.bodies.size() + 4);
             for (const auto& body : targetChart.bodies) {
                 if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
+                    continue;
+                }
+                if (body.isLunarNode
+                    && body.lunarNodeType != effectivePrimaryNodeType(targetChart.lunarNodePolicy)) {
                     continue;
                 }
                 if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
@@ -3527,10 +3671,10 @@ public slots:
                     }
                     bucket.aspectCount++;
                     const QString aspectText = QString("Transit %1 %2 %3 %4 (orb %5)")
-                        .arg(tName)
+                        .arg(lunarNodeDisplayName(tName, transitChart.lunarNodePolicy))
                         .arg(label.toLower())
                         .arg(targetLabel)
-                        .arg(nName)
+                        .arg(lunarNodeDisplayName(nName, targetChart.lunarNodePolicy))
                         .arg(QString::number(orb, 'f', 2));
                     hits.push_back({weight, aspectText});
                 }
@@ -3553,6 +3697,10 @@ public slots:
             QMap<QString, double> map;
             for (const auto& body : transitChart.bodies) {
                 if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
+                    continue;
+                }
+                if (body.isLunarNode
+                    && body.lunarNodeType != effectivePrimaryNodeType(transitChart.lunarNodePolicy)) {
                     continue;
                 }
                 if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
@@ -3610,9 +3758,9 @@ public slots:
                     }
                     bucket.aspectCount++;
                     const QString aspectText = QString("Transit %1 %2 Transit %3 (orb %4)")
-                        .arg(aName)
+                        .arg(lunarNodeDisplayName(aName, transitChart.lunarNodePolicy))
                         .arg(label.toLower())
-                        .arg(bName)
+                        .arg(lunarNodeDisplayName(bName, transitChart.lunarNodePolicy))
                         .arg(QString::number(orb, 'f', 2));
                     hits.push_back({weight, aspectText});
                 }

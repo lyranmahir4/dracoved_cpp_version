@@ -29,6 +29,7 @@ struct LotCalculationContext {
 };
 
 bool findPrenatalSyzygy(const SwissEph* swe, double jdUt, int calcFlags, PrenatalSyzygy* out, QString* error);
+double calculateLotOfErosLongitude(double ascendant, double spirit, double venus, bool isDay);
 QVector<BodyPosition> calculateArabicLots(const LotCalculationContext& ctx);
 
 }  // namespace dracoved

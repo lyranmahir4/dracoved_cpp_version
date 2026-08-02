@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QHash>
 #include <QPixmap>
+#include <QPainterPath>
 #include <QString>
 
 #include "../core/chart_types.h"
@@ -122,6 +123,7 @@ protected:
 private:
     struct AspectLineInfo {
         QLineF line;
+        QPainterPath path;
         QRectF symbolRect;
         QString tooltip;
         QColor color;
@@ -140,7 +142,8 @@ private:
         double displayRadius;
         int    radialLayer;      // 0=base, +1=outward, -1=inward
         bool   retrograde;
-        bool   needsLeaderLine;  // true when radially displaced
+        bool   lockLongitude = false;
+        LunarNodeType lunarNodeType = LunarNodeType::Mean;
     };
 
     double angleForLongitude(double lon) const;
@@ -148,7 +151,6 @@ private:
     QVector<double> buildHouseCusps() const;
     QString formatDegShort(double longitude) const;
     int houseForLongitude(double lon, const QVector<double>& cusps) const;
-    double distanceToSegment(const QPointF& point, const QLineF& line) const;
     int hitTestAspect(const QPointF& point) const;
     bool focusActiveNow() const;
     QPixmap coloredSvgPixmap(const QString& path, const QColor& color, const QSize& sizePx, qreal dpr);

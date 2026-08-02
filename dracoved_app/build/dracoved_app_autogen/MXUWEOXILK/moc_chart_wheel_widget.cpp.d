@@ -138,6 +138,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qxptype_traits.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qyieldcpu.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QColor \
+  C:/Qt/6.10.1/mingw_64/include/QtGui/QPainterPath \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QPen \
   C:/Qt/6.10.1/mingw_64/include/QtGui/QPixmap \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qaction.h \
@@ -153,6 +154,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtGui/qimage.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qkeysequence.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qpaintdevice.h \
+  C:/Qt/6.10.1/mingw_64/include/QtGui/qpainterpath.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qpalette.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qpen.h \
   C:/Qt/6.10.1/mingw_64/include/QtGui/qpixelformat.h \

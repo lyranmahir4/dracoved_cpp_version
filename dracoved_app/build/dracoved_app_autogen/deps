@@ -3,10 +3,14 @@ dracoved_app_autogen/timestamp: \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QFlags \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QHash \
+	C:/Qt/6.10.1/mingw_64/include/QtCore/QLineF \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QList \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QMap \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QMetaType \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QObject \
+	C:/Qt/6.10.1/mingw_64/include/QtCore/QPointF \
+	C:/Qt/6.10.1/mingw_64/include/QtCore/QRect \
+	C:/Qt/6.10.1/mingw_64/include/QtCore/QRectF \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QSet \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QSharedDataPointer \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/QSize \
@@ -158,6 +162,8 @@ dracoved_app_autogen/timestamp: \
 	C:/Qt/6.10.1/mingw_64/include/QtCore/qyieldcpu.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/QColor \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/QFont \
+	C:/Qt/6.10.1/mingw_64/include/QtGui/QIcon \
+	C:/Qt/6.10.1/mingw_64/include/QtGui/QPainterPath \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/QPen \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/QPixmap \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qaction.h \
@@ -173,6 +179,7 @@ dracoved_app_autogen/timestamp: \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qimage.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qkeysequence.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qpaintdevice.h \
+	C:/Qt/6.10.1/mingw_64/include/QtGui/qpainterpath.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qpalette.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qpen.h \
 	C:/Qt/6.10.1/mingw_64/include/QtGui/qpixelformat.h \
@@ -714,6 +721,14 @@ dracoved_app_autogen/timestamp: \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/fixed_stars.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/formatting.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/geodetic_equivalents.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/geodetic_equivalents.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/lunar_nodes.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/lunar_nodes.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/planetary_hours.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/planetary_hours.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progressed_lunar_return.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progressed_lunar_return.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.cpp \
@@ -722,22 +737,50 @@ dracoved_app_autogen/timestamp: \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/zodiacal_releasing.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/zodiacal_releasing.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_matrix_delegate.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_matrix_delegate.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/astro_map_widget.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/astro_map_widget.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_manager_dialog.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_manager_dialog.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_wheel_widget.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/collapsible_section.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/collapsible_section.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/geodetic_equivalents_controller.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/geodetic_equivalents_controller.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_aspect_peaks.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_geodetic_equivalents.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_planetary_hours.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_return_finder.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_solar_report.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_zodiacal_releasing.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/planetary_hours_controller.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/planetary_hours_controller.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/preferences_dialog.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/preferences_dialog.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_calculation_service.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_calculation_service.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_controller.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_controller_compile.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_types.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_types.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_worker.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/return_finder_worker.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.cpp \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_workers.h \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/zodiacal_releasing_controller.cpp \
+	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/zodiacal_releasing_controller.h \
 	C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/main.cpp \
 	C:/Qt/Tools/CMake_64/bin/cmake.exe

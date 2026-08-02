@@ -22,6 +22,7 @@ public:
 
     void setInput(const dracoved::NatalInput& input, const QString& locationName);
     void setDefaultHouseSystem(dracoved::HouseSystem system);
+    void setDefaultLunarNodePolicy(const dracoved::LunarNodePolicy& policy);
     dracoved::NatalInput input() const;
     QString locationName() const;
 
@@ -40,11 +41,14 @@ private:
     QDoubleSpinBox* latSpin_ = nullptr;
     QDoubleSpinBox* lonSpin_ = nullptr;
     QComboBox* houseCombo_ = nullptr;
+    QComboBox* nodeModeCombo_ = nullptr;
+    QComboBox* nodePrimaryCombo_ = nullptr;
     QPushButton* geocodeButton_ = nullptr;
     QPushButton* restoreButton_ = nullptr;
     QPushButton* applyButton_ = nullptr;
     QPushButton* cancelButton_ = nullptr;
     dracoved::HouseSystem defaultHouseSystem_ = dracoved::HouseSystem::WholeSign;
+    dracoved::LunarNodePolicy defaultLunarNodePolicy_;
 };
 
 }  // namespace dracoved

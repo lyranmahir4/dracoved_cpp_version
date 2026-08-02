@@ -3,6 +3,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "chart_types.h"
+
 namespace dracoved {
 
 QStringList zodiacSigns();
@@ -19,9 +21,11 @@ QString modeForSign(const QString& signName);
 QString dignityLabel(const QString& planet, const QString& signName);
 
 QStringList tropicalBodyOrder();
+QStringList bodyOrderForLunarNodePolicy(const LunarNodePolicy& policy);
 QStringList tropicalBodyAbbrev();
 QStringList tropicalBodyGlyphs();
 QString bodyGlyph(const QString& name);
+QString bodySvgResourcePath(const QString& name);
 QStringList arabicLotOrder();
 bool isArabicLotName(const QString& name);
 QStringList asteroidBodyOrder();

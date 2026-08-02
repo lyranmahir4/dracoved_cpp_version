@@ -20,7 +20,7 @@ bool isBenefic(const QString& name);
 bool isMalefic(const QString& name);
 
 double bodyWeightFor(const QString& name);
-int bodyIdForName(const QString& name);
+int bodyIdForName(const QString& name, LunarNodeType genericNodeType = LunarNodeType::Mean);
 bool isComputableBody(const QString& name);
 
 QStringList transitCalculableBodyOrder();
@@ -42,4 +42,3 @@ bool aspectForDiff(double diff, const AspectOrbs& orbs, QString* outLabel, doubl
 int calcHouseForLongitude(double lon, const QVector<HouseCusp>& cusps, double asc, HouseSystem system);
 
 }  // namespace dracoved::transitcalc
-

@@ -512,6 +512,130 @@ void dracoved::LunationWorker::finished(bool _t1, const QString & _t2)
     QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1, _t2);
 }
 namespace {
+struct qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto dracoved::TransitAspectPeakWorker::qt_create_metaobjectdata<qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "dracoved::TransitAspectPeakWorker",
+        "progress",
+        "",
+        "done",
+        "total",
+        "error",
+        "message",
+        "finished",
+        "run",
+        "cancel"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Signal 'progress'
+        QtMocHelpers::SignalData<void(int, int)>(1, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::Int, 3 }, { QMetaType::Int, 4 },
+        }}),
+        // Signal 'error'
+        QtMocHelpers::SignalData<void(const QString &)>(5, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 6 },
+        }}),
+        // Signal 'finished'
+        QtMocHelpers::SignalData<void()>(7, 2, QMC::AccessPublic, QMetaType::Void),
+        // Slot 'run'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPublic, QMetaType::Void),
+        // Slot 'cancel'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPublic, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TransitAspectPeakWorker, qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject dracoved::TransitAspectPeakWorker::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>.metaTypes,
+    nullptr
+} };
+
+void dracoved::TransitAspectPeakWorker::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TransitAspectPeakWorker *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->progress((*reinterpret_cast<std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2]))); break;
+        case 1: _t->error((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
+        case 2: _t->finished(); break;
+        case 3: _t->run(); break;
+        case 4: _t->cancel(); break;
+        default: ;
+        }
+    }
+    if (_c == QMetaObject::IndexOfMethod) {
+        if (QtMocHelpers::indexOfMethod<void (TransitAspectPeakWorker::*)(int , int )>(_a, &TransitAspectPeakWorker::progress, 0))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (TransitAspectPeakWorker::*)(const QString & )>(_a, &TransitAspectPeakWorker::error, 1))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (TransitAspectPeakWorker::*)()>(_a, &TransitAspectPeakWorker::finished, 2))
+            return;
+    }
+}
+
+const QMetaObject *dracoved::TransitAspectPeakWorker::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *dracoved::TransitAspectPeakWorker::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN8dracoved23TransitAspectPeakWorkerE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int dracoved::TransitAspectPeakWorker::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 5)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 5;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 5)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 5;
+    }
+    return _id;
+}
+
+// SIGNAL 0
+void dracoved::TransitAspectPeakWorker::progress(int _t1, int _t2)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1, _t2);
+}
+
+// SIGNAL 1
+void dracoved::TransitAspectPeakWorker::error(const QString & _t1)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1);
+}
+
+// SIGNAL 2
+void dracoved::TransitAspectPeakWorker::finished()
+{
+    QMetaObject::activate(this, &staticMetaObject, 2, nullptr);
+}
+namespace {
 struct qt_meta_tag_ZN8dracoved17TransitScanWorkerE_t {};
 } // unnamed namespace
 

@@ -17,6 +17,116 @@ enum class ZodiacSystem {
     Sidereal,
 };
 
+enum class LunarNodeType {
+    Mean,
+    True,
+};
+
+enum class LunarNodeMode {
+    MeanOnly,
+    TrueOnly,
+    Both,
+};
+
+struct LunarNodePolicy {
+    LunarNodeMode mode = LunarNodeMode::MeanOnly;
+    LunarNodeType primary = LunarNodeType::Mean;
+};
+
+inline QString lunarNodeTypeToString(LunarNodeType type) {
+    return type == LunarNodeType::True ? "True" : "Mean";
+}
+
+inline LunarNodeType lunarNodeTypeFromString(const QString& text) {
+    return text.trimmed().compare("True", Qt::CaseInsensitive) == 0
+        ? LunarNodeType::True
+        : LunarNodeType::Mean;
+}
+
+inline QString lunarNodeModeToString(LunarNodeMode mode) {
+    switch (mode) {
+        case LunarNodeMode::TrueOnly:
+            return "True";
+        case LunarNodeMode::Both:
+            return "Both";
+        case LunarNodeMode::MeanOnly:
+        default:
+            return "Mean";
+    }
+}
+
+inline LunarNodeMode lunarNodeModeFromString(const QString& text) {
+    const QString normalized = text.trimmed();
+    if (normalized.compare("True", Qt::CaseInsensitive) == 0
+        || normalized.compare("TrueOnly", Qt::CaseInsensitive) == 0) {
+        return LunarNodeMode::TrueOnly;
+    }
+    if (normalized.compare("Both", Qt::CaseInsensitive) == 0) {
+        return LunarNodeMode::Both;
+    }
+    return LunarNodeMode::MeanOnly;
+}
+
+inline LunarNodeType effectivePrimaryNodeType(const LunarNodePolicy& policy) {
+    if (policy.mode == LunarNodeMode::TrueOnly) {
+        return LunarNodeType::True;
+    }
+    if (policy.mode == LunarNodeMode::MeanOnly) {
+        return LunarNodeType::Mean;
+    }
+    return policy.primary;
+}
+
+inline bool lunarNodePolicyIncludes(const LunarNodePolicy& policy, LunarNodeType type) {
+    return policy.mode == LunarNodeMode::Both
+        || (policy.mode == LunarNodeMode::MeanOnly && type == LunarNodeType::Mean)
+        || (policy.mode == LunarNodeMode::TrueOnly && type == LunarNodeType::True);
+}
+
+inline QString lunarNodePolicySummary(const LunarNodePolicy& policy) {
+    if (policy.mode == LunarNodeMode::Both) {
+        return QString("Both (%1 primary)").arg(lunarNodeTypeToString(effectivePrimaryNodeType(policy)));
+    }
+    return QString("%1 Nodes").arg(lunarNodeModeToString(policy.mode));
+}
+
+inline bool isLunarNodeName(const QString& name) {
+    return name == "North Node" || name == "South Node"
+        || name == "Mean North Node" || name == "Mean South Node"
+        || name == "True North Node" || name == "True South Node";
+}
+
+inline bool isNorthLunarNodeName(const QString& name) {
+    return name == "North Node" || name == "Mean North Node" || name == "True North Node";
+}
+
+inline LunarNodeType lunarNodeTypeForName(const QString& name, LunarNodeType genericType) {
+    if (name.startsWith("True ")) {
+        return LunarNodeType::True;
+    }
+    if (name.startsWith("Mean ")) {
+        return LunarNodeType::Mean;
+    }
+    return genericType;
+}
+
+inline QString explicitLunarNodeName(bool north, LunarNodeType type) {
+    return QString("%1 %2 Node")
+        .arg(lunarNodeTypeToString(type))
+        .arg(north ? "North" : "South");
+}
+
+inline QString lunarNodeDisplayName(const QString& internalName, const LunarNodePolicy& policy) {
+    if (!isLunarNodeName(internalName)) {
+        return internalName;
+    }
+    const bool north = isNorthLunarNodeName(internalName);
+    const LunarNodeType type = lunarNodeTypeForName(internalName, effectivePrimaryNodeType(policy));
+    return QString("%1 Node (%2)")
+        .arg(north ? "North" : "South")
+        .arg(lunarNodeTypeToString(type));
+}
+
 inline QString zodiacSystemToString(ZodiacSystem system) {
     switch (system) {
         case ZodiacSystem::Sidereal:
@@ -169,6 +279,10 @@ struct NatalInput {
     QString timezone;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
+    // When true, the resolved policy comes from application preferences. Saved
+    // legacy profiles set this false and retain their historical mean-node data.
+    bool useDefaultLunarNodePolicy = true;
     Gender gender = Gender::Unspecified;
     QStringList fixedStars;
     double latitude = 0.0;
@@ -190,6 +304,9 @@ struct BodyPosition {
     QString element;
     QString mode;
     QString dignity;
+    bool isLunarNode = false;
+    bool isNorthLunarNode = false;
+    LunarNodeType lunarNodeType = LunarNodeType::Mean;
 };
 
 struct AnglePositions {
@@ -238,6 +355,7 @@ struct NatalChart {
     QString timezoneLabel;
     ZodiacSystem zodiacSystem = ZodiacSystem::Tropical;
     SiderealAyanamsa siderealAyanamsa = SiderealAyanamsa::Lahiri;
+    LunarNodePolicy lunarNodePolicy;
     AnglePositions angles;
     QVector<BodyPosition> bodies;
     QVector<FixedStarPosition> fixedStars;

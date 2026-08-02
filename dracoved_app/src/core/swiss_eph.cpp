@@ -1,4 +1,4 @@
-#include "swiss_eph.h"
+﻿#include "swiss_eph.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -43,6 +43,7 @@ void SwissEph::unload() {
     sweGetAyanamsaUt_ = nullptr;
     sweSolEclipseWhenGlob_ = nullptr;
     sweLunEclipseWhen_ = nullptr;
+    sweRiseTrans_ = nullptr;
 }
 
 bool SwissEph::bind(QString* error) {
@@ -63,6 +64,7 @@ bool SwissEph::bind(QString* error) {
     sweGetAyanamsaUt_ = reinterpret_cast<SweGetAyanamsaUt>(loadSym("swe_get_ayanamsa_ut"));
     sweSolEclipseWhenGlob_ = reinterpret_cast<SweSolEclipseWhenGlob>(loadSym("swe_sol_eclipse_when_glob"));
     sweLunEclipseWhen_ = reinterpret_cast<SweLunEclipseWhen>(loadSym("swe_lun_eclipse_when"));
+    sweRiseTrans_ = reinterpret_cast<SweRiseTrans>(loadSym("swe_rise_trans"));
 
     if (!sweSetEphePath_ || !sweSetSidMode_ || !sweJulDay_ || !sweRevJul_
         || !sweCalcUt_ || (!sweFixstarUt_ && !sweFixstar2Ut_)
@@ -190,6 +192,28 @@ bool SwissEph::calcUt(double jdUt, int body, int flags, double* outLon, QString*
     return true;
 }
 
+
+bool SwissEph::calcUtFull(double jdUt, int body, int flags, double* outValues, QString* error) const {
+    if (!sweCalcUt_ || !outValues) {
+        if (error) {
+            *error = "swe_calc_ut unavailable.";
+        }
+        return false;
+    }
+    double xx[6] = {0};
+    char serr[256] = {0};
+    const int ret = sweCalcUt_(jdUt, body, flags, xx, serr);
+    if (ret < 0) {
+        if (error) {
+            *error = QString("swe_calc_ut failed: %1").arg(serr);
+        }
+        return false;
+    }
+    for (int i = 0; i < 6; ++i) {
+        outValues[i] = xx[i];
+    }
+    return true;
+}
 bool SwissEph::fixstarUt(const QString& starName, double jdUt, int flags,
                          double* outLon, QString* outResolvedName, QString* error) const {
     SweFixstarUt fixFn = sweFixstar2Ut_ ? sweFixstar2Ut_ : sweFixstarUt_;
@@ -322,4 +346,27 @@ int SwissEph::lunEclipseWhen(double jdStart, int flags, int typeFlags, double* t
     return ret;
 }
 
+int SwissEph::riseTrans(double jdStartUt, int body, int flags, int riseSetFlags,
+                        double geoLon, double geoLat, double altitudeMeters,
+                        double pressureHPa, double temperatureC,
+                        double* outJd, QString* error) const {
+    if (!sweRiseTrans_ || !outJd) {
+        if (error) *error = "swe_rise_trans unavailable.";
+        return -1;
+    }
+    double geopos[3] = {geoLon, geoLat, altitudeMeters};
+    char serr[256] = {0};
+    const int result = sweRiseTrans_(jdStartUt, body, nullptr, flags, riseSetFlags,
+                                     geopos, pressureHPa, temperatureC, outJd, serr);
+    if (result < 0 && error) {
+        if (result == -2) {
+            *error = "The requested rise or set event does not occur at this location.";
+        } else {
+            *error = QString("swe_rise_trans failed: %1").arg(serr);
+        }
+    }
+    return result;
+}
+
 }  // namespace dracoved
+

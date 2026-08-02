@@ -12,19 +12,32 @@
         <file>resources/icons/zodiac/capricorn.svg</file>
         <file>resources/icons/zodiac/aquarius.svg</file>
         <file>resources/icons/zodiac/pisces.svg</file>
-        <file>resources/icons/planets/sun.svg</file>
-        <file>resources/icons/planets/moon.svg</file>
-        <file>resources/icons/planets/mercury.svg</file>
-        <file>resources/icons/planets/venus.svg</file>
-        <file>resources/icons/planets/mars.svg</file>
-        <file>resources/icons/planets/jupiter.svg</file>
-        <file>resources/icons/planets/saturn.svg</file>
-        <file>resources/icons/planets/uranus.svg</file>
-        <file>resources/icons/planets/neptune.svg</file>
-        <file>resources/icons/planets/pluto.svg</file>
-        <file>resources/icons/planets/chiron.svg</file>
-        <file>resources/icons/planets/north_node.svg</file>
-        <file>resources/icons/planets/south_node.svg</file>
+        <file alias="resources/icons/zodiac_releasing/aries.svg">src/new_svg_icons_by_opus_5/aries.svg</file>
+        <file alias="resources/icons/zodiac_releasing/taurus.svg">src/new_svg_icons_by_opus_5/taurus.svg</file>
+        <file alias="resources/icons/zodiac_releasing/gemini.svg">src/new_svg_icons_by_opus_5/gemini.svg</file>
+        <file alias="resources/icons/zodiac_releasing/cancer.svg">src/new_svg_icons_by_opus_5/cancer.svg</file>
+        <file alias="resources/icons/zodiac_releasing/leo.svg">src/new_svg_icons_by_opus_5/leo.svg</file>
+        <file alias="resources/icons/zodiac_releasing/virgo.svg">src/new_svg_icons_by_opus_5/virgo.svg</file>
+        <file alias="resources/icons/zodiac_releasing/libra.svg">src/new_svg_icons_by_opus_5/libra.svg</file>
+        <file alias="resources/icons/zodiac_releasing/scorpio.svg">src/new_svg_icons_by_opus_5/scorpio.svg</file>
+        <file alias="resources/icons/zodiac_releasing/sagittarius.svg">src/new_svg_icons_by_opus_5/sagittarius.svg</file>
+        <file alias="resources/icons/zodiac_releasing/capricorn.svg">src/new_svg_icons_by_opus_5/capricorn.svg</file>
+        <file alias="resources/icons/zodiac_releasing/aquarius.svg">src/new_svg_icons_by_opus_5/aquarius.svg</file>
+        <file alias="resources/icons/zodiac_releasing/pisces.svg">src/new_svg_icons_by_opus_5/pisces.svg</file>
+        <file alias="resources/icons/planets/sun.svg">src/planetary_symbols_by_opus_5/sun.svg</file>
+        <file alias="resources/icons/planets/moon.svg">src/planetary_symbols_by_opus_5/moon.svg</file>
+        <file alias="resources/icons/planets/mercury.svg">src/planetary_symbols_by_opus_5/mercury.svg</file>
+        <file alias="resources/icons/planets/venus.svg">src/planetary_symbols_by_opus_5/venus.svg</file>
+        <file alias="resources/icons/planets/mars.svg">src/planetary_symbols_by_opus_5/mars.svg</file>
+        <file alias="resources/icons/planets/jupiter.svg">src/planetary_symbols_by_opus_5/jupiter.svg</file>
+        <file alias="resources/icons/planets/saturn.svg">src/planetary_symbols_by_opus_5/saturn.svg</file>
+        <file alias="resources/icons/planets/uranus.svg">src/planetary_symbols_by_opus_5/uranus.svg</file>
+        <file alias="resources/icons/planets/neptune.svg">src/planetary_symbols_by_opus_5/neptune.svg</file>
+        <file alias="resources/icons/planets/pluto.svg">src/planetary_symbols_by_opus_5/pluto.svg</file>
+        <file alias="resources/icons/planets/chiron.svg">src/planetary_symbols_by_opus_5/chiron.svg</file>
+        <file alias="resources/icons/planets/north_node.svg">src/planetary_symbols_by_opus_5/north-node.svg</file>
+        <file alias="resources/icons/planets/south_node.svg">src/planetary_symbols_by_opus_5/south-node.svg</file>
+        <file alias="resources/icons/planets/lilith.svg">src/planetary_symbols_by_opus_5/lilith.svg</file>
         <file>resources/qml/world_map.qml</file>
     </qresource>
 </RCC>

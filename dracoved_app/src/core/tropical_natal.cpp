@@ -3,6 +3,7 @@
 #include "arabic_lots.h"
 #include "fixed_stars.h"
 #include "formatting.h"
+#include "lunar_nodes.h"
 #include "timezone_utils.h"
 
 #include <QDateTime>
@@ -212,7 +213,6 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
         {"Juno", SE_JUNO},
         {"Vesta", SE_VESTA},
         {"Pholus", SE_PHOLUS},
-        {"North Node", SE_MEAN_NODE},
         {"Lilith", SE_MEAN_APOG},
     };
 
@@ -270,11 +270,18 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
         positions.push_back(pos);
     }
 
-    // South Node = North Node + 180.
-    BodyPosition south;
-    for (const auto& pos : positions) {
-        if (pos.name == "North Node") {
-            double lon = normalizeDegrees(pos.longitude + 180.0);
+    QVector<CalculatedLunarNode> calculatedNodes;
+    QString nodeError;
+    if (!calculateLunarNodes(*swe_, jd, calcFlags, input.lunarNodePolicy,
+                             &calculatedNodes, &nodeError)) {
+        if (error) {
+            *error = nodeError;
+        }
+        return false;
+    }
+    for (const auto& node : calculatedNodes) {
+        auto appendNode = [&](bool north) {
+            const double lon = normalizeDegrees(node.northLongitude + (north ? 0.0 : 180.0));
             int sidx = signIndex(lon);
             QString sname = signName(sidx);
             int house = 0;
@@ -283,19 +290,29 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
             } else {
                 house = ((sidx - ascSignIdx + 12) % 12) + 1;
             }
-            south.name = "South Node";
-            south.longitude = lon;
-            south.signIndex = sidx;
-            south.signName = sname;
-            south.degInSign = degInSign(lon);
-            south.house = house;
-            south.element = elementForSign(sname);
-            south.mode = modeForSign(sname);
-            south.dignity = dignityLabel("South Node", sname);
-            south.retrograde = true;
-            positions.push_back(south);
-            break;
-        }
+            BodyPosition position;
+            position.name = north
+                ? internalNorthNodeName(node.type, input.lunarNodePolicy)
+                : internalSouthNodeName(node.type, input.lunarNodePolicy);
+            position.longitude = lon;
+            position.signIndex = sidx;
+            position.signName = sname;
+            position.degInSign = degInSign(lon);
+            position.house = house;
+            position.element = elementForSign(sname);
+            position.mode = modeForSign(sname);
+            position.dignity = dignityLabel(north ? "North Node" : "South Node", sname);
+            position.retrograde = node.retrograde;
+            position.speed = node.speed;
+            position.hasSpeed = node.hasSpeed;
+            position.isLunarNode = true;
+            position.isNorthLunarNode = north;
+            position.lunarNodeType = node.type;
+            positions.push_back(position);
+            bodyLongitudes.insert(position.name, lon);
+        };
+        appendNode(true);
+        appendNode(false);
     }
 
     // Add Vertex
@@ -431,6 +448,22 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
         order = tropicalBodyOrder();
         abbrev = tropicalBodyAbbrev();
         glyphs = tropicalBodyGlyphs();
+        if (input.lunarNodePolicy.mode == LunarNodeMode::Both) {
+            const LunarNodeType secondary = effectivePrimaryNodeType(input.lunarNodePolicy) == LunarNodeType::Mean
+                ? LunarNodeType::True
+                : LunarNodeType::Mean;
+            const QString secondaryNorth = internalNorthNodeName(secondary, input.lunarNodePolicy);
+            const QString secondarySouth = internalSouthNodeName(secondary, input.lunarNodePolicy);
+            int insertAt = order.indexOf("South Node") + 1;
+            if (insertAt <= 0) insertAt = order.size();
+            order.insert(insertAt, secondaryNorth);
+            abbrev.insert(insertAt, secondary == LunarNodeType::Mean ? "mNN" : "tNN");
+            glyphs.insert(insertAt, bodyGlyph("North Node"));
+            ++insertAt;
+            order.insert(insertAt, secondarySouth);
+            abbrev.insert(insertAt, secondary == LunarNodeType::Mean ? "mSN" : "tSN");
+            glyphs.insert(insertAt, bodyGlyph("South Node"));
+        }
         QMap<QString, double> bodyMap;
         QMap<QString, double> speedMap;
         for (const auto& pos : positions) {
@@ -485,6 +518,7 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
     out->timezoneLabel = tzLabel;
     out->zodiacSystem = input.zodiacSystem;
     out->siderealAyanamsa = input.siderealAyanamsa;
+    out->lunarNodePolicy = input.lunarNodePolicy;
     out->angles = angles;
     out->bodies = positions;
     out->fixedStars = fixedStars;

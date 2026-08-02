@@ -19,7 +19,7 @@ double angularDiffAbs(double a, double b) {
 }
 
 bool isNodeName(const QString& name) {
-    return name == "North Node" || name == "South Node";
+    return isLunarNodeName(name);
 }
 
 bool isAngleName(const QString& name) {
@@ -69,7 +69,7 @@ double bodyWeightFor(const QString& name) {
     return 0.6;
 }
 
-int bodyIdForName(const QString& name) {
+int bodyIdForName(const QString& name, LunarNodeType genericNodeType) {
     if (name == "Sun") return SE_SUN;
     if (name == "Moon") return SE_MOON;
     if (name == "Mercury") return SE_MERCURY;
@@ -86,7 +86,11 @@ int bodyIdForName(const QString& name) {
     if (name == "Pallas") return SE_PALLAS;
     if (name == "Juno") return SE_JUNO;
     if (name == "Vesta") return SE_VESTA;
-    if (name == "North Node" || name == "South Node") return SE_MEAN_NODE;
+    if (isLunarNodeName(name)) {
+        return lunarNodeTypeForName(name, genericNodeType) == LunarNodeType::True
+            ? SE_TRUE_NODE
+            : SE_MEAN_NODE;
+    }
     if (name == "Lilith") return SE_MEAN_APOG;
     return -1;
 }
@@ -98,6 +102,9 @@ bool isComputableBody(const QString& name) {
 QStringList transitCalculableBodyOrder() {
     QStringList bodies;
     for (const auto& name : tropicalBodyOrder()) {
+        if (name == "North Node" || name == "South Node") {
+            continue;
+        }
         if (isAngleName(name) || isDerivedPointName(name)) {
             continue;
         }
@@ -106,12 +113,21 @@ QStringList transitCalculableBodyOrder() {
         }
         bodies.push_back(name);
     }
+    const int lilithIndex = bodies.indexOf("Lilith");
+    const int insertAt = lilithIndex >= 0 ? lilithIndex : bodies.size();
+    bodies.insert(insertAt, "Mean North Node");
+    bodies.insert(insertAt + 1, "Mean South Node");
+    bodies.insert(insertAt + 2, "True North Node");
+    bodies.insert(insertAt + 3, "True South Node");
     return bodies;
 }
 
 QStringList geodeticBodyOrder() {
     QStringList bodies;
     for (const auto& name : tropicalBodyOrder()) {
+        if (name == "North Node" || name == "South Node") {
+            continue;
+        }
         if (isAngleName(name)) {
             continue;
         }
@@ -120,6 +136,12 @@ QStringList geodeticBodyOrder() {
         }
         bodies.push_back(name);
     }
+    const int lilithIndex = bodies.indexOf("Lilith");
+    const int insertAt = lilithIndex >= 0 ? lilithIndex : bodies.size();
+    bodies.insert(insertAt, "Mean North Node");
+    bodies.insert(insertAt + 1, "Mean South Node");
+    bodies.insert(insertAt + 2, "True North Node");
+    bodies.insert(insertAt + 3, "True South Node");
     return bodies;
 }
 
@@ -224,6 +246,12 @@ QString aspectTargetFromLabel(const QString& text) {
 }
 
 QString abbrevForName(const QString& name) {
+    if (isLunarNodeName(name)) {
+        const bool north = isNorthLunarNodeName(name);
+        if (name.startsWith("Mean ")) return north ? "mNN" : "mSN";
+        if (name.startsWith("True ")) return north ? "tNN" : "tSN";
+        return north ? "NN" : "SN";
+    }
     static const QMap<QString, QString> abbrev = [] {
         QMap<QString, QString> map;
         const auto order = tropicalBodyOrder();
@@ -259,6 +287,23 @@ bool findAngleLongitude(const NatalChart& chart, const QString& name, double* ou
 bool findBodyLongitude(const NatalChart& chart, const QString& name, double* outLon) {
     for (const auto& body : chart.bodies) {
         if (body.name == name) {
+            if (outLon) {
+                *outLon = body.longitude;
+            }
+            return true;
+        }
+    }
+    // The policy's primary node pair intentionally retains the historical
+    // generic names so older features continue to work. Resolve an explicit
+    // Mean/True request to that pair when its metadata identifies the model.
+    if (isLunarNodeName(name) && name != "North Node" && name != "South Node") {
+        const bool requestedNorth = isNorthLunarNodeName(name);
+        const LunarNodeType requestedType = lunarNodeTypeForName(name, LunarNodeType::Mean);
+        for (const auto& body : chart.bodies) {
+            if (!body.isLunarNode || body.isNorthLunarNode != requestedNorth
+                || body.lunarNodeType != requestedType) {
+                continue;
+            }
             if (outLon) {
                 *outLon = body.longitude;
             }

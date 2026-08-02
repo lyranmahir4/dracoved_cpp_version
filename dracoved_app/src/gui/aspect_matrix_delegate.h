@@ -23,6 +23,7 @@ constexpr int Label = Qt::UserRole + 2;     // aspect label (e.g., "Square")
 constexpr int Glyph = Qt::UserRole + 3;     // aspect glyph OR body glyph (diagonal)
 constexpr int Orb = Qt::UserRole + 4;       // double, degrees
 constexpr int Applying = Qt::UserRole + 5;  // -1 unknown, 0 separating, 1 applying
+constexpr int IconPath = Qt::UserRole + 6;  // planetary SVG resource path for diagonal cells
 }  // namespace AspectRoles
 
 struct AspectMatrixPalette {
@@ -47,6 +48,9 @@ public:
     void setHoveredCell(int row, int column);
     void clearHover();
     void setFontScale(double scale);
+    // Compact cells have no room for the orb text beside the glyph, so
+    // tightness is carried by the glyph weight instead. See paint().
+    void setCompact(bool compact);
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
@@ -57,6 +61,7 @@ private:
     int hoveredRow_ = -1;
     int hoveredCol_ = -1;
     double fontScale_ = 1.0;
+    bool compact_ = false;
 };
 
 }  // namespace dracoved
