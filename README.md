@@ -1,5 +1,8 @@
 # DracoVed C++
 
+<img width="1919" height="1032" alt="image" src="https://github.com/user-attachments/assets/b908088d-d8f4-4b2e-a160-382e95697395" />
+
+
 DracoVed C++ is an **advanced astrology research application** for Windows, built with **C++20**, **Qt 6 Widgets**, and **Swiss Ephemeris**. It combines dense chart calculation workflows with research-oriented transit tools, synchronized detail panes, and AI-assisted analysis features for interpreting and organizing astrological results.
 
 The goal is to provide a fast native desktop tool for natal chart work, sidereal/tropical switching, transit research, return charts, progressions, relocation workflows, and detailed copyable reports that can support deeper astrology research and analysis.
