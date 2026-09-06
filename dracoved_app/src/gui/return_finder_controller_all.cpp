@@ -124,6 +124,12 @@ ReturnFinderType ReturnFinderController::returnType() const {
         : ReturnFinderType::Solar;
 }
 
+bool ReturnFinderController::tajakaMethodActive() const {
+    return returnMethodCombo_
+        && returnMethodCombo_->currentData().toInt() == 1
+        && returnType() == ReturnFinderType::Solar;
+}
+
 bool ReturnFinderController::isRunning() const { return running_; }
 bool ReturnFinderController::hasCompletedRun() const { return hasRun_; }
 
@@ -256,12 +262,23 @@ void ReturnFinderController::buildFiltersUi() {
     matchModeCombo_ = new QComboBox(settingsGroup);
     matchModeCombo_->addItem("Match All include conditions", static_cast<int>(ReturnFinderMatchMode::All));
     matchModeCombo_->addItem("Match Any include condition", static_cast<int>(ReturnFinderMatchMode::Any));
+    returnMethodCombo_ = new QComboBox(settingsGroup);
+    returnMethodCombo_->addItem("Standard", 0);
+    returnMethodCombo_->addItem("Tajaka (P.V.R. Rao)", 1);
+    returnMethodCombo_->setToolTip(
+        "Standard: each return is the Sun (or Moon) reaching its natal position in the "
+        "active zodiac.\n"
+        "Tajaka: solar returns use the Sun's natal tropical longitude for the return "
+        "moment, every scanned chart is judged sidereally, and the scan is pinned to "
+        "the natal location. Solar returns only.");
     settingsLayout->addWidget(new QLabel("House System", settingsGroup), 0, 0);
     settingsLayout->addWidget(houseModeCombo_, 0, 1);
     settingsLayout->addWidget(new QLabel("Rulership", settingsGroup), 1, 0);
     settingsLayout->addWidget(rulershipCombo_, 1, 1);
     settingsLayout->addWidget(new QLabel("Logic", settingsGroup), 2, 0);
     settingsLayout->addWidget(matchModeCombo_, 2, 1);
+    settingsLayout->addWidget(new QLabel("Return Method", settingsGroup), 3, 0);
+    settingsLayout->addWidget(returnMethodCombo_, 3, 1);
     pageLayout->addWidget(settingsGroup);
 
     auto* presetGroup = new QGroupBox("Search Presets", page);
@@ -290,6 +307,9 @@ void ReturnFinderController::buildFiltersUi() {
     auto* addHouseLordAction = addMenu->addAction("House Lord Placement");
     auto* addProfectionAction = addMenu->addAction("Profection Lord Placement");
     auto* addStelliumAction = addMenu->addAction("Stellium");
+    auto* addMunthaAction = addMenu->addAction("Muntha Placement");
+    auto* addTajakaAspectAction = addMenu->addAction("Tajaka Aspect");
+    auto* addLordOfYearAction = addMenu->addAction("Lord of the Year Placement");
     addButton->setMenu(addMenu);
     auto* clearButton = new QPushButton("Clear", conditionActions);
     conditionActionsLayout->addWidget(addButton);
@@ -328,7 +348,20 @@ void ReturnFinderController::buildFiltersUi() {
     filtersRoot_ = scroll;
 
     auto changed = [this]() { conditionChanged(); };
-    connect(returnTypeCombo_, &QComboBox::currentIndexChanged, this, [this, changed]() { updateRangeUi(); changed(); });
+    connect(returnTypeCombo_, &QComboBox::currentIndexChanged, this, [this, changed]() {
+        if (tajakaMethodActive() && houseModeCombo_) {
+            // Returning to Solar with the Tajaka method: re-pin the visible
+            // house mode (it may have been changed while Lunar was active).
+            const QSignalBlocker blocker(houseModeCombo_);
+            houseModeCombo_->setCurrentIndex(
+                std::max(0, houseModeCombo_->findData(
+                                static_cast<int>(ReturnFinderHouseMode::WholeSign))));
+        }
+        updateRangeUi();
+        // The effective Tajaka state depends on the return type too.
+        emit tajakaMethodChanged(tajakaMethodActive());
+        changed();
+    });
     connect(startYearSpin_, &QSpinBox::valueChanged, this, changed);
     connect(endYearSpin_, &QSpinBox::valueChanged, this, changed);
     connect(startDateEdit_, &QDateEdit::dateChanged, this, changed);
@@ -341,6 +374,19 @@ void ReturnFinderController::buildFiltersUi() {
     connect(houseModeCombo_, &QComboBox::currentIndexChanged, this, changed);
     connect(rulershipCombo_, &QComboBox::currentIndexChanged, this, changed);
     connect(matchModeCombo_, &QComboBox::currentIndexChanged, this, changed);
+    connect(returnMethodCombo_, &QComboBox::currentIndexChanged, this, [this, changed]() {
+        if (tajakaMethodActive() && houseModeCombo_) {
+            // Tajaka judgments are whole-sign based; sync the visible mode.
+            const QSignalBlocker blocker(houseModeCombo_);
+            houseModeCombo_->setCurrentIndex(
+                std::max(0, houseModeCombo_->findData(
+                                static_cast<int>(ReturnFinderHouseMode::WholeSign))));
+        }
+        updateLocationUi();
+        updateRunUi();
+        emit tajakaMethodChanged(tajakaMethodActive());
+        changed();
+    });
     auto addTypedCondition = [this](ReturnFinderConditionType type) {
         ReturnFinderCondition condition;
         condition.id = QString("condition_%1").arg(nextConditionId_++);
@@ -352,6 +398,10 @@ void ReturnFinderController::buildFiltersUi() {
         } else if (type == ReturnFinderConditionType::PlanetPlacement) {
             condition.target.kind = ReturnFinderTargetKind::Angle;
             condition.target.name = "Descendant";
+        } else if (type == ReturnFinderConditionType::TajakaAspect) {
+            condition.subject.name = "Jupiter";
+            condition.target.kind = ReturnFinderTargetKind::Planet;
+            condition.target.name = "Venus";
         }
         addCondition(condition);
     };
@@ -369,6 +419,15 @@ void ReturnFinderController::buildFiltersUi() {
     });
     connect(addStelliumAction, &QAction::triggered, this, [addTypedCondition]() {
         addTypedCondition(ReturnFinderConditionType::Stellium);
+    });
+    connect(addMunthaAction, &QAction::triggered, this, [addTypedCondition]() {
+        addTypedCondition(ReturnFinderConditionType::MunthaPlacement);
+    });
+    connect(addTajakaAspectAction, &QAction::triggered, this, [addTypedCondition]() {
+        addTypedCondition(ReturnFinderConditionType::TajakaAspect);
+    });
+    connect(addLordOfYearAction, &QAction::triggered, this, [addTypedCondition]() {
+        addTypedCondition(ReturnFinderConditionType::LordOfYearPlacement);
     });
     connect(clearButton, &QPushButton::clicked, this, &ReturnFinderController::clearConditions);
     connect(loadPresetButton, &QPushButton::clicked, this, &ReturnFinderController::loadSelectedPreset);
@@ -483,11 +542,23 @@ void ReturnFinderController::conditionChanged() {
 
 void ReturnFinderController::updateRangeUi() {
     if (rangeStack_) rangeStack_->setCurrentIndex(returnType() == ReturnFinderType::Lunar ? 1 : 0);
+    if (returnMethodCombo_) {
+        returnMethodCombo_->setEnabled(
+            !running_ && returnType() == ReturnFinderType::Solar);
+    }
 }
 
 void ReturnFinderController::updateLocationUi() {
-    const bool useNatal = !locationModeCombo_ || locationModeCombo_->currentData().toBool();
-    if (useNatal && hasNatalContext_) {
+    const bool tajaka = tajakaMethodActive();
+    if (tajaka && locationModeCombo_ && locationModeCombo_->currentIndex() != 0) {
+        const QSignalBlocker blocker(locationModeCombo_);
+        locationModeCombo_->setCurrentIndex(0);
+    }
+    const bool useNatal = tajaka || !locationModeCombo_ || locationModeCombo_->currentData().toBool();
+    // Under Tajaka the custom fields are left untouched (just disabled) so a
+    // location typed before switching is not destroyed; the query always
+    // uses the natal location anyway.
+    if (useNatal && !tajaka && hasNatalContext_) {
         const QSignalBlocker b1(locationEdit_);
         const QSignalBlocker b2(timezoneEdit_);
         const QSignalBlocker b3(latitudeSpin_);
@@ -496,6 +567,9 @@ void ReturnFinderController::updateLocationUi() {
         timezoneEdit_->setText(natalInput_.timezone);
         latitudeSpin_->setValue(natalInput_.latitude);
         longitudeSpin_->setValue(natalInput_.longitude);
+    }
+    if (locationModeCombo_) {
+        locationModeCombo_->setEnabled(!tajaka && !running_);
     }
     const bool editable = !useNatal && !running_;
     locationEdit_->setEnabled(editable);
@@ -517,6 +591,15 @@ void ReturnFinderController::updateRunUi() {
                             static_cast<QWidget*>(matchModeCombo_), static_cast<QWidget*>(presetCombo_)}) {
         if (widget) widget->setEnabled(!running_);
     }
+    if (returnMethodCombo_) {
+        returnMethodCombo_->setEnabled(
+            !running_ && returnType() == ReturnFinderType::Solar);
+    }
+    if (houseModeCombo_) {
+        // Whole Sign is the Tajaka basis; the house system choice is locked
+        // while the Tajaka method is active.
+        houseModeCombo_->setEnabled(!running_ && !tajakaMethodActive());
+    }
     updateLocationUi();
 }
 
@@ -537,6 +620,17 @@ bool ReturnFinderController::buildQuery(ReturnFinderQuery* query, QString* error
     value.timezone = value.useNatalLocation ? natalInput_.timezone : timezoneEdit_->text().trimmed();
     value.latitude = value.useNatalLocation ? natalInput_.latitude : latitudeSpin_->value();
     value.longitude = value.useNatalLocation ? natalInput_.longitude : longitudeSpin_->value();
+    value.tajakaMode = tajakaMethodActive();
+    if (value.tajakaMode) {
+        // Tajaka scans are pinned to the natal (birthplace) location and the
+        // rasi (whole-sign) chart, per the source methodology.
+        value.useNatalLocation = true;
+        value.locationName = natalLocationName_;
+        value.timezone = natalInput_.timezone;
+        value.latitude = natalInput_.latitude;
+        value.longitude = natalInput_.longitude;
+        value.houseMode = ReturnFinderHouseMode::WholeSign;
+    }
     if (value.timezone.isEmpty()) {
         if (error) *error = "Set a valid return timezone.";
         return false;
@@ -555,6 +649,11 @@ bool ReturnFinderController::buildQuery(ReturnFinderQuery* query, QString* error
         return false;
     }
     value.houseMode = static_cast<ReturnFinderHouseMode>(houseModeCombo_->currentData().toInt());
+    if (value.tajakaMode) {
+        // Applied after the combo read so a stale/disabled combo value can
+        // never leak into a Tajaka query (e.g. after a preset load).
+        value.houseMode = ReturnFinderHouseMode::WholeSign;
+    }
     value.modernRulership = rulershipCombo_->currentData().toInt() == 1;
     value.matchMode = static_cast<ReturnFinderMatchMode>(matchModeCombo_->currentData().toInt());
     bool hasInclude = false;
@@ -593,6 +692,16 @@ bool ReturnFinderController::buildQuery(ReturnFinderQuery* query, QString* error
             }
             return false;
         }
+        if (condition.type == ReturnFinderConditionType::Aspect
+            && condition.subject.scope == condition.target.scope
+            && condition.subject.kind == ReturnFinderTargetKind::ProfectionLord
+            && condition.target.kind == ReturnFinderTargetKind::ProfectionLord) {
+            if (error) {
+                *error = "An Aspect condition cannot compare the profection lord with "
+                         "itself in the same Return/Natal scope.";
+            }
+            return false;
+        }
         if ((condition.type == ReturnFinderConditionType::HouseLordPlacement
              && condition.houseLordHouses.isEmpty())
             || (condition.type == ReturnFinderConditionType::Aspect
@@ -600,6 +709,60 @@ bool ReturnFinderController::buildQuery(ReturnFinderQuery* query, QString* error
                     || (condition.target.kind == ReturnFinderTargetKind::HouseLord && condition.target.houses.isEmpty())))) {
             if (error) *error = "Every house-lord condition needs at least one valid house number (1-12).";
             return false;
+        }
+        if (condition.type == ReturnFinderConditionType::TajakaAspect) {
+            const bool planetsOk =
+                condition.subject.kind == ReturnFinderTargetKind::Planet
+                && condition.target.kind == ReturnFinderTargetKind::Planet
+                && finderClassicalPlanets().contains(condition.subject.name)
+                && finderClassicalPlanets().contains(condition.target.name)
+                && condition.subject.name != condition.target.name;
+            if (!planetsOk) {
+                if (error) {
+                    *error = "Tajaka Aspect requires two different classical planets "
+                             "(Sun through Saturn) in the return chart.";
+                }
+                return false;
+            }
+        }
+        const bool tajakaFamilyCondition =
+            condition.type == ReturnFinderConditionType::MunthaPlacement
+            || condition.type == ReturnFinderConditionType::LordOfYearPlacement
+            || condition.type == ReturnFinderConditionType::TajakaAspect
+            || condition.subject.kind == ReturnFinderTargetKind::Muntha
+            || condition.subject.kind == ReturnFinderTargetKind::MunthaLord
+            || condition.subject.kind == ReturnFinderTargetKind::LordOfYear
+            || condition.target.kind == ReturnFinderTargetKind::Muntha
+            || condition.target.kind == ReturnFinderTargetKind::MunthaLord
+            || condition.target.kind == ReturnFinderTargetKind::LordOfYear;
+        if (tajakaFamilyCondition && !value.tajakaMode
+            && natalInput_.zodiacSystem != ZodiacSystem::Sidereal) {
+            // Muntha and the Tajaka lord of the year are sidereal references;
+            // with a tropical natal chart they need the Tajaka method (which
+            // computes a sidereal natal reference).
+            if (error) {
+                *error = "Muntha, Muntha Lord, Lord of the Year and Tajaka Aspect "
+                         "conditions need the Tajaka method (or a sidereal natal chart).";
+            }
+            return false;
+        }
+        if (condition.type == ReturnFinderConditionType::Aspect
+            && condition.subject.scope == condition.target.scope) {
+            const auto isResolvedPointKind = [](ReturnFinderTargetKind kind) {
+                return kind == ReturnFinderTargetKind::Muntha
+                    || kind == ReturnFinderTargetKind::MunthaLord
+                    || kind == ReturnFinderTargetKind::LordOfYear;
+            };
+            const bool sameResolvedPoint =
+                isResolvedPointKind(condition.subject.kind)
+                && condition.subject.kind == condition.target.kind;
+            if (sameResolvedPoint) {
+                if (error) {
+                    *error = "An Aspect condition cannot compare a Tajaka point "
+                             "with itself in the same Return/Natal scope.";
+                }
+                return false;
+            }
         }
         value.conditions.push_back(condition);
     }
@@ -897,6 +1060,9 @@ void ReturnFinderController::copyResults() {
     lines.push_back("| Field | Value |");
     lines.push_back("|---|---|");
     addTableRow("Return Type", returnFinderTypeLabel(query.returnType));
+    addTableRow("Return Method", query.tajakaMode
+        ? QString("Tajaka (tropical Sun return, sidereal chart, natal location)")
+        : QString("Standard"));
     addTableRow("Requested Range", searchRange);
     addTableRow("Location Basis", query.useNatalLocation
         ? QString("Natal chart location") : QString("Custom return location"));

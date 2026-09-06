@@ -12,5 +12,6 @@
 #include "MXUWEOXILK/moc_return_finder_controller.cpp"
 #include "MXUWEOXILK/moc_return_finder_worker.cpp"
 #include "MXUWEOXILK/moc_row_hover_delegate.cpp"
+#include "MXUWEOXILK/moc_synastry_controller.cpp"
 #include "MXUWEOXILK/moc_transit_workers.cpp"
 #include "MXUWEOXILK/moc_zodiacal_releasing_controller.cpp"

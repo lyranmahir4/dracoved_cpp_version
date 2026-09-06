@@ -11,11 +11,13 @@
 
 #include "../core/chart_types.h"
 #include "../core/swiss_eph.h"
+#include "../core/tajaka.h"
 #include "../core/tropical_natal.h"
 #include "../core/progression.h"
 #include "../core/progressed_lunar_return.h"
 #include "../core/zodiacal_releasing.h"
 #include "aspect_matrix_delegate.h"
+#include "synastry_calc.h"
 
 class QDockWidget;
 class QToolButton;
@@ -42,6 +44,7 @@ class QSpinBox;
 class QProgressBar;
 class QTextEdit;
 class QQuickWidget;
+class QStyledItemDelegate;
 class QGroupBox;
 class QTimer;
 namespace dracoved {
@@ -55,6 +58,7 @@ class ReturnFinderController;
 class PlanetaryHoursController;
 class ZodiacalReleasingController;
 class GeodeticEquivalentsController;
+class SynastryController;
 struct ReturnFinderResult;
 struct ReturnFinderQuery;
 
@@ -174,6 +178,7 @@ private:
         Relocation = 7,
         Astrocartography = 8,
         GeodeticEquivalents = 11,
+        Synastry = 12,
     };
 
     enum class ThemeMode {
@@ -197,6 +202,10 @@ private:
     enum class SolarAspectView {
         SolarReturn,
         SolarNatal,
+    };
+    enum class SolarChartMethod {
+        Standard,
+        Tajaka,
     };
     enum class SolarReportPreset {
         Basic,
@@ -229,6 +238,32 @@ private:
         bool includeDailyMotion = false;
         bool includeDignities = true;
         bool includeFixedStars = false;
+    };
+    enum class NatalReportPreset {
+        Basic,
+        Full,
+        Custom,
+    };
+    enum class NatalReportLotScope {
+        None,
+        Core,
+        All,
+    };
+    enum class NatalReportAspectScope {
+        Tight,
+        Standard,
+        Configured,
+    };
+    struct NatalReportOptions {
+        NatalReportPreset preset = NatalReportPreset::Basic;
+        NatalReportLotScope lotScope = NatalReportLotScope::Core;
+        NatalReportAspectScope aspectScope = NatalReportAspectScope::Tight;
+        bool includeMinorBodies = false;
+        bool includeDailyMotion = false;
+        bool includeDignities = false;
+        bool includeFixedStars = false;
+        bool includeWholeSignHouses = true;
+        bool includePlacidusCusps = false;
     };
     enum class LunarAspectView {
         LunarReturn,
@@ -310,6 +345,7 @@ private:
         bool showNodes = true;
         bool showLilith = false;
         bool showLots = true;
+        bool showPartOfFortune = true;
         bool showDerivedPoints = true;
         bool showAsteroids = false;
         bool showAngles = true;
@@ -415,6 +451,9 @@ private:
     void handleSolarShiftYear(int delta);
     void handleSolarNow();
     void refreshSolarReturnView();
+    // Rebuilds the shared aspects panel as a flat Tajaka aspect list (whole
+    // sign kinds, per-planet deeptamsa orbs, ithasala/eesarpha motion).
+    void populateTajakaAspectsTable();
     void handleSolarPlacementFinderRun();
     void refreshSolarPlacementFinderView();
     void updateSolarFinderModeAvailability();
@@ -479,6 +518,7 @@ private:
     void showChartSettingsMenu();
     void showAsteroidSelectionDialog();
     void showFixedStarSelectionDialog();
+    void showChartDisplaySettingsDialog();
     void applyChartReadabilityPreset(ChartReadabilityPreset preset);
     void markChartReadabilityCustom();
     void applyAspectDisplayMaxOrb(double maxOrb, bool markCustom = true);
@@ -545,6 +585,10 @@ private:
     void applySolarReportFullPreset();
     void markSolarReportOptionsCustom();
     void updateSolarReportOptionsUi();
+    void applyNatalReportBasicPreset();
+    void applyNatalReportFullPreset();
+    void markNatalReportOptionsCustom();
+    void updateNatalReportOptionsUi();
     void markTransitPending();
     void applyTransitCalculation();
     void updateTransitTargetLabels();
@@ -615,7 +659,7 @@ private:
     QString buildTransitAspectPeakClipboardText() const;
     QString buildLunationDetailsClipboardText() const;
     void refreshNatalReport();
-    QString buildNatalReportText() const;
+    QString buildNatalReportMarkdown() const;
     QString buildSolarReturnReportMarkdown() const;
     QString buildAspectsClipboardText() const;
     bool computeTransitChartAt(const QDateTime& localTime, const QString& tzLabel, NatalChart* out, QString* error);
@@ -632,7 +676,12 @@ private:
     void populateProgressedAspectsOverlay(const dracoved::NatalChart& progressedChart, const dracoved::NatalChart& natalChart);
     void populateSolarNatalAspectsOverlay(const dracoved::NatalChart& solarChart, const dracoved::NatalChart& natalChart);
     void populateRelocationNatalAspectsOverlay(const dracoved::NatalChart& relocationChart, const dracoved::NatalChart& natalChart);
-    void populateCrossAspectsOverlay(const dracoved::NatalChart& rowChart, const dracoved::NatalChart& natalChart, const QString& rowPrefix);
+    // colPrefix defaults to "Natal" so every existing caller is unchanged. The
+    // Synastry tab passes a person's name instead, because neither axis is
+    // "natal" when two different people's charts are compared.
+    void populateCrossAspectsOverlay(const dracoved::NatalChart& rowChart, const dracoved::NatalChart& natalChart, const QString& rowPrefix, const QString& colPrefix = QStringLiteral("Natal"));
+    void refreshSynastryView();
+    void populateSynastryContacts(const dracoved::NatalChart& aChart, const dracoved::NatalChart& bChart, const QString& aLabel, const QString& bLabel);
     struct AspectMatrixCellData {
         bool hasAspect = false;
         QString label;
@@ -681,6 +730,28 @@ private:
     void setWorldMapOverlays(const QVariantList& lineOverlays, const QVariantList& bandOverlays);
     bool resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
                                    QString* error) const;
+    SolarChartMethod solarChartMethod() const;
+    // Natal Sun longitude in the basis required by the active method: the
+    // tropical longitude for Tajaka returns, the chart-zodiac longitude for
+    // standard solar returns.
+    bool solarReturnTargetSunLongitude(double* outLongitude, QString* error);
+    // Computes and stores the full Tajaka data set (muntha, aspects,
+    // strengths, lord of the year) for a Tajaka annual chart, always
+    // referenced against the sidereal natal chart (recomputed on demand when
+    // the app-level natal chart is tropical).
+    void computeTajakaDataForChart(const dracoved::NatalChart& annualChart);
+    void clearTajakaData();
+    // Selects the Pushya-paksha ayanamsa in the zodiac toolbar unless it is
+    // already active; the default ayanamsa whenever the Tajaka method is used.
+    void applyTajakaDefaultAyanamsa();
+    // Restores the ayanamsa that was active before the Tajaka default was
+    // applied, when the Tajaka method is left again.
+    void restorePreTajakaAyanamsa();
+    // Single arbiter for the Pushya-paksha default: applies while EITHER the
+    // Solar tab method or the Return Finder method is Tajaka, restores when
+    // neither is. All method-change signals route here so the two combos can
+    // never fight over the remembered ayanamsa.
+    void syncTajakaAyanamsaDefault();
     bool resolveLunarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
                                    QString* error) const;
     bool computeSolarReturnChartPure(int year, const QString& tzLabel, double targetLon, const QString& locationName,
@@ -857,6 +928,8 @@ private:
     int planetaryHoursDataStackIndex_ = -1;
     int zodiacalReleasingDataStackIndex_ = -1;
     int geodeticEquivalentsDataStackIndex_ = -1;
+    int synastryDataStackIndex_ = -1;
+    QVector<dracoved::synastry::Contact> synastryContacts_;
     QLabel* lunationTimezoneLabel_ = nullptr;
     QPushButton* lunationRunButton_ = nullptr;
     QPushButton* lunationStopButton_ = nullptr;
@@ -964,10 +1037,30 @@ private:
     QLabel* progressionLastLabel_ = nullptr;
     QPushButton* aspectsCopyButton_ = nullptr;
     QToolButton* aspectGridSettingsButton_ = nullptr;
+    QLabel* aspectsTitleLabel_ = nullptr;
     QWidget* reportPanel_ = nullptr;
     QTextEdit* reportText_ = nullptr;
     QToolButton* reportOptionsButton_ = nullptr;
     QPushButton* reportCopyButton_ = nullptr;
+    QStyledItemDelegate* flatAspectDelegate_ = nullptr;
+    bool hasPreTajakaAyanamsa_ = false;
+    dracoved::SiderealAyanamsa preTajakaAyanamsa_ = dracoved::SiderealAyanamsa::Lahiri;
+    QToolButton* natalReportOptionsButton_ = nullptr;
+    QAction* natalReportBasicPresetAction_ = nullptr;
+    QAction* natalReportFullPresetAction_ = nullptr;
+    QAction* natalReportMinorBodiesAction_ = nullptr;
+    QAction* natalReportDailyMotionAction_ = nullptr;
+    QAction* natalReportDignitiesAction_ = nullptr;
+    QAction* natalReportFixedStarsAction_ = nullptr;
+    QAction* natalReportWholeSignHousesAction_ = nullptr;
+    QAction* natalReportPlacidusCuspsAction_ = nullptr;
+    QAction* natalReportNoLotsAction_ = nullptr;
+    QAction* natalReportCoreLotsAction_ = nullptr;
+    QAction* natalReportAllLotsAction_ = nullptr;
+    QAction* natalReportTightAspectsAction_ = nullptr;
+    QAction* natalReportStandardAspectsAction_ = nullptr;
+    QAction* natalReportConfiguredAspectsAction_ = nullptr;
+    NatalReportOptions natalReportOptions_;
     QAction* solarReportBasicPresetAction_ = nullptr;
     QAction* solarReportFullPresetAction_ = nullptr;
     QAction* solarReportAnnualProfectionAction_ = nullptr;
@@ -993,6 +1086,7 @@ private:
     QWidget* solarTechniquePanel_ = nullptr;
     QWidget* solarPlacementFinderPanel_ = nullptr;
     QSpinBox* solarYearSpin_ = nullptr;
+    QComboBox* solarMethodCombo_ = nullptr;
     QRadioButton* solarUseNatalRadio_ = nullptr;
     QRadioButton* solarUseCustomRadio_ = nullptr;
     QLineEdit* solarLocationEdit_ = nullptr;
@@ -1087,6 +1181,7 @@ private:
     PlanetaryHoursController* planetaryHoursController_ = nullptr;
     ZodiacalReleasingController* zodiacalReleasingController_ = nullptr;
     GeodeticEquivalentsController* geodeticEquivalentsController_ = nullptr;
+    SynastryController* synastryController_ = nullptr;
     QWidget* chartViewPanel_ = nullptr;
     QWidget* worldMapPanel_ = nullptr;
     AstroMapWidget* astroMapWidget_ = nullptr;
@@ -1156,6 +1251,16 @@ private:
     dracoved::NatalChart currentSolarChart_;
     dracoved::NatalChart currentLunarChart_;
     dracoved::NatalChart currentRelocationChart_;
+    bool hasTajakaMuntha_ = false;
+    dracoved::tajaka::MunthaInfo currentTajakaMuntha_;
+    QVector<dracoved::tajaka::TajakaAspect> currentTajakaAspects_;
+    dracoved::tajaka::TajakaStrengths currentTajakaStrengths_;
+    dracoved::tajaka::TajakaLordOfYear currentTajakaLordOfYear_;
+    // Sidereal natal reference computed with Tajaka data; used for SR-natal
+    // comparisons (dock overlays, technique natal hits, report cross aspects)
+    // so they never mix zodiacs when the app-level chart is tropical.
+    bool hasTajakaNatalChart_ = false;
+    dracoved::NatalChart currentTajakaNatalChart_;
     dracoved::NatalInput currentProgressionInput_;
     dracoved::NatalInput currentSolarInput_;
     dracoved::NatalInput currentLunarInput_;
@@ -1196,9 +1301,14 @@ private:
     bool includeAsteroidAspects_ = false;
     QStringList visibleAsteroids_;
     bool showLots_ = true;
+    // Part of Fortune is an Arabic Lot by classification but a first-class point
+    // in practice, so it is toggled independently of the other ~95 lots.
+    bool showPartOfFortune_ = true;
     bool showDerivedPoints_ = true;
     bool showFixedStars_ = false;
     QStringList visibleFixedStars_;
+    // Bodies individually hidden on the chart wheel. Empty means show all.
+    QStringList hiddenChartBodies_;
     ChartReadabilityPreset chartReadabilityPreset_ = ChartReadabilityPreset::Clean;
     bool transitSearchCancel_ = false;
     QVector<TransitSearchResult> transitSearchResults_;

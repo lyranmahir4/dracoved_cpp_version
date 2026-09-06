@@ -235,6 +235,25 @@ void appendLot(QVector<BodyPosition>& lots, const LotCalculationContext& ctx, co
 
 }  // namespace
 
+double calculatePartOfFortuneLongitude(double ascendant, double sun, double moon, bool isDay) {
+    // Day: Ascendant + Moon - Sun. Night: the Sun and Moon swap.
+    return isDay ? project(ascendant, moon, sun) : project(ascendant, sun, moon);
+}
+
+BodyPosition makePartOfFortune(const LotCalculationContext& ctx) {
+    double sun = 0.0;
+    double moon = 0.0;
+    if (!bodyLon(ctx, "Sun", &sun) || !bodyLon(ctx, "Moon", &moon)) {
+        return BodyPosition{};
+    }
+    return makeLot("Part of Fortune",
+                   calculatePartOfFortuneLongitude(ctx.asc, sun, moon, ctx.isDay), ctx);
+}
+
+namespace {
+
+}  // namespace
+
 bool findPrenatalSyzygy(const SwissEph* swe, double jdUt, int calcFlags, PrenatalSyzygy* out, QString* error) {
     if (!swe || !out) {
         if (error) {
@@ -303,7 +322,7 @@ QVector<BodyPosition> calculateArabicLots(const LotCalculationContext& ctx) {
     double northNode = 0.0;
     const bool hasNorthNode = bodyLon(ctx, "North Node", &northNode);
 
-    const double fortune = ctx.isDay ? project(ctx.asc, moon, sun) : project(ctx.asc, sun, moon);
+    const double fortune = calculatePartOfFortuneLongitude(ctx.asc, sun, moon, ctx.isDay);
     const double spirit = ctx.isDay ? project(ctx.asc, sun, moon) : project(ctx.asc, moon, sun);
     const double eros = calculateLotOfErosLongitude(ctx.asc, spirit, venus, ctx.isDay);
     const double basis = ctx.isDay ? project(ctx.asc, spirit, fortune) : project(ctx.asc, fortune, spirit);

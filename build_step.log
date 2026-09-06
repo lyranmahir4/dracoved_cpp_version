@@ -1,4 +1,4 @@
-DracoVed build started: Fri 07/31/2026 23:30:32.29
+DracoVed build started: Sat 08/22/2026 18:11:13.07
 
 Command: cmake -S "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app" -B "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build" -G Ninja -DCMAKE_PREFIX_PATH="C:\Qt\6.10.1\mingw_64"
 Exit code: 0
@@ -18,7 +18,7 @@ Exit code: 0
 Command: xcopy /E /I /Y "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe" "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\ephe"
 Exit code: 0
 Build EXE: C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe
-Build timestamp: 07/31/2026 11:31 PM
+Build timestamp: 08/22/2026 06:12 PM
 Dist EXE: C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-Dist timestamp: 07/31/2026 11:31 PM
-DracoVed build completed successfully: Fri 07/31/2026 23:31:47.83
+Dist timestamp: 08/22/2026 06:12 PM
+DracoVed build completed successfully: Sat 08/22/2026 18:12:47.34

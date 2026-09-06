@@ -34,6 +34,9 @@ enum class ReturnFinderConditionType {
     HouseLordPlacement,
     ProfectionLordPlacement,
     Stellium,
+    MunthaPlacement,
+    TajakaAspect,
+    LordOfYearPlacement,
 };
 
 enum class ReturnFinderScope {
@@ -46,6 +49,15 @@ enum class ReturnFinderTargetKind {
     Angle,
     HouseLord,
     ProfectionLord,
+    Muntha,
+    MunthaLord,
+    LordOfYear,
+};
+
+enum class ReturnFinderTajakaMotion {
+    Any,
+    Ithasala,
+    Eesarpha,
 };
 
 enum class ReturnFinderPlacementKind {
@@ -99,6 +111,8 @@ struct ReturnFinderCondition {
     bool stelliumBySign = false;
     bool stelliumAny = false;
     int stelliumTarget = 1;
+
+    ReturnFinderTajakaMotion tajakaMotion = ReturnFinderTajakaMotion::Ithasala;
 };
 
 struct ReturnFinderQuery {
@@ -117,6 +131,10 @@ struct ReturnFinderQuery {
     ReturnFinderHouseMode houseMode = ReturnFinderHouseMode::WholeSign;
     bool modernRulership = false;
     ReturnFinderMatchMode matchMode = ReturnFinderMatchMode::All;
+    // Tajaka (P.V.R. Rao) solar scans: the return moment uses the Sun's natal
+    // tropical longitude and every scanned chart is judged sidereally, cast
+    // for the natal location. Ignored for lunar scans.
+    bool tajakaMode = false;
     QVector<ReturnFinderCondition> conditions;
 
     NatalInput natalInput;

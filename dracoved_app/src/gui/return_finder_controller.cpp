@@ -1,4 +1,4 @@
-#include "return_finder_controller.h"
+﻿#include "return_finder_controller.h"
 
 #include "../core/formatting.h"
 #include "../core/timezone_utils.h"
@@ -53,8 +53,12 @@ QStringList finderPlanets() {
     return {
         "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
         "Uranus", "Neptune", "Pluto", "North Node", "South Node",
-        "Mean North Node", "Mean South Node", "True North Node", "True South Node", "Lilith",
+        "Mean North Node", "Mean South Node", "True North Node", "True South Node", "Lilith", "Part of Fortune", "Vertex",
     };
+}
+
+QStringList finderClassicalPlanets() {
+    return {"Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"};
 }
 
 QStringList finderAngles() {
@@ -142,6 +146,9 @@ QString reportConditionTypeLabel(ReturnFinderConditionType type) {
         case ReturnFinderConditionType::HouseLordPlacement: return "House Lord Placement";
         case ReturnFinderConditionType::ProfectionLordPlacement: return "Profection Lord Placement";
         case ReturnFinderConditionType::Stellium: return "Stellium";
+        case ReturnFinderConditionType::MunthaPlacement: return "Muntha Placement";
+        case ReturnFinderConditionType::TajakaAspect: return "Tajaka Aspect";
+        case ReturnFinderConditionType::LordOfYearPlacement: return "Lord of the Year Placement";
         case ReturnFinderConditionType::PlanetPlacement:
         default: return "Planet Placement";
     }
@@ -176,6 +183,12 @@ QString reportTargetLabel(const ReturnFinderTarget& target) {
                      target.houseLordMatch == ReturnFinderHouseLordMatch::All ? "all" : "any");
         case ReturnFinderTargetKind::ProfectionLord:
             return QString("%1 position of the annual profection lord").arg(scope);
+        case ReturnFinderTargetKind::Muntha:
+            return QString("Tajaka muntha (progressed natal Ascendant)");
+        case ReturnFinderTargetKind::MunthaLord:
+            return QString("%1 position of the muntha lord").arg(scope);
+        case ReturnFinderTargetKind::LordOfYear:
+            return QString("%1 position of the Tajaka lord of the year").arg(scope);
         case ReturnFinderTargetKind::Planet:
         default:
             return QString("%1 %2").arg(scope, target.name);
@@ -210,6 +223,27 @@ QString reportConditionDescription(const ReturnFinderCondition& condition) {
                                        condition.stelliumTarget, condition.stelliumTarget);
             return QString("At least %1 bodies from the 10-planet Sun-through-Pluto set in %2")
                 .arg(condition.stelliumMinimum).arg(target);
+        }
+        case ReturnFinderConditionType::MunthaPlacement:
+            return QString("Tajaka muntha placed in %1")
+                .arg(reportPlacementLabel(condition.placementKind,
+                                          condition.targetSign, condition.targetHouse));
+        case ReturnFinderConditionType::LordOfYearPlacement:
+            return QString("Tajaka lord of the year placed in %1")
+                .arg(reportPlacementLabel(condition.placementKind,
+                                          condition.targetSign, condition.targetHouse));
+        case ReturnFinderConditionType::TajakaAspect: {
+            QString motion = "any motion";
+            if (condition.tajakaMotion == ReturnFinderTajakaMotion::Ithasala) {
+                motion = "ithasala (applying)";
+            } else if (condition.tajakaMotion == ReturnFinderTajakaMotion::Eesarpha) {
+                motion = "eesarpha (separating)";
+            }
+            return QString("%1 %2 %3 within Tajaka deeptamsa orbs, requiring %4")
+                .arg(reportTargetLabel(condition.subject),
+                     returnFinderAspectLabel(condition.aspect).toLower(),
+                     reportTargetLabel(condition.target),
+                     motion);
         }
         case ReturnFinderConditionType::PlanetPlacement:
         default: {
@@ -312,6 +346,7 @@ QJsonObject conditionToJson(const ReturnFinderCondition& condition) {
     object["stellium_by_sign"] = condition.stelliumBySign;
     object["stellium_any"] = condition.stelliumAny;
     object["stellium_target"] = condition.stelliumTarget;
+    object["tajaka_motion"] = static_cast<int>(condition.tajakaMotion);
     return object;
 }
 
@@ -337,6 +372,10 @@ ReturnFinderCondition conditionFromJson(const QJsonObject& object) {
     condition.stelliumBySign = object.value("stellium_by_sign").toBool(false);
     condition.stelliumAny = object.value("stellium_any").toBool(false);
     condition.stelliumTarget = object.value("stellium_target").toInt(1);
+    condition.tajakaMotion = static_cast<ReturnFinderTajakaMotion>(
+        qBound(0, object.value("tajaka_motion").toInt(
+                    static_cast<int>(ReturnFinderTajakaMotion::Ithasala)),
+               static_cast<int>(ReturnFinderTajakaMotion::Eesarpha)));
     return condition;
 }
 
@@ -357,7 +396,13 @@ public:
         kindCombo_->addItem("Planet", static_cast<int>(ReturnFinderTargetKind::Planet));
         kindCombo_->addItem("Angle (ASC / DSC / MC / IC)", static_cast<int>(ReturnFinderTargetKind::Angle));
         kindCombo_->addItem("House Lord", static_cast<int>(ReturnFinderTargetKind::HouseLord));
-        kindCombo_->setToolTip("Choose whether this side of the aspect is a planet, an angle, or a house lord.");
+        kindCombo_->addItem("Profection Lord", static_cast<int>(ReturnFinderTargetKind::ProfectionLord));
+        kindCombo_->addItem("Muntha", static_cast<int>(ReturnFinderTargetKind::Muntha));
+        kindCombo_->addItem("Muntha Lord", static_cast<int>(ReturnFinderTargetKind::MunthaLord));
+        kindCombo_->addItem("Lord of the Year (Tajaka)", static_cast<int>(ReturnFinderTargetKind::LordOfYear));
+        kindCombo_->setToolTip("Choose whether this side of the aspect is a planet, an angle, a house lord, "
+                               "the annual profection lord, the Tajaka muntha, the muntha lord, or the "
+                               "Tajaka lord of the year.");
         valueStack_ = new QStackedWidget(this);
         planetCombo_ = new QComboBox(valueStack_);
         planetCombo_->addItems(finderPlanets());
@@ -375,9 +420,51 @@ public:
         lordMatchCombo_->addItem("All lords", static_cast<int>(ReturnFinderHouseLordMatch::All));
         lordLayout->addWidget(housesEdit_, 1);
         lordLayout->addWidget(lordMatchCombo_);
+        auto* profectionPage = new QWidget(valueStack_);
+        auto* profectionLayout = new QHBoxLayout(profectionPage);
+        profectionLayout->setContentsMargins(0, 0, 0, 0);
+        auto* profectionHint = new QLabel(profectionPage);
+        profectionHint->setWordWrap(true);
+        profectionHint->setText(
+            "The annual profection lord is resolved for each return year: the natal "
+            "Ascendant sign advanced one sign per year of age, taken from that sign's "
+            "ruler. Its position is taken from the chart selected by the scope.");
+        profectionLayout->addWidget(profectionHint);
+        auto* munthaPage = new QWidget(valueStack_);
+        auto* munthaLayout = new QHBoxLayout(munthaPage);
+        munthaLayout->setContentsMargins(0, 0, 0, 0);
+        auto* munthaHint = new QLabel(munthaPage);
+        munthaHint->setWordWrap(true);
+        munthaHint->setText(
+            "The Tajaka muntha: the natal Ascendant progressed one sign per year of age. "
+            "It is resolved automatically for each return year.");
+        munthaLayout->addWidget(munthaHint);
+        auto* munthaLordPage = new QWidget(valueStack_);
+        auto* munthaLordLayout = new QHBoxLayout(munthaLordPage);
+        munthaLordLayout->setContentsMargins(0, 0, 0, 0);
+        auto* munthaLordHint = new QLabel(munthaLordPage);
+        munthaLordHint->setWordWrap(true);
+        munthaLordHint->setText(
+            "The ruler of the Tajaka muntha sign, resolved per return year. Its position "
+            "is taken from the chart selected by the scope.");
+        munthaLordLayout->addWidget(munthaLordHint);
+        auto* lordOfYearPage = new QWidget(valueStack_);
+        auto* lordOfYearLayout = new QHBoxLayout(lordOfYearPage);
+        lordOfYearLayout->setContentsMargins(0, 0, 0, 0);
+        auto* lordOfYearHint = new QLabel(lordOfYearPage);
+        lordOfYearHint->setWordWrap(true);
+        lordOfYearHint->setText(
+            "The Tajaka lord of the year (varsheswara), selected per return year from the "
+            "five classical candidates by benefic aspect on lagna and pancha vargeeya "
+            "bala. Its position is taken from the chart selected by the scope.");
+        lordOfYearLayout->addWidget(lordOfYearHint);
         valueStack_->addWidget(planetCombo_);
         valueStack_->addWidget(angleCombo_);
         valueStack_->addWidget(lordPage);
+        valueStack_->addWidget(profectionPage);
+        valueStack_->addWidget(munthaPage);
+        valueStack_->addWidget(munthaLordPage);
+        valueStack_->addWidget(lordOfYearPage);
         layout->addWidget(titleLabel_, 0, 0);
         layout->addWidget(scopeCombo_, 0, 1);
         layout->addWidget(kindCombo_, 0, 2);
@@ -400,8 +487,16 @@ public:
         ReturnFinderTarget target;
         target.scope = static_cast<ReturnFinderScope>(scopeCombo_->currentData().toInt());
         target.kind = static_cast<ReturnFinderTargetKind>(kindCombo_->currentData().toInt());
-        target.name = target.kind == ReturnFinderTargetKind::Angle
-            ? angleCombo_->currentData().toString() : planetCombo_->currentText();
+        if (target.kind == ReturnFinderTargetKind::Angle) {
+            target.name = angleCombo_->currentData().toString();
+        } else if (target.kind == ReturnFinderTargetKind::ProfectionLord
+                   || target.kind == ReturnFinderTargetKind::Muntha
+                   || target.kind == ReturnFinderTargetKind::MunthaLord
+                   || target.kind == ReturnFinderTargetKind::LordOfYear) {
+            target.name.clear();
+        } else {
+            target.name = planetCombo_->currentText();
+        }
         target.houses = parseHouses(housesEdit_->text());
         target.houseLordMatch = static_cast<ReturnFinderHouseLordMatch>(lordMatchCombo_->currentData().toInt());
         return target;
@@ -416,7 +511,10 @@ public:
         if (target.kind == ReturnFinderTargetKind::Angle) {
             const int angleIndex = angleCombo_->findData(target.name);
             angleCombo_->setCurrentIndex(std::max(0, angleIndex));
-        } else {
+        } else if (target.kind != ReturnFinderTargetKind::ProfectionLord
+                   && target.kind != ReturnFinderTargetKind::Muntha
+                   && target.kind != ReturnFinderTargetKind::MunthaLord
+                   && target.kind != ReturnFinderTargetKind::LordOfYear) {
             planetCombo_->setCurrentText(target.name);
         }
         housesEdit_->setText(housesText(target.houses));

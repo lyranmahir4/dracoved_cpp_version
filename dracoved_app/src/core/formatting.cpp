@@ -3,6 +3,7 @@
 
 #include <QHash>
 #include <QMap>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 
@@ -448,6 +449,102 @@ bool isAsteroidBody(const QString& name) {
 
 QString bodyGlyph(const QString& name) {
     return bodyLabel(name, true);
+}
+
+QStringList chartToggleableBodyOrder() {
+    QStringList order = {
+        "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+        "Uranus", "Neptune", "Pluto",
+        "North Node", "South Node", "Lilith", "Vertex",
+    };
+    order.append(asteroidBodyOrder());
+    return order;
+}
+
+QString chartBodyVisibilityKey(const QString& name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+    if (isLunarNodeName(trimmed)) {
+        return isNorthLunarNodeName(trimmed) ? QString("North Node") : QString("South Node");
+    }
+    return trimmed;
+}
+
+QStringList chartBodyPresetVisibleBodies(ChartBodyPreset preset) {
+    static const QStringList classicalPlanets = {
+        "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+    };
+    static const QStringList outerPlanets = {"Uranus", "Neptune", "Pluto"};
+    static const QStringList nodes = {"North Node", "South Node"};
+
+    switch (preset) {
+        case ChartBodyPreset::AllBodies:
+            return chartToggleableBodyOrder();
+        case ChartBodyPreset::Classical: {
+            QStringList bodies = classicalPlanets;
+            bodies.append(nodes);
+            return bodies;
+        }
+        case ChartBodyPreset::Modern: {
+            QStringList bodies = classicalPlanets;
+            bodies.append(outerPlanets);
+            bodies.append(nodes);
+            return bodies;
+        }
+        case ChartBodyPreset::MainPlanetsOnly: {
+            QStringList bodies = classicalPlanets;
+            bodies.append(outerPlanets);
+            return bodies;
+        }
+        case ChartBodyPreset::Custom:
+        default:
+            return {};
+    }
+}
+
+ChartBodyPreset chartBodyPresetForVisibleBodies(const QStringList& visibleBodies) {
+    QSet<QString> current;
+    for (const auto& name : visibleBodies) {
+        const QString key = chartBodyVisibilityKey(name);
+        if (!key.isEmpty()) {
+            current.insert(key);
+        }
+    }
+
+    const ChartBodyPreset candidates[] = {
+        ChartBodyPreset::AllBodies,
+        ChartBodyPreset::Classical,
+        ChartBodyPreset::Modern,
+        ChartBodyPreset::MainPlanetsOnly,
+    };
+    for (const ChartBodyPreset preset : candidates) {
+        QSet<QString> expected;
+        for (const auto& name : chartBodyPresetVisibleBodies(preset)) {
+            expected.insert(name);
+        }
+        if (expected == current) {
+            return preset;
+        }
+    }
+    return ChartBodyPreset::Custom;
+}
+
+QString chartBodyPresetLabel(ChartBodyPreset preset) {
+    switch (preset) {
+        case ChartBodyPreset::AllBodies:
+            return "All Bodies";
+        case ChartBodyPreset::Classical:
+            return "Classical (7 Planets + Nodes)";
+        case ChartBodyPreset::Modern:
+            return "Modern (10 Planets + Nodes)";
+        case ChartBodyPreset::MainPlanetsOnly:
+            return "Main Planets Only (no Nodes)";
+        case ChartBodyPreset::Custom:
+        default:
+            return "Custom";
+    }
 }
 
 QString bodySvgResourcePath(const QString& name) {

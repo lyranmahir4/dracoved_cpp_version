@@ -367,6 +367,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tajaka.h",
+			"MU",
+			"PRMOGMWJPH/moc_tajaka.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.h",
 			"MU",
 			"PRMOGMWJPH/moc_timezone_utils.cpp",
@@ -406,6 +412,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_manager_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_chart_manager_dialog.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_profile_store.h",
+			"MU",
+			"MXUWEOXILK/moc_chart_profile_store.cpp",
 			null
 		],
 		[
@@ -478,6 +490,18 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.h",
 			"MU",
 			"MXUWEOXILK/moc_row_hover_delegate.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_calc.h",
+			"MU",
+			"MXUWEOXILK/moc_synastry_calc.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_controller.h",
+			"MU",
+			"MXUWEOXILK/moc_synastry_controller.cpp",
 			null
 		],
 		[
@@ -622,6 +646,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tajaka.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/timezone_utils.cpp",
 			"MU",
 			null
@@ -657,6 +686,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_profile_store.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/chart_setup_dialog.cpp",
 			"MU",
 			null
@@ -688,6 +722,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_geodetic_equivalents.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_natal_report.cpp",
 			"MU",
 			null
 		],
@@ -743,6 +782,16 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/row_hover_delegate.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_calc.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_controller.cpp",
 			"MU",
 			null
 		],

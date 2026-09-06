@@ -7,6 +7,9 @@ namespace dracoved {
 
 struct TropicalComputeOptions {
     bool includeArabicLots = true;
+    // Part of Fortune is cheap (no prenatal syzygy) and wanted on charts that
+    // skip the full Lots calculation, so it has its own switch and defaults on.
+    bool includePartOfFortune = true;
     bool includeFixedStars = true;
     bool includeAspectGrid = true;
 };

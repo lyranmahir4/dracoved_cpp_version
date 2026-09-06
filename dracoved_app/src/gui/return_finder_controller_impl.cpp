@@ -29,6 +29,9 @@ public:
         typeCombo_->addItem("House Lord Placement", static_cast<int>(ReturnFinderConditionType::HouseLordPlacement));
         typeCombo_->addItem("Profection Lord Placement", static_cast<int>(ReturnFinderConditionType::ProfectionLordPlacement));
         typeCombo_->addItem("Stellium", static_cast<int>(ReturnFinderConditionType::Stellium));
+        typeCombo_->addItem("Muntha Placement", static_cast<int>(ReturnFinderConditionType::MunthaPlacement));
+        typeCombo_->addItem("Tajaka Aspect", static_cast<int>(ReturnFinderConditionType::TajakaAspect));
+        typeCombo_->addItem("Lord of the Year Placement", static_cast<int>(ReturnFinderConditionType::LordOfYearPlacement));
         auto* duplicateButton = new QToolButton(header);
         duplicateButton->setText("Duplicate");
         auto* removeButton = new QToolButton(header);
@@ -46,6 +49,9 @@ public:
         buildHouseLordPage();
         buildProfectionPage();
         buildStelliumPage();
+        buildMunthaPage();
+        buildTajakaAspectPage();
+        buildLordOfYearPage();
         root->addWidget(pages_);
 
         auto notify = [this]() { if (!loading_ && changed_) changed_(); };
@@ -96,6 +102,17 @@ public:
             value.stelliumBySign = stelliumKindCombo_->currentData().toInt() == 1;
             value.stelliumAny = stelliumAnyCheck_->isChecked();
             value.stelliumTarget = stelliumValueCombo_->currentData().toInt();
+        } else if (value.type == ReturnFinderConditionType::MunthaPlacement) {
+            value.placementKind = static_cast<ReturnFinderPlacementKind>(munthaPlacementCombo_->currentData().toInt());
+            assignPlacementValue(value, munthaValueCombo_);
+        } else if (value.type == ReturnFinderConditionType::TajakaAspect) {
+            value.subject = tajakaSubjectEditor_->target();
+            value.target = tajakaTargetEditor_->target();
+            value.aspect = static_cast<ReturnFinderAspect>(tajakaAspectCombo_->currentData().toInt());
+            value.tajakaMotion = static_cast<ReturnFinderTajakaMotion>(tajakaMotionCombo_->currentData().toInt());
+        } else if (value.type == ReturnFinderConditionType::LordOfYearPlacement) {
+            value.placementKind = static_cast<ReturnFinderPlacementKind>(loyPlacementCombo_->currentData().toInt());
+            assignPlacementValue(value, loyValueCombo_);
         }
         return value;
     }
@@ -133,6 +150,14 @@ public:
         lordMatchCombo_->setCurrentIndex(std::max(0, lordMatchCombo_->findData(static_cast<int>(value.houseLordMatch))));
         setPlacementWidgets(lordPlacementCombo_, lordValueCombo_, value);
         setPlacementWidgets(profectionPlacementCombo_, profectionValueCombo_, value);
+        setPlacementWidgets(munthaPlacementCombo_, munthaValueCombo_, value);
+        setPlacementWidgets(loyPlacementCombo_, loyValueCombo_, value);
+        tajakaSubjectEditor_->setTarget(value.subject);
+        tajakaTargetEditor_->setTarget(value.target);
+        tajakaAspectCombo_->setCurrentIndex(
+            std::max(0, tajakaAspectCombo_->findData(static_cast<int>(value.aspect))));
+        tajakaMotionCombo_->setCurrentIndex(
+            std::max(0, tajakaMotionCombo_->findData(static_cast<int>(value.tajakaMotion))));
         stelliumMinimumSpin_->setValue(std::clamp(value.stelliumMinimum, 2, 10));
         stelliumKindCombo_->setCurrentIndex(value.stelliumBySign ? 1 : 0);
         stelliumAnyCheck_->setChecked(value.stelliumAny);
@@ -400,6 +425,70 @@ private:
         }
     }
 
+    void buildMunthaPage() {
+        auto* page = new QWidget(pages_);
+        auto* layout = new QGridLayout(page);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* hint = new QLabel(
+            "Tajaka muntha: the natal Ascendant progressed one sign per year of age, "
+            "resolved for each return year automatically.", page);
+        hint->setWordWrap(true);
+        hint->setObjectName("hintLabel");
+        munthaPlacementCombo_ = new QComboBox(page);
+        munthaPlacementCombo_->addItem("In House", static_cast<int>(ReturnFinderPlacementKind::House));
+        munthaPlacementCombo_->addItem("In Sign", static_cast<int>(ReturnFinderPlacementKind::Sign));
+        munthaValueCombo_ = new QComboBox(page);
+        refillPlacementValues(munthaValueCombo_, ReturnFinderPlacementKind::House, 1);
+        layout->addWidget(hint, 0, 0, 1, 2);
+        layout->addWidget(munthaPlacementCombo_, 1, 0);
+        layout->addWidget(munthaValueCombo_, 1, 1);
+        pages_->addWidget(page);
+        connectPlacementWidgets(munthaPlacementCombo_, munthaValueCombo_);
+    }
+
+    void buildTajakaAspectPage() {
+        auto* page = new QWidget(pages_);
+        auto* layout = new QVBoxLayout(page);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto notify = [this]() { if (!loading_ && changed_) changed_(); };
+        tajakaSubjectEditor_ = new ReturnFinderTargetEditor("Subject", page, notify);
+        tajakaTargetEditor_ = new ReturnFinderTargetEditor("Target", page, notify);
+        auto* aspectRow = new QWidget(page);
+        auto* aspectLayout = new QHBoxLayout(aspectRow);
+        aspectLayout->setContentsMargins(0, 0, 0, 0);
+        aspectLayout->setSpacing(6);
+        tajakaAspectCombo_ = new QComboBox(aspectRow);
+        tajakaAspectCombo_->addItem("Conjunction", static_cast<int>(ReturnFinderAspect::Conjunction));
+        tajakaAspectCombo_->addItem("Sextile", static_cast<int>(ReturnFinderAspect::Sextile));
+        tajakaAspectCombo_->addItem("Square", static_cast<int>(ReturnFinderAspect::Square));
+        tajakaAspectCombo_->addItem("Trine", static_cast<int>(ReturnFinderAspect::Trine));
+        tajakaAspectCombo_->addItem("Opposition", static_cast<int>(ReturnFinderAspect::Opposition));
+        tajakaAspectCombo_->addItem("Any Major Aspect", static_cast<int>(ReturnFinderAspect::AnyMajor));
+        tajakaMotionCombo_ = new QComboBox(aspectRow);
+        tajakaMotionCombo_->addItem("Any motion", static_cast<int>(ReturnFinderTajakaMotion::Any));
+        tajakaMotionCombo_->addItem("Ithasala (applying)", static_cast<int>(ReturnFinderTajakaMotion::Ithasala));
+        tajakaMotionCombo_->addItem("Eesarpha (separating)", static_cast<int>(ReturnFinderTajakaMotion::Eesarpha));
+        tajakaMotionCombo_->setCurrentIndex(1);
+        aspectLayout->addWidget(new QLabel("Aspect", aspectRow), 0);
+        aspectLayout->addWidget(tajakaAspectCombo_, 1);
+        aspectLayout->addWidget(new QLabel("Motion", aspectRow), 0);
+        aspectLayout->addWidget(tajakaMotionCombo_, 1);
+        auto* hint = new QLabel(
+            "Tajaka aspects use whole-sign houses and per-planet deeptamsa orbs; "
+            "the orb field is not used. Subject and Target must be two different "
+            "classical planets (Sun through Saturn) in the return chart.",
+            page);
+        hint->setWordWrap(true);
+        hint->setObjectName("hintLabel");
+        layout->addWidget(tajakaSubjectEditor_);
+        layout->addWidget(aspectRow);
+        layout->addWidget(tajakaTargetEditor_);
+        layout->addWidget(hint);
+        pages_->addWidget(page);
+        connect(tajakaAspectCombo_, &QComboBox::currentIndexChanged, this, notify);
+        connect(tajakaMotionCombo_, &QComboBox::currentIndexChanged, this, notify);
+    }
+
     QString id_;
     bool loading_ = false;
     std::function<void()> changed_;
@@ -433,4 +522,34 @@ private:
     QComboBox* stelliumKindCombo_ = nullptr;
     QCheckBox* stelliumAnyCheck_ = nullptr;
     QComboBox* stelliumValueCombo_ = nullptr;
+    void buildLordOfYearPage() {
+        auto* page = new QWidget(pages_);
+        auto* layout = new QGridLayout(page);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* hint = new QLabel(
+            "Tajaka lord of the year (varsheswara): selected per return year from the "
+            "five classical candidates by benefic aspect on lagna and pancha vargeeya "
+            "bala, using the Tajaka strength rules.", page);
+        hint->setWordWrap(true);
+        hint->setObjectName("hintLabel");
+        loyPlacementCombo_ = new QComboBox(page);
+        loyPlacementCombo_->addItem("In House", static_cast<int>(ReturnFinderPlacementKind::House));
+        loyPlacementCombo_->addItem("In Sign", static_cast<int>(ReturnFinderPlacementKind::Sign));
+        loyValueCombo_ = new QComboBox(page);
+        refillPlacementValues(loyValueCombo_, ReturnFinderPlacementKind::House, 1);
+        layout->addWidget(hint, 0, 0, 1, 2);
+        layout->addWidget(loyPlacementCombo_, 1, 0);
+        layout->addWidget(loyValueCombo_, 1, 1);
+        pages_->addWidget(page);
+        connectPlacementWidgets(loyPlacementCombo_, loyValueCombo_);
+    }
+
+    QComboBox* munthaPlacementCombo_ = nullptr;
+    QComboBox* munthaValueCombo_ = nullptr;
+    ReturnFinderTargetEditor* tajakaSubjectEditor_ = nullptr;
+    ReturnFinderTargetEditor* tajakaTargetEditor_ = nullptr;
+    QComboBox* tajakaAspectCombo_ = nullptr;
+    QComboBox* tajakaMotionCombo_ = nullptr;
+    QComboBox* loyPlacementCombo_ = nullptr;
+    QComboBox* loyValueCombo_ = nullptr;
 };

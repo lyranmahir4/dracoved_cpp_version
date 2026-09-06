@@ -13,6 +13,8 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabBar>
+
+#include <algorithm>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 
@@ -62,6 +64,9 @@ QString conditionTypeText(ReturnFinderConditionType type) {
         case ReturnFinderConditionType::HouseLordPlacement: return "House Lord Placement";
         case ReturnFinderConditionType::ProfectionLordPlacement: return "Profection Lord Placement";
         case ReturnFinderConditionType::Stellium: return "Stellium";
+        case ReturnFinderConditionType::MunthaPlacement: return "Muntha Placement";
+        case ReturnFinderConditionType::TajakaAspect: return "Tajaka Aspect";
+        case ReturnFinderConditionType::LordOfYearPlacement: return "Lord of the Year Placement";
         case ReturnFinderConditionType::PlanetPlacement:
         default: return "Planet Placement";
     }
@@ -209,13 +214,20 @@ void MainWindow::handleReturnFinderOpen(const ReturnFinderResult& result,
         }
         swe_.setEphePath(ephePath_);
         NatalInput exactInput = currentInput_;
+        if (query.tajakaMode && result.returnType == ReturnFinderType::Solar) {
+            // Reproduce the chart exactly as the Tajaka scan judged it:
+            // sidereal zodiac with the natal ayanamsa.
+            exactInput.zodiacSystem = ZodiacSystem::Sidereal;
+        }
         exactInput.name = name;
         exactInput.date = result.localDateTime.date();
         exactInput.time = result.localDateTime.time();
         exactInput.timezone = query.timezone;
         exactInput.latitude = query.latitude;
         exactInput.longitude = query.longitude;
-        exactInput.houseSystem = returnFinderDisplayHouseSystem(query.houseMode);
+        exactInput.houseSystem = query.tajakaMode && result.returnType == ReturnFinderType::Solar
+            ? HouseSystem::WholeSign
+            : returnFinderDisplayHouseSystem(query.houseMode);
         exactInput.aspectOrbs = aspectOrbs_;
         if (!engine_.compute(exactInput, chart, error)) {
             return false;
@@ -232,16 +244,28 @@ void MainWindow::handleReturnFinderOpen(const ReturnFinderResult& result,
     };
 
     if (result.returnType == ReturnFinderType::Solar) {
+        const bool tajakaResult = query.tajakaMode;
         NatalChart exactChart;
         NatalInput exactInput;
         QString error;
-        if (!computeExactReturn(QString("Solar Return %1").arg(result.year),
+        if (!computeExactReturn(tajakaResult
+                                    ? QString("Tajaka Varshaphala %1").arg(result.year)
+                                    : QString("Solar Return %1").arg(result.year),
                                 &exactChart, &exactInput, &error)) {
             setStatusMessage(error);
             return;
         }
         if (solarYearSpin_) solarYearSpin_->setValue(result.year);
         if (solarTimezoneEdit_) solarTimezoneEdit_->setText(query.timezone);
+        if (solarMethodCombo_) {
+            // Sync the Solar tab method with the opened result so the view,
+            // dock rows and the next calculation match the chart being shown.
+            const QSignalBlocker blocker(solarMethodCombo_);
+            const int index = solarMethodCombo_->findData(static_cast<int>(
+                tajakaResult ? SolarChartMethod::Tajaka : SolarChartMethod::Standard));
+            solarMethodCombo_->setCurrentIndex(std::max(0, index));
+        }
+        syncTajakaAyanamsaDefault();
         if (query.useNatalLocation) {
             if (solarUseNatalRadio_) solarUseNatalRadio_->setChecked(true);
         } else {
@@ -257,11 +281,18 @@ void MainWindow::handleReturnFinderOpen(const ReturnFinderResult& result,
         hasSolarChart_ = true;
         solarPending_ = false;
         lastSolarCalculated_ = QDateTime::currentDateTime();
+        if (tajakaResult) {
+            computeTajakaDataForChart(exactChart);
+        } else {
+            clearTajakaData();
+        }
         updateSolarStatusLabels();
         refreshSolarReturnView();
         refreshSolarTechniqueView();
         refreshSolarPlacementFinderView();
-        setStatusMessage(QString("Opened Solar Return %1 from Return Finder.").arg(result.year));
+        setStatusMessage(tajakaResult
+            ? QString("Opened Tajaka Varshaphala %1 from Return Finder.").arg(result.year)
+            : QString("Opened Solar Return %1 from Return Finder.").arg(result.year));
         return;
     }
 

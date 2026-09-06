@@ -100,25 +100,23 @@ void AspectMatrixDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     const bool inHoverCross = (hoveredRow_ >= 0)
         && (index.row() == hoveredRow_ || index.column() == hoveredCol_);
 
-    // Minimal style: square corners and a tighter gutter so the grid reads as a
-    // field of tiles rather than a spreadsheet.
-    const double inset = compact_ ? 1.0 : 1.5;
-    const QRectF cellRect = QRectF(r).adjusted(inset, inset, -inset, -inset);
-    const double radius = compact_ ? 0.0 : 5.0;
+    // Dense style: square corners everywhere and a single-pixel gutter, so the
+    // grid reads as a packed field of tiles with no rounded edges and no spare
+    // padding. Text layout is driven by the measured tile, not by a mode flag,
+    // so shrinking the cells can never clip the orb text.
+    const QRectF cellRect = QRectF(r).adjusted(1.0, 1.0, -1.0, -1.0);
     auto fillCell = [&](const QColor& color) {
         painter->setPen(Qt::NoPen);
         painter->setBrush(color);
-        if (radius > 0.0) {
-            painter->drawRoundedRect(cellRect, radius, radius);
-        } else {
-            painter->drawRect(cellRect);
-        }
+        painter->drawRect(cellRect);
     };
+    // Transits deliberately stays glyph-only in its narrow column; elsewhere the
+    // orb appears only when the tile can actually fit it.
+    const bool showOrbText = !compact_ && cellRect.width() >= 26.0;
+    const bool showMotion = showOrbText && cellRect.height() >= 22.0;
 
     QColor fill = palette_.cellBg;
-    QColor border = palette_.cellBorder;
     QColor contentColor = palette_.textMuted;
-    bool exact = false;
 
     if (kind == AspectDiagonal) {
         fill = palette_.diagonalBg;
@@ -126,27 +124,17 @@ void AspectMatrixDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
         const QString label = index.data(AspectRoles::Label).toString();
         const QColor ac = palette_.aspectColors.value(label, palette_.textMuted);
         QColor tint = ac;
-        // Borderless cells need a slightly stronger wash to stay legible.
-        tint.setAlpha(compact_ ? 48 : 34);
+        // Every cell is borderless now, so the wash alone has to carry it.
+        tint.setAlpha(48);
         fill = blendOver(palette_.cellBg, tint);
         contentColor = ac;
-        exact = index.data(AspectRoles::Orb).toDouble() < 1.0;
     }
 
     // Cell background.
     fillCell(fill);
 
-    // Outlining every cell is what made the dense grid read as a spreadsheet,
-    // so the minimal style carries the cell on its fill alone.
-    if (!compact_) {
-        QPen borderPen(border, 1.0);
-        if (kind == AspectFilled && exact) {
-            borderPen = QPen(contentColor, 1.5);
-        }
-        painter->setPen(borderPen);
-        painter->setBrush(Qt::NoBrush);
-        painter->drawRoundedRect(cellRect, radius, radius);
-    }
+    // No per-cell outline at all. Outlining every cell is what made the grid
+    // read as a spreadsheet; tight orbs are emphasised with a bold glyph below.
 
     QFont glyphFont("Segoe UI Symbol");
     glyphFont.setPixelSize(static_cast<int>(std::lround(14.0 * fontScale_)));
@@ -158,8 +146,8 @@ void AspectMatrixDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     if (kind == AspectDiagonal) {
         const QString iconPath = index.data(AspectRoles::IconPath).toString();
         const double iconSize = std::max(1.0, std::min({
-            cellRect.width() - 7.0,
-            cellRect.height() - 7.0,
+            cellRect.width() - 3.0,
+            cellRect.height() - 3.0,
             20.0 * fontScale_,
         }));
         const QRectF iconRect(
@@ -180,8 +168,8 @@ void AspectMatrixDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
         const double orb = index.data(AspectRoles::Orb).toDouble();
         const int applying = index.data(AspectRoles::Applying).toInt();
 
-        if (compact_) {
-            // Narrow cells have no room for the orb text beside the glyph, so
+        if (!showOrbText) {
+            // Narrow tiles have no room for the orb beside the glyph, so
             // tightness is carried by weight instead: bold means inside 2
             // degrees. The exact orb and the applying or separating state stay
             // on the cell tooltip.
@@ -191,34 +179,35 @@ void AspectMatrixDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
             painter->setPen(contentColor);
             painter->drawText(cellRect, Qt::AlignCenter, g);
         } else {
-            const int orbDeg = static_cast<int>(std::lround(orb));
-            const QString orbText = QString::number(orbDeg) + QString(QChar(0x00B0));
+            // Bare integer degrees: the degree sign costs horizontal room the
+            // tile no longer has, and the unit is unambiguous inside a grid.
+            const QString orbText = QString::number(
+                static_cast<int>(std::lround(orb)));
             const QRectF glyphArea(cellRect.left(), cellRect.top(),
-                                   cellRect.width() * 0.52, cellRect.height());
-            const QRectF textArea(cellRect.left() + cellRect.width() * 0.50, cellRect.top(),
-                                  cellRect.width() * 0.50, cellRect.height());
+                                   cellRect.width() * 0.56, cellRect.height());
+            const QRectF textArea(cellRect.left() + cellRect.width() * 0.54, cellRect.top(),
+                                  cellRect.width() * 0.46, cellRect.height());
 
             QFont gf = glyphFont;
-            gf.setBold(true);
+            gf.setBold(orb < 2.0);
             painter->setFont(gf);
             painter->setPen(contentColor);
             painter->drawText(glyphArea, Qt::AlignCenter, g);
 
+            painter->setFont(numberFont);
             painter->setPen(contentColor);
-            if (applying < 0) {
-                // No motion info (angles/lots): orb only, vertically centered.
-                painter->setFont(numberFont);
+            if (applying < 0 || !showMotion) {
+                // No motion info (angles/lots), or no vertical room for it.
                 painter->drawText(textArea, Qt::AlignCenter, orbText);
             } else {
-                painter->setFont(numberFont);
-                const QRectF topRect(textArea.left(), textArea.top() + textArea.height() * 0.06,
-                                     textArea.width(), textArea.height() * 0.56);
+                const QRectF topRect(textArea.left(), textArea.top(),
+                                     textArea.width(), textArea.height() * 0.58);
                 painter->drawText(topRect, Qt::AlignHCenter | Qt::AlignBottom, orbText);
                 QFont sf = numberFont;
                 sf.setPixelSize(static_cast<int>(std::lround(8.0 * fontScale_)));
                 painter->setFont(sf);
-                const QRectF botRect(textArea.left(), textArea.top() + textArea.height() * 0.50,
-                                     textArea.width(), textArea.height() * 0.46);
+                const QRectF botRect(textArea.left(), textArea.top() + textArea.height() * 0.52,
+                                     textArea.width(), textArea.height() * 0.48);
                 painter->drawText(botRect, Qt::AlignHCenter | Qt::AlignTop,
                                   applying == 1 ? QStringLiteral("a") : QStringLiteral("s"));
             }

@@ -3,12 +3,14 @@
 #include "aspect_orbs_dialog.h"
 #include "chart_setup_dialog.h"
 #include "chart_manager_dialog.h"
+#include "chart_profile_store.h"
 #include "chart_wheel_widget.h"
 #include "collapsible_section.h"
 #include "row_hover_delegate.h"
 #include "planetary_hours_controller.h"
 #include "zodiacal_releasing_controller.h"
 #include "geodetic_equivalents_controller.h"
+#include "synastry_controller.h"
 #include "preferences_dialog.h"
 #include "return_calculation_service.h"
 #include "return_finder_controller.h"
@@ -77,6 +79,7 @@
 #include <QSettings>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QUrl>
 #include <QEvent>
@@ -110,6 +113,7 @@ namespace dracoved {
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows);
 static void setupDetailTable(QTableWidget* table, const QStringList& headers, int rows);
 static QTableWidgetItem* makeCell(const QString& text, Qt::Alignment align = Qt::AlignLeft | Qt::AlignVCenter);
+static void setTableHeaderTooltips(QTableWidget* table, const QStringList& tooltips);
 static int calcHouseForLongitude(double lon, const QVector<HouseCusp>& cusps, double asc, HouseSystem system);
 static double angularDiff(double a, double b);
 static QString aspectSymbolForLabel(const QString& label);
@@ -121,6 +125,25 @@ static QString abbrevForName(const QString& name);
 static bool aspectForDiff(double diff, const AspectOrbs& orbs, QString* outLabel, double* outOrb, double* outMaxOrb);
 
 namespace {
+
+// Delegate for the flat Tajaka aspect list: paints a per-row quality tint
+// stored in Qt::UserRole + 1 before the normal cell rendering. The app-wide
+// stylesheet sets table background-color, which makes Qt ignore per-item
+// BackgroundRole brushes — painting in the delegate is the reliable path.
+class TajakaAspectRowDelegate : public QStyledItemDelegate {
+public:
+    explicit TajakaAspectRowDelegate(QObject* parent)
+        : QStyledItemDelegate(parent) {}
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        const QColor tint = index.data(Qt::UserRole + 1).value<QColor>();
+        if (tint.isValid()) {
+            painter->fillRect(option.rect, tint);
+        }
+        QStyledItemDelegate::paint(painter, option, index);
+    }
+};
 
 QIcon tintedSvgIcon(const QString& resourcePath, const QColor& requestedColor, int logicalSize = 17) {
     if (resourcePath.isEmpty() || logicalSize <= 0) {
@@ -784,6 +807,12 @@ MainWindow::MainWindow(QWidget* parent)
     astroHoverTimer_->setInterval(70);
     connect(astroHoverTimer_, &QTimer::timeout, this, &MainWindow::flushAstroHoverPreview);
     loadUiState();
+    {
+        QString tajakaSelfCheckError;
+        if (!tajaka::tajakaSelfCheck(&tajakaSelfCheckError) && solarStatusLabel_) {
+            solarStatusLabel_->setText(QString("Tajaka self-check failed: %1").arg(tajakaSelfCheckError));
+        }
+    }
     syncLunarNodeResearchSelectionDefaults();
     applyTheme(theme_);
 
@@ -794,6 +823,11 @@ MainWindow::MainWindow(QWidget* parent)
     }
     if (returnFinderController_) {
         returnFinderController_->setRuntimePaths(ephePath_, sweSearchPaths());
+    }
+    if (synastryController_) {
+        synastryController_->setEphePath(ephePath_);
+        synastryController_->setDefaultLunarNodePolicy(defaultLunarNodePolicy_);
+        synastryController_->setDefaultHouseSystem(defaultHouseSystem_);
     }
 
     QString err;
@@ -852,6 +886,7 @@ void MainWindow::setupDockLayout() {
     addMainTab("Natal", AppTab::Natal);
     addMainTab("Transits", AppTab::Transits);
     addMainTab("Progression", AppTab::Progression);
+    addMainTab("Synastry", AppTab::Synastry);
     addMainTab("Zodiacal Releasing", AppTab::ZodiacalReleasing);
     addMainTab("Solar Return", AppTab::SolarReturn);
     addMainTab("Lunar Return", AppTab::LunarReturn);
@@ -915,6 +950,12 @@ void MainWindow::setupDockLayout() {
     zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::Yukteshwar), static_cast<int>(SiderealAyanamsa::Yukteshwar));
     zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::TrueCitra), static_cast<int>(SiderealAyanamsa::TrueCitra));
     zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::TrueRevati), static_cast<int>(SiderealAyanamsa::TrueRevati));
+    zodiacToolbarAyanamsaCombo_->addItem(siderealAyanamsaToString(SiderealAyanamsa::PushyaPaksha), static_cast<int>(SiderealAyanamsa::PushyaPaksha));
+    zodiacToolbarAyanamsaCombo_->setItemData(
+        zodiacToolbarAyanamsaCombo_->count() - 1,
+        "P.V.R. Rao's ayanamsa: Delta Cancri (Pushya) fixed at 16 Cancer 0'. "
+        "The default ayanamsa for Tajaka calculations.",
+        Qt::ToolTipRole);
     zodiacToolbarTropicalRadio_->setChecked(true);
     zodiacToolbarAyanamsaCombo_->setCurrentIndex(0);
     zodiacToolbarAyanamsaCombo_->setEnabled(false);
@@ -1041,10 +1082,12 @@ void MainWindow::setupDockLayout() {
     aspectOrbCustomSpin_->setRange(0.0, 15.0);
     aspectOrbCustomSpin_->setDecimals(1);
     aspectOrbCustomSpin_->setSingleStep(0.5);
-    aspectOrbCustomSpin_->setSuffix("°");
+    aspectOrbCustomSpin_->setSuffix(" °");
     aspectOrbCustomSpin_->setSpecialValueText("All");
     aspectOrbCustomSpin_->setKeyboardTracking(false);
-    aspectOrbCustomSpin_->setFixedWidth(72);
+    // The themed arrow glyphs vanish at this size; +/- symbols always render.
+    aspectOrbCustomSpin_->setButtonSymbols(QAbstractSpinBox::PlusMinus);
+    aspectOrbCustomSpin_->setFixedWidth(92);
     aspectOrbCustomSpin_->setToolTip(
         "Custom maximum aspect-line orb. Select All to remove the display filter.");
     aspectOrbQuickLayout->addWidget(aspectOrbQuickLabel);
@@ -1072,6 +1115,9 @@ void MainWindow::setupDockLayout() {
         new GeodeticEquivalentsController(&swe_, this);
     centerStack_->addWidget(
         geodeticEquivalentsController_->workspaceWidget());
+    // Synastry reuses the shared chart view the way Transits does, so it adds no
+    // page to centerStack_ - only a filters panel to dataStack_.
+    synastryController_ = new SynastryController(&swe_, net_, this);
     centerStack_->setCurrentWidget(chartViewPanel_);
 
     chartLayout->addWidget(centerStack_, 1);
@@ -1215,8 +1261,110 @@ void MainWindow::setupDockLayout() {
         markSolarReportOptionsCustom();
     });
 
+    natalReportOptionsButton_ = new QToolButton(reportHeader);
+    natalReportOptionsButton_->setText("Report: Basic");
+    natalReportOptionsButton_->setPopupMode(QToolButton::InstantPopup);
+    natalReportOptionsButton_->setToolTip(
+        "Choose a natal report preset or customize exported sections.");
+    natalReportOptionsButton_->setVisible(false);
+    auto* natalReportOptionsMenu = new QMenu(natalReportOptionsButton_);
+    natalReportOptionsButton_->setMenu(natalReportOptionsMenu);
+
+    natalReportBasicPresetAction_ = natalReportOptionsMenu->addAction("Use Basic Report");
+    natalReportBasicPresetAction_->setToolTip(
+        "Planets, angles, tight aspects, the house table for the active house "
+        "system plus Placidus cusps, and core lots (Fortune, Spirit, Eros).");
+    natalReportFullPresetAction_ = natalReportOptionsMenu->addAction("Use Full Report");
+    natalReportFullPresetAction_->setToolTip(
+        "All calculated bodies and lots, both house tables, fixed stars, "
+        "and configured aspect orbs.");
+    natalReportOptionsMenu->addSeparator();
+
+    auto addNatalReportToggle = [natalReportOptionsMenu](const QString& text) {
+        auto* action = natalReportOptionsMenu->addAction(text);
+        action->setCheckable(true);
+        return action;
+    };
+    natalReportMinorBodiesAction_ =
+        addNatalReportToggle("Minor bodies (Chiron, asteroids, Lilith)");
+    natalReportDailyMotionAction_ = addNatalReportToggle("Daily motion");
+    natalReportDignitiesAction_ = addNatalReportToggle("Essential dignity");
+    natalReportFixedStarsAction_ = addNatalReportToggle("Fixed stars");
+    natalReportWholeSignHousesAction_ = addNatalReportToggle("Whole Sign house table");
+    natalReportPlacidusCuspsAction_ = addNatalReportToggle("Placidus cusp table");
+    natalReportOptionsMenu->addSeparator();
+
+    auto* natalLotsMenu = natalReportOptionsMenu->addMenu("Arabic Lots");
+    auto* natalLotsGroup = new QActionGroup(natalLotsMenu);
+    natalLotsGroup->setExclusive(true);
+    natalReportNoLotsAction_ = natalLotsMenu->addAction("None");
+    natalReportCoreLotsAction_ = natalLotsMenu->addAction("Core: Fortune, Spirit, Eros");
+    natalReportAllLotsAction_ = natalLotsMenu->addAction("All calculated lots");
+    for (auto* action : {natalReportNoLotsAction_, natalReportCoreLotsAction_,
+                         natalReportAllLotsAction_}) {
+        action->setCheckable(true);
+        natalLotsGroup->addAction(action);
+    }
+
+    auto* natalAspectScopeMenu = natalReportOptionsMenu->addMenu("Aspect Scope");
+    auto* natalAspectScopeGroup = new QActionGroup(natalAspectScopeMenu);
+    natalAspectScopeGroup->setExclusive(true);
+    natalReportTightAspectsAction_ =
+        natalAspectScopeMenu->addAction("Tight - maximum 3 degrees");
+    natalReportStandardAspectsAction_ =
+        natalAspectScopeMenu->addAction("Standard - maximum 6 degrees");
+    natalReportConfiguredAspectsAction_ =
+        natalAspectScopeMenu->addAction("Use configured aspect orbs");
+    for (auto* action : {natalReportTightAspectsAction_, natalReportStandardAspectsAction_,
+                         natalReportConfiguredAspectsAction_}) {
+        action->setCheckable(true);
+        natalAspectScopeGroup->addAction(action);
+    }
+
+    connect(natalReportBasicPresetAction_, &QAction::triggered,
+            this, &MainWindow::applyNatalReportBasicPreset);
+    connect(natalReportFullPresetAction_, &QAction::triggered,
+            this, &MainWindow::applyNatalReportFullPreset);
+    auto connectNatalReportToggle = [this](QAction* action, bool NatalReportOptions::*field) {
+        connect(action, &QAction::triggered, this, [this, action, field]() {
+            natalReportOptions_.*field = action->isChecked();
+            markNatalReportOptionsCustom();
+        });
+    };
+    connectNatalReportToggle(natalReportMinorBodiesAction_, &NatalReportOptions::includeMinorBodies);
+    connectNatalReportToggle(natalReportDailyMotionAction_, &NatalReportOptions::includeDailyMotion);
+    connectNatalReportToggle(natalReportDignitiesAction_, &NatalReportOptions::includeDignities);
+    connectNatalReportToggle(natalReportFixedStarsAction_, &NatalReportOptions::includeFixedStars);
+    connectNatalReportToggle(natalReportWholeSignHousesAction_, &NatalReportOptions::includeWholeSignHouses);
+    connectNatalReportToggle(natalReportPlacidusCuspsAction_, &NatalReportOptions::includePlacidusCusps);
+    connect(natalReportNoLotsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.lotScope = NatalReportLotScope::None;
+        markNatalReportOptionsCustom();
+    });
+    connect(natalReportCoreLotsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.lotScope = NatalReportLotScope::Core;
+        markNatalReportOptionsCustom();
+    });
+    connect(natalReportAllLotsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.lotScope = NatalReportLotScope::All;
+        markNatalReportOptionsCustom();
+    });
+    connect(natalReportTightAspectsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.aspectScope = NatalReportAspectScope::Tight;
+        markNatalReportOptionsCustom();
+    });
+    connect(natalReportStandardAspectsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.aspectScope = NatalReportAspectScope::Standard;
+        markNatalReportOptionsCustom();
+    });
+    connect(natalReportConfiguredAspectsAction_, &QAction::triggered, this, [this]() {
+        natalReportOptions_.aspectScope = NatalReportAspectScope::Configured;
+        markNatalReportOptionsCustom();
+    });
+
     reportCopyButton_ = new QPushButton("Copy Report", reportHeader);
     reportHeaderLayout->addWidget(reportOptionsButton_);
+    reportHeaderLayout->addWidget(natalReportOptionsButton_);
     reportHeaderLayout->addStretch();
     reportHeaderLayout->addWidget(reportCopyButton_);
     reportText_ = new QTextEdit(reportPanel_);
@@ -1733,6 +1881,17 @@ void MainWindow::setupDockLayout() {
     solarYearLayout->setHorizontalSpacing(8);
     solarYearLayout->setVerticalSpacing(6);
     solarYearLayout->setColumnStretch(1, 1);
+    solarMethodCombo_ = new QComboBox(solarYearGroup);
+    solarMethodCombo_->addItem("Standard Solar Return",
+                               static_cast<int>(SolarChartMethod::Standard));
+    solarMethodCombo_->addItem("Tajaka Varshaphala (P.V.R. Rao)",
+                               static_cast<int>(SolarChartMethod::Tajaka));
+    solarMethodCombo_->setToolTip(
+        "Standard: the Sun returns to its natal position in the active zodiac.\n"
+        "Tajaka (P.V.R. Rao): the return moment is the Sun reaching its natal "
+        "tropical longitude, and the chart is always computed in the sidereal "
+        "zodiac using the selected ayanamsa, cast for the natal (birthplace) "
+        "location.");
     solarYearSpin_ = new QSpinBox(solarYearGroup);
     solarYearSpin_->setRange(1800, 2399);
     solarYearSpin_->setValue(QDate::currentDate().year());
@@ -1748,8 +1907,10 @@ void MainWindow::setupDockLayout() {
     solarTimezoneEdit_->setText("UTC");
     solarTimezoneStatus_ = new QLabel("OK", solarYearGroup);
     solarTimezoneStatus_->setMinimumWidth(40);
-    solarYearLayout->addWidget(new QLabel("Year", solarYearGroup), 0, 0);
-    solarYearLayout->addWidget(solarYearSpin_, 0, 1, 1, 2);
+    solarYearLayout->addWidget(new QLabel("Method", solarYearGroup), 0, 0);
+    solarYearLayout->addWidget(solarMethodCombo_, 0, 1, 1, 2);
+    solarYearLayout->addWidget(new QLabel("Year", solarYearGroup), 1, 0);
+    solarYearLayout->addWidget(solarYearSpin_, 1, 1, 1, 2);
     auto* solarNavigationRow = new QWidget(solarYearGroup);
     auto* solarNavigationLayout = new QHBoxLayout(solarNavigationRow);
     solarNavigationLayout->setContentsMargins(0, 0, 0, 0);
@@ -1757,10 +1918,10 @@ void MainWindow::setupDockLayout() {
     solarNavigationLayout->addWidget(solarPreviousButton_, 1);
     solarNavigationLayout->addWidget(solarNowButton_, 1);
     solarNavigationLayout->addWidget(solarNextButton_, 1);
-    solarYearLayout->addWidget(solarNavigationRow, 1, 0, 1, 3);
-    solarYearLayout->addWidget(new QLabel("Timezone", solarYearGroup), 2, 0);
-    solarYearLayout->addWidget(solarTimezoneEdit_, 2, 1);
-    solarYearLayout->addWidget(solarTimezoneStatus_, 2, 2);
+    solarYearLayout->addWidget(solarNavigationRow, 2, 0, 1, 3);
+    solarYearLayout->addWidget(new QLabel("Timezone", solarYearGroup), 3, 0);
+    solarYearLayout->addWidget(solarTimezoneEdit_, 3, 1);
+    solarYearLayout->addWidget(solarTimezoneStatus_, 3, 2);
 
     auto* solarLocationGroup = new QGroupBox("Location", solarControls_);
     auto* solarLocationLayout = new QGridLayout(solarLocationGroup);
@@ -2031,8 +2192,14 @@ void MainWindow::setupDockLayout() {
     transitSubTabBar_->setExpanding(false);
     transitSubTabBar_->setDrawBase(false);
     transitSubTabBar_->setUsesScrollButtons(true);
-    transitSubTabBar_->setElideMode(Qt::ElideRight);
+    // The dock is narrower than the seven tabs; eliding made every label
+    // unreadable ("Over...", "Se..."). Keep full text and let the scroll
+    // buttons page through instead.
+    transitSubTabBar_->setElideMode(Qt::ElideNone);
     transitSubTabBar_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    for (int i = 0; i < transitSubTabBar_->count(); ++i) {
+        transitSubTabBar_->setTabToolTip(i, transitSubTabBar_->tabText(i));
+    }
     transitSubTabBar_->setCurrentIndex(0);
     transitLayout->addWidget(transitSubTabBar_);
 
@@ -3238,6 +3405,7 @@ void MainWindow::setupDockLayout() {
     astroPreviewWheel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
     astroPreviewWheel_->setShowAspects(false);
     astroPreviewWheel_->setShowLots(false);
+    astroPreviewWheel_->setShowPartOfFortune(false);
     astroPreviewWheel_->setShowDerivedPoints(false);
     astroPreviewWheel_->setShowFixedStars(false);
     astroPreviewWheel_->setShowAsteroids(false);
@@ -3300,31 +3468,41 @@ void MainWindow::setupDockLayout() {
         geodeticEquivalentsDataStackIndex_ = dataStack_->addWidget(
             geodeticEquivalentsController_->filtersWidget());
     }
+    if (synastryController_) {
+        synastryDataStackIndex_ = dataStack_->addWidget(
+            synastryController_->filtersWidget());
+    }
 
     aspectsPanel_ = new QFrame(this);
     aspectsPanel_->setObjectName("aspectsPanel");
     auto* aspectsLayout = new QVBoxLayout(aspectsPanel_);
-    aspectsLayout->setContentsMargins(6, 6, 6, 6);
-    aspectsLayout->setSpacing(4);
+    aspectsLayout->setContentsMargins(2, 2, 2, 2);
+    aspectsLayout->setSpacing(2);
     aspectScopeTabs_ = new QTabBar(aspectsPanel_);
     aspectScopeTabs_->addTab("Transit-Natal");
     aspectScopeTabs_->addTab("Transit-Transit");
     aspectScopeTabs_->addTab("Natal-Natal");
     aspectScopeTabs_->setExpanding(false);
     aspectScopeTabs_->setDrawBase(false);
+    aspectScopeTabs_->setUsesScrollButtons(true);
+    aspectScopeTabs_->setElideMode(Qt::ElideNone);
     aspectScopeTabs_->setVisible(false);
     auto* aspectsHeader = new QWidget(aspectsPanel_);
     auto* aspectsHeaderLayout = new QHBoxLayout(aspectsHeader);
     aspectsHeaderLayout->setContentsMargins(0, 0, 0, 0);
     aspectsHeaderLayout->setSpacing(4);
-    auto* aspectsTitle = new QLabel("Aspect Grid", aspectsHeader);
-    aspectsTitle->setObjectName("sectionTitle");
+    // Title hides itself while the scope tabs are visible (see
+    // updateAspectScopeTabs) so the tab text never gets squeezed into
+    // ellipsis on narrow docks.
+    aspectsTitleLabel_ = new QLabel("Aspect Grid", aspectsHeader);
+    aspectsTitleLabel_->setObjectName("sectionTitle");
     aspectGridSettingsButton_ = new QToolButton(aspectsHeader);
     aspectGridSettingsButton_->setText(QString(QChar(0x2699)));
     aspectGridSettingsButton_->setToolTip("Aspect grid body visibility");
     aspectGridSettingsButton_->setAutoRaise(false);
-    aspectsCopyButton_ = new QPushButton("Copy Aspects", aspectsHeader);
-    aspectsHeaderLayout->addWidget(aspectsTitle);
+    aspectsCopyButton_ = new QPushButton("Copy", aspectsHeader);
+    aspectsCopyButton_->setToolTip("Copy the aspects shown below as text.");
+    aspectsHeaderLayout->addWidget(aspectsTitleLabel_);
     aspectsHeaderLayout->addWidget(aspectScopeTabs_);
     aspectsHeaderLayout->addStretch();
     aspectsHeaderLayout->addWidget(aspectGridSettingsButton_);
@@ -3630,7 +3808,6 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
             "}"
             "QAbstractSpinBox::up-button { subcontrol-position: top right; border-top-right-radius: 3px; }"
             "QAbstractSpinBox::down-button { subcontrol-position: bottom right; border-top: 1px solid #c9b89e; border-bottom-right-radius: 3px; }"
-            "QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow { width: 8px; height: 8px; }"
             "QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {"
             "  border: 1px solid #8b5e3c;"
             "}"
@@ -3707,7 +3884,6 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
             "}"
             "QAbstractSpinBox::up-button { subcontrol-position: top right; border-top-right-radius: 3px; }"
             "QAbstractSpinBox::down-button { subcontrol-position: bottom right; border-top: 1px solid #2a2d30; border-bottom-right-radius: 3px; }"
-            "QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow { width: 8px; height: 8px; }"
             "QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {"
             "  border: 1px solid #b14040;"
             "}"
@@ -3770,7 +3946,6 @@ QString MainWindow::buildStyleSheet(ThemeMode mode) const {
         "}"
         "QAbstractSpinBox::up-button { subcontrol-position: top right; border-top-right-radius: 3px; }"
         "QAbstractSpinBox::down-button { subcontrol-position: bottom right; border-top: 1px solid #c9c9c9; border-bottom-right-radius: 3px; }"
-        "QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow { width: 8px; height: 8px; }"
         "QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {"
         "  border: 1px solid #b14040;"
         "}"
@@ -3848,6 +4023,19 @@ ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
             QColor("#b14040"),          // retrogradeIndicator — keep red
             QColor("#8b5e3c"),          // angularHouseLabel — terracotta
             QColor("#f1e8d8"),          // transitLaneBand — soft warm tint
+            // Surface tokens — printed-ephemeris parchment
+            QColor("#f7f2ea"),          // zodiacBandInner
+            QColor("#e7dbc9"),          // zodiacBandOuter — warm taupe at the rim
+            QColor(255, 250, 240, 170), // zodiacEdgeHighlight
+            QColor("#c2b19a"),          // zodiacEdgeShadow
+            QColor("#faf6ef"),          // aspectDiscFill — faint paper plate
+            QColor(139, 94, 60, 28),    // wheelHalo — warm terracotta lift
+            QColor("#a98f6f"),          // cardinalBoundary — deeper taupe
+            QColor(247, 242, 234, 225), // labelChipBg
+            QColor(214, 201, 182, 130), // labelChipBorder
+            QColor(198, 180, 155, 140), // infoRule
+            QColor("#a8701f"),          // dignityStrong — warm ochre
+            QColor(122, 126, 130, 195), // dignityWeak — muted slate
         };
     }
     if (mode == ThemeMode::Dark) {
@@ -3879,6 +4067,19 @@ ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
             QColor("#b14040"),          // retrogradeIndicator
             QColor("#9aa0a6"),          // angularHouseLabel
             QColor("#191d21"),          // transitLaneBand — faint raised panel
+            // Surface tokens — instrument panel: near-black plate, faint glow
+            QColor("#15181a"),          // zodiacBandInner
+            QColor("#0c0e10"),          // zodiacBandOuter — falls away at the rim
+            QColor(150, 170, 190, 46),  // zodiacEdgeHighlight — luminous hairline
+            QColor("#070809"),          // zodiacEdgeShadow
+            QColor("#121517"),          // aspectDiscFill
+            QColor(120, 160, 200, 34),  // wheelHalo — cool instrument glow
+            QColor("#4a5157"),          // cardinalBoundary
+            QColor(16, 18, 20, 200),    // labelChipBg — low alpha
+            QColor(70, 78, 85, 120),    // labelChipBorder
+            QColor(90, 98, 105, 120),   // infoRule
+            QColor("#e0a94a"),          // dignityStrong — warm gold
+            QColor(150, 160, 170, 190), // dignityWeak — cool grey
         };
     }
     // Light
@@ -3910,6 +4111,19 @@ ChartWheelTheme MainWindow::buildChartTheme(ThemeMode mode) const {
         QColor("#b14040"),          // retrogradeIndicator
         QColor("#6f6f6f"),          // angularHouseLabel
         QColor("#eef2f7"),          // transitLaneBand — faint cool tint
+        // Surface tokens — cool neutral greys, near-white chips, subtle bevel
+        QColor("#fbfcfd"),          // zodiacBandInner
+        QColor("#eef1f4"),          // zodiacBandOuter
+        QColor(255, 255, 255, 180), // zodiacEdgeHighlight
+        QColor("#d2d7dd"),          // zodiacEdgeShadow
+        QColor("#fcfdfe"),          // aspectDiscFill
+        QColor(100, 112, 126, 24),  // wheelHalo
+        QColor("#b2b9c1"),          // cardinalBoundary
+        QColor(255, 255, 255, 226), // labelChipBg
+        QColor(216, 221, 228, 120), // labelChipBorder
+        QColor(192, 199, 207, 125), // infoRule
+        QColor("#c98a2c"),          // dignityStrong — warm amber
+        QColor(124, 134, 145, 190), // dignityWeak — cool grey
     };
 }
 
@@ -4025,6 +4239,12 @@ void MainWindow::refreshAspectsForHeaderMode() {
             setupTable(aspectsTable_, {}, 0);
             return;
         }
+        if (solarChartMethod() == SolarChartMethod::Tajaka) {
+            // Tajaka charts use their own aspect rules; the Ptolemaic
+            // matrix must not be shown for them.
+            populateTajakaAspectsTable();
+            return;
+        }
         switch (solarAspectView_) {
             case SolarAspectView::SolarNatal:
                 populateSolarNatalAspectsOverlay(currentSolarChart_, currentChart_);
@@ -4066,6 +4286,14 @@ void MainWindow::refreshAspectsForHeaderMode() {
                 populateAspects(currentRelocationChart_);
                 break;
         }
+        return;
+    }
+    if (activeTab_ == AppTab::Synastry) {
+        // Everything past this point assumes a transit context. Without this
+        // guard, changing the aspect header mode or toggling any grid visibility
+        // option empties the A-to-B cross grid (there is usually no transit
+        // chart) or replaces it with Person A's solo grid.
+        refreshSynastryView();
         return;
     }
     if (transitMode_ == TransitMode::NatalOverlay) {
@@ -4120,6 +4348,9 @@ bool MainWindow::isBodyVisibleInAspectGrid(const QString& name) const {
         return aspectGridFilter_.showAsteroids && isAsteroidVisible(name);
     }
     if (isArabicLotName(name)) {
+        if (name == "Part of Fortune") {
+            return aspectGridFilter_.showPartOfFortune;
+        }
         // On Transits the grid is a scanning tool in a narrow column beside the
         // wheel. All 95 Arabic Lots turn it into a ~110x110 matrix that can only
         // be read by scrolling, which is what makes it unusable there. The other
@@ -4170,6 +4401,8 @@ void MainWindow::handleAspectGridSettings() {
     makeToggle("Show Asteroids", aspectGridFilter_.showAsteroids,
         [this](bool v) { aspectGridFilter_.showAsteroids = v; });
     menu.addSeparator();
+    makeToggle("Show Part of Fortune", aspectGridFilter_.showPartOfFortune,
+        [this](bool v) { aspectGridFilter_.showPartOfFortune = v; });
     makeToggle("Show Arabic Lots", aspectGridFilter_.showLots,
         [this](bool v) { aspectGridFilter_.showLots = v; });
     makeToggle("Show Derived Points (Vertex)", aspectGridFilter_.showDerivedPoints,
@@ -4257,6 +4490,10 @@ void MainWindow::setupConnections() {
                 this, &MainWindow::handleReturnFinderOpen);
         connect(returnFinderController_, &ReturnFinderController::statusMessage,
                 this, [this](const QString& message) { setStatusMessage(message); });
+        connect(returnFinderController_, &ReturnFinderController::tajakaMethodChanged,
+                this, [this](bool) {
+                    syncTajakaAyanamsaDefault();
+                });
     }
     if (planetaryHoursController_) {
         connect(planetaryHoursController_, &PlanetaryHoursController::resultChanged,
@@ -4273,6 +4510,45 @@ void MainWindow::setupConnections() {
                 this, &MainWindow::refreshZodiacalReleasingDocks);
         connect(zodiacalReleasingController_, &ZodiacalReleasingController::statusMessage,
                 this, [this](const QString& message) { setStatusMessage(message); });
+    }
+    if (synastryController_) {
+        connect(synastryController_, &SynastryController::statusMessage,
+                this, [this](const QString& message) { setStatusMessage(message); });
+        connect(synastryController_, &SynastryController::personBChanged,
+                this, &MainWindow::refreshSynastryView);
+        connect(synastryController_, &SynastryController::saveProfileRequested, this,
+                [this](const NatalInput& input, const QString& locationName,
+                       const QString& suggestedName) {
+            bool accepted = false;
+            const QString requested = QInputDialog::getText(
+                this, "Save chart", "Chart name:", QLineEdit::Normal,
+                suggestedName, &accepted).trimmed();
+            if (!accepted || requested.isEmpty()) {
+                return;
+            }
+            const QString safe = dracoved::profilestore::sanitizeProfileName(requested);
+            if (safe.isEmpty()) {
+                setStatusMessage("Chart name contains only invalid characters.");
+                return;
+            }
+            if (QFileInfo::exists(dracoved::profilestore::profileFilePath(safe))) {
+                const auto overwrite = QMessageBox::question(
+                    this, "Replace saved chart",
+                    QString("A chart named \"%1\" already exists. Replace it?").arg(safe),
+                    QMessageBox::Yes | QMessageBox::No);
+                if (overwrite != QMessageBox::Yes) {
+                    return;
+                }
+            }
+            QString error;
+            if (!dracoved::profilestore::writeProfileInput(safe, input, locationName, &error)) {
+                setStatusMessage(error);
+                return;
+            }
+            refreshProfileToolbar();
+            synastryController_->refreshProfileList();
+            setStatusMessage(QString("Chart \"%1\" saved.").arg(safe));
+        });
     }
     if (geodeticEquivalentsController_) {
         connect(geodeticEquivalentsController_,
@@ -4392,7 +4668,12 @@ void MainWindow::setupConnections() {
             }
             auto cellText = [this](int row, int column) {
                 if (auto* item = transitAspectsTable_->item(row, column)) {
-                    QString value = item->text();
+                    // Body cells display a compact glyph; the full name ("Transit
+                    // Saturn") is stored in UserRole so copy output stays complete.
+                    QString value = item->data(Qt::UserRole).toString();
+                    if (value.isEmpty()) {
+                        value = item->text();
+                    }
                     value.replace('|', "\\|");
                     return value;
                 }
@@ -4608,6 +4889,16 @@ void MainWindow::setupConnections() {
     }
     if (solarYearSpin_) {
         connect(solarYearSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::markSolarPending);
+    }
+    if (solarMethodCombo_) {
+        connect(solarMethodCombo_, &QComboBox::currentIndexChanged, this, [this]() {
+            syncTajakaAyanamsaDefault();
+            updateSolarLocationAvailability();
+            syncSolarLocationFromNatal();
+            syncZodiacToolbarControls();
+            updateAspectScopeTabs();
+            markSolarPending();
+        });
     }
     if (solarUseNatalRadio_) {
         connect(solarUseNatalRadio_, &QRadioButton::toggled, this, [this](bool checked) {
@@ -5896,9 +6187,29 @@ void MainWindow::loadUiState() {
     solarReportOptions_.includeFixedStars =
         settings.value("solar/report/include_fixed_stars", false).toBool();
     updateSolarReportOptionsUi();
+    natalReportOptions_.preset = static_cast<NatalReportPreset>(qBound(
+        0, settings.value("natal/report/preset", static_cast<int>(NatalReportPreset::Basic)).toInt(), 2));
+    natalReportOptions_.lotScope = static_cast<NatalReportLotScope>(qBound(
+        0, settings.value("natal/report/lot_scope", static_cast<int>(NatalReportLotScope::Core)).toInt(), 2));
+    natalReportOptions_.aspectScope = static_cast<NatalReportAspectScope>(qBound(
+        0, settings.value("natal/report/aspect_scope", static_cast<int>(NatalReportAspectScope::Tight)).toInt(), 2));
+    natalReportOptions_.includeMinorBodies =
+        settings.value("natal/report/include_minor_bodies", false).toBool();
+    natalReportOptions_.includeDailyMotion =
+        settings.value("natal/report/include_daily_motion", false).toBool();
+    natalReportOptions_.includeDignities =
+        settings.value("natal/report/include_dignities", false).toBool();
+    natalReportOptions_.includeFixedStars =
+        settings.value("natal/report/include_fixed_stars", false).toBool();
+    natalReportOptions_.includeWholeSignHouses =
+        settings.value("natal/report/include_whole_sign_houses", true).toBool();
+    natalReportOptions_.includePlacidusCusps =
+        settings.value("natal/report/include_placidus_cusps", false).toBool();
+    updateNatalReportOptionsUi();
     showAsteroids_ = settings.value("chart/show_asteroids", false).toBool();
     includeAsteroidAspects_ = settings.value("chart/include_asteroid_aspects", false).toBool();
     showLots_ = settings.value("chart/show_lots", true).toBool();
+    showPartOfFortune_ = settings.value("chart/show_part_of_fortune", true).toBool();
     showDerivedPoints_ = settings.value("chart/show_derived_points", true).toBool();
     showFixedStars_ = settings.value("chart/show_fixed_stars", false).toBool();
     if (settings.contains("chart/visible_asteroids")) {
@@ -5918,6 +6229,17 @@ void MainWindow::loadUiState() {
         }
     }
     visibleAsteroids_ = cleanedAsteroids;
+
+    // Absent key means nothing is hidden, so existing setups keep every body.
+    hiddenChartBodies_.clear();
+    const QStringList storedHiddenBodies = settings.value("chart/hidden_bodies").toStringList();
+    const QStringList toggleableBodies = chartToggleableBodyOrder();
+    for (const auto& name : storedHiddenBodies) {
+        const QString key = chartBodyVisibilityKey(name);
+        if (toggleableBodies.contains(key) && !hiddenChartBodies_.contains(key)) {
+            hiddenChartBodies_.push_back(key);
+        }
+    }
 
     QStringList cleanedFixedStars;
     const QStringList fixedCatalog = fixedStarCatalog();
@@ -5951,6 +6273,7 @@ void MainWindow::loadUiState() {
     aspectGridFilter_.showDerivedPoints  = settings.value("aspects/grid/show_derived_points", true).toBool();
     aspectGridFilter_.showAsteroids      = settings.value("aspects/grid/show_asteroids", false).toBool();
     aspectGridFilter_.showAngles         = settings.value("aspects/grid/show_angles", true).toBool();
+    aspectGridFilter_.showPartOfFortune  = settings.value("aspects/grid/show_part_of_fortune", true).toBool();
     if (!settings.value("aspects/grid/default_visibility_v2", false).toBool()) {
         aspectGridFilter_.showLots = true;
         aspectGridFilter_.showDerivedPoints = true;
@@ -5983,9 +6306,11 @@ void MainWindow::loadUiState() {
         chartWheel_->setIncludeAsteroidAspects(includeAsteroidAspects_);
         chartWheel_->setVisibleAsteroids(visibleAsteroids_);
         chartWheel_->setShowLots(showLots_);
+        chartWheel_->setShowPartOfFortune(showPartOfFortune_);
         chartWheel_->setShowDerivedPoints(showDerivedPoints_);
         chartWheel_->setShowFixedStars(showFixedStars_);
         chartWheel_->setVisibleFixedStars(visibleFixedStars_);
+        chartWheel_->setHiddenBodies(hiddenChartBodies_);
         chartWheel_->setOverlayAspectScopes(overlayAspectsTransitNatal_, overlayAspectsTransitTransit_, overlayAspectsNatalNatal_);
         chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
         if (chartReadabilityPreset_ != ChartReadabilityPreset::Custom) {
@@ -6111,6 +6436,12 @@ void MainWindow::loadUiState() {
         astroProgressionTimezoneEdit_->setText(settings.value("astro/progression_timezone", astroProgressionTimezoneEdit_->text()).toString());
     }
     updateAstroSourceUi();
+    if (solarMethodCombo_) {
+        const int method = settings.value("solar/method",
+                                          static_cast<int>(SolarChartMethod::Standard)).toInt();
+        const int index = solarMethodCombo_->findData(method);
+        solarMethodCombo_->setCurrentIndex(std::max(0, index));
+    }
     if (solarYearSpin_) {
         solarYearSpin_->setValue(settings.value("solar/year", QDate::currentDate().year()).toInt());
     }
@@ -6480,9 +6811,11 @@ void MainWindow::saveUiState() {
         settings.setValue("chart/include_asteroid_aspects", chartWheel_->includeAsteroidAspects());
         settings.setValue("chart/visible_asteroids", chartWheel_->visibleAsteroids());
         settings.setValue("chart/show_lots", chartWheel_->showLots());
+        settings.setValue("chart/show_part_of_fortune", chartWheel_->showPartOfFortune());
         settings.setValue("chart/show_derived_points", chartWheel_->showDerivedPoints());
         settings.setValue("chart/show_fixed_stars", chartWheel_->showFixedStars());
         settings.setValue("chart/visible_fixed_stars", chartWheel_->visibleFixedStars());
+        settings.setValue("chart/hidden_bodies", hiddenChartBodies_);
         settings.setValue("chart/tick_density", static_cast<int>(chartWheel_->tickDensity()));
         settings.setValue("chart/font_scale", chartWheel_->fontScale());
     }
@@ -6506,6 +6839,15 @@ void MainWindow::saveUiState() {
     settings.setValue("solar/report/include_daily_motion", solarReportOptions_.includeDailyMotion);
     settings.setValue("solar/report/include_dignities", solarReportOptions_.includeDignities);
     settings.setValue("solar/report/include_fixed_stars", solarReportOptions_.includeFixedStars);
+    settings.setValue("natal/report/preset", static_cast<int>(natalReportOptions_.preset));
+    settings.setValue("natal/report/lot_scope", static_cast<int>(natalReportOptions_.lotScope));
+    settings.setValue("natal/report/aspect_scope", static_cast<int>(natalReportOptions_.aspectScope));
+    settings.setValue("natal/report/include_minor_bodies", natalReportOptions_.includeMinorBodies);
+    settings.setValue("natal/report/include_daily_motion", natalReportOptions_.includeDailyMotion);
+    settings.setValue("natal/report/include_dignities", natalReportOptions_.includeDignities);
+    settings.setValue("natal/report/include_fixed_stars", natalReportOptions_.includeFixedStars);
+    settings.setValue("natal/report/include_whole_sign_houses", natalReportOptions_.includeWholeSignHouses);
+    settings.setValue("natal/report/include_placidus_cusps", natalReportOptions_.includePlacidusCusps);
     settings.setValue("ui/theme", static_cast<int>(theme_));
     settings.setValue("aspects/grid/show_nodes",           aspectGridFilter_.showNodes);
     settings.setValue("aspects/grid/show_lilith",          aspectGridFilter_.showLilith);
@@ -6513,6 +6855,7 @@ void MainWindow::saveUiState() {
     settings.setValue("aspects/grid/show_derived_points",  aspectGridFilter_.showDerivedPoints);
     settings.setValue("aspects/grid/show_asteroids",       aspectGridFilter_.showAsteroids);
     settings.setValue("aspects/grid/show_angles",          aspectGridFilter_.showAngles);
+    settings.setValue("aspects/grid/show_part_of_fortune", aspectGridFilter_.showPartOfFortune);
     settings.setValue("chart/orbs/conjunction", aspectOrbs_.conjunction);
     settings.setValue("chart/orbs/sextile", aspectOrbs_.sextile);
     settings.setValue("chart/orbs/square", aspectOrbs_.square);
@@ -6538,6 +6881,9 @@ void MainWindow::saveUiState() {
     }
     if (astroProgressionTimezoneEdit_) {
         settings.setValue("astro/progression_timezone", astroProgressionTimezoneEdit_->text());
+    }
+    if (solarMethodCombo_) {
+        settings.setValue("solar/method", solarMethodCombo_->currentData().toInt());
     }
     if (solarYearSpin_) {
         settings.setValue("solar/year", solarYearSpin_->value());
@@ -6753,6 +7099,32 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         transitSpaceNavigationHeld_ = false;
     }
 
+    if (event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        // Esc clears the chart wheel's click-to-focus pin. Guarded the same way
+        // as the Space navigation below so it never fires inside editors,
+        // dialogs, or popups.
+        if (keyEvent->key() == Qt::Key_Escape
+            && !keyEvent->isAutoRepeat()
+            && QApplication::activeWindow() == this
+            && !QApplication::activeModalWidget()
+            && !QApplication::activePopupWidget()
+            && chartWheel_ && chartWheel_->hasFocusBody()) {
+            QWidget* focus = QApplication::focusWidget();
+            auto* focusedTextEdit = qobject_cast<QTextEdit*>(focus);
+            auto* focusedCombo = qobject_cast<QComboBox*>(focus);
+            const bool editableFocus = qobject_cast<QLineEdit*>(focus)
+                || qobject_cast<QAbstractSpinBox*>(focus)
+                || (focusedTextEdit && !focusedTextEdit->isReadOnly())
+                || (focusedCombo && focusedCombo->isEditable());
+            if (!editableFocus) {
+                chartWheel_->clearFocusBody();
+                setStatusMessage("Chart focus cleared.");
+                return true;
+            }
+        }
+    }
+
     if (event->type() == QEvent::KeyRelease) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
         if (keyEvent->key() == Qt::Key_Space && transitSpaceNavigationHeld_) {
@@ -6890,9 +7262,179 @@ void MainWindow::showAsteroidSelectionDialog() {
         refreshLunationsTab();
     } else if (activeTab_ == AppTab::Relocation) {
         refreshRelocationView();
+    } else if (activeTab_ == AppTab::Synastry) {
+        // Otherwise the fallback below swaps the A-to-B cross grid for Person A's
+        // own natal grid.
+        refreshSynastryView();
     } else if (hasCurrentChart_) {
         populateAspects(currentChart_);
     }
+}
+
+void MainWindow::showChartDisplaySettingsDialog() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Chart Display Settings");
+    dialog.setModal(true);
+
+    dialog.setMinimumSize(460, 520);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(14, 14, 14, 14);
+    layout->setSpacing(10);
+
+    auto* label = new QLabel(
+        "Show these bodies on the chart wheel.\n"
+        "Unchecked bodies are hidden along with their aspect lines.", &dialog);
+    label->setWordWrap(true);
+    layout->addWidget(label);
+
+    auto* presetRow = new QHBoxLayout();
+    presetRow->addWidget(new QLabel("Preset:", &dialog));
+    auto* presetCombo = new QComboBox(&dialog);
+    const QVector<ChartBodyPreset> presetOrder = {
+        ChartBodyPreset::AllBodies,
+        ChartBodyPreset::Classical,
+        ChartBodyPreset::Modern,
+        ChartBodyPreset::MainPlanetsOnly,
+        ChartBodyPreset::Custom,
+    };
+    for (const ChartBodyPreset preset : presetOrder) {
+        presetCombo->addItem(chartBodyPresetLabel(preset), static_cast<int>(preset));
+    }
+    presetCombo->setToolTip(
+        "Choose a preset to set every checkbox at once.\n"
+        "Editing a checkbox by hand switches the preset to Custom.");
+    presetRow->addWidget(presetCombo, 1);
+    layout->addLayout(presetRow);
+
+    // Grouped two-column layout keeps all bodies visible without scrolling.
+    auto* groupsRow = new QHBoxLayout();
+    groupsRow->setSpacing(12);
+    QHash<QString, QCheckBox*> bodyChecks;
+
+    auto addGroup = [&](const QString& title, const QStringList& names, int stretch) {
+        auto* group = new QGroupBox(title, &dialog);
+        auto* groupLayout = new QVBoxLayout(group);
+        groupLayout->setSpacing(4);
+        for (const auto& name : names) {
+            auto* check = new QCheckBox(name, group);
+            check->setChecked(!hiddenChartBodies_.contains(name));
+            groupLayout->addWidget(check);
+            bodyChecks.insert(name, check);
+        }
+        groupLayout->addStretch(1);
+        groupsRow->addWidget(group, stretch);
+    };
+
+    addGroup("Planets", {
+        "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+        "Uranus", "Neptune", "Pluto",
+    }, 1);
+
+    auto* rightColumn = new QVBoxLayout();
+    rightColumn->setSpacing(12);
+    groupsRow->addLayout(rightColumn, 1);
+
+    auto addRightGroup = [&](const QString& title, const QStringList& names) {
+        auto* group = new QGroupBox(title, &dialog);
+        auto* groupLayout = new QVBoxLayout(group);
+        groupLayout->setSpacing(4);
+        for (const auto& name : names) {
+            auto* check = new QCheckBox(name, group);
+            check->setChecked(!hiddenChartBodies_.contains(name));
+            groupLayout->addWidget(check);
+            bodyChecks.insert(name, check);
+        }
+        rightColumn->addWidget(group);
+    };
+
+    addRightGroup("Points", {"North Node", "South Node", "Lilith", "Vertex"});
+    addRightGroup("Asteroids", asteroidBodyOrder());
+    rightColumn->addStretch(1);
+    layout->addLayout(groupsRow, 1);
+
+    // Two-way sync between the preset combo and the checkboxes. The guard flag
+    // is heap-owned by the dialog so the connections never outlive it.
+    auto* updatingPresetControls = new bool(false);
+    QObject::connect(&dialog, &QObject::destroyed, [updatingPresetControls]() {
+        delete updatingPresetControls;
+    });
+
+    auto syncPresetToChecks = [presetCombo, bodyChecks, updatingPresetControls]() {
+        if (*updatingPresetControls) {
+            return;
+        }
+        QStringList visible;
+        for (const auto& name : chartToggleableBodyOrder()) {
+            const auto it = bodyChecks.constFind(name);
+            if (it != bodyChecks.constEnd() && it.value()->isChecked()) {
+                visible.push_back(name);
+            }
+        }
+        *updatingPresetControls = true;
+        const int index = presetCombo->findData(
+            static_cast<int>(chartBodyPresetForVisibleBodies(visible)));
+        if (index >= 0) {
+            presetCombo->setCurrentIndex(index);
+        }
+        *updatingPresetControls = false;
+    };
+
+    for (auto it = bodyChecks.constBegin(); it != bodyChecks.constEnd(); ++it) {
+        connect(it.value(), &QCheckBox::toggled, &dialog,
+                [syncPresetToChecks]() { syncPresetToChecks(); });
+    }
+
+    connect(presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dialog,
+            [presetCombo, bodyChecks, updatingPresetControls]() {
+                if (*updatingPresetControls) {
+                    return;
+                }
+                const auto preset =
+                    static_cast<ChartBodyPreset>(presetCombo->currentData().toInt());
+                if (preset == ChartBodyPreset::Custom) {
+                    return;
+                }
+                const QStringList visible = chartBodyPresetVisibleBodies(preset);
+                *updatingPresetControls = true;
+                for (auto checkIt = bodyChecks.constBegin(); checkIt != bodyChecks.constEnd(); ++checkIt) {
+                    checkIt.value()->setChecked(visible.contains(checkIt.key()));
+                }
+                *updatingPresetControls = false;
+            });
+
+    syncPresetToChecks();
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    if (auto* applyButton = buttons->button(QDialogButtonBox::Ok)) {
+        applyButton->setText("Apply");
+    }
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QStringList hidden;
+    for (const auto& name : chartToggleableBodyOrder()) {
+        const auto it = bodyChecks.constFind(name);
+        if (it != bodyChecks.constEnd() && !it.value()->isChecked()) {
+            hidden.push_back(name);
+        }
+    }
+    if (hidden == hiddenChartBodies_) {
+        return;
+    }
+    hiddenChartBodies_ = hidden;
+    if (chartWheel_) {
+        chartWheel_->setHiddenBodies(hiddenChartBodies_);
+        chartWheel_->update();
+    }
+    setStatusMessage(hiddenChartBodies_.isEmpty()
+        ? QString("Chart display: showing all bodies.")
+        : QString("Chart display: %1 body(s) hidden.").arg(hiddenChartBodies_.size()));
 }
 
 void MainWindow::applyAspectDisplayMaxOrb(double maxOrb, bool markCustom) {
@@ -6953,7 +7495,11 @@ void MainWindow::refreshAspectMatrixForCurrentView() {
         }
         return;
     }
-    if (activeTab_ == AppTab::Progression) {
+    if (activeTab_ == AppTab::Synastry) {
+        // Without this branch the fallback at the end of this chain replaces the
+        // A-to-B cross grid with Person A's own natal grid.
+        refreshSynastryView();
+    } else if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
     } else if (activeTab_ == AppTab::SolarReturn) {
         refreshSolarReturnView();
@@ -7101,7 +7647,11 @@ void MainWindow::showChartSettingsMenu() {
     overlayTransitNatal->setChecked(overlayAspectsTransitNatal_);
     overlayTransitTransit->setChecked(overlayAspectsTransitTransit_);
     overlayNatalNatal->setChecked(overlayAspectsNatalNatal_);
-    if (!(activeTab_ == AppTab::Transits && transitMode_ == TransitMode::NatalOverlay)) {
+    const bool transitOverlayScopeAvailable =
+        activeTab_ == AppTab::Transits && transitMode_ == TransitMode::NatalOverlay;
+    const bool lunationOverlayScopeAvailable =
+        activeTab_ == AppTab::Lunations && lunationOverlay_ && hasCurrentChart_;
+    if (!transitOverlayScopeAvailable && !lunationOverlayScopeAvailable) {
         overlayMenu->setEnabled(false);
     }
 
@@ -7139,6 +7689,10 @@ void MainWindow::showChartSettingsMenu() {
     toggleAsteroids->setChecked(chartWheel_->showAsteroids());
     QAction* selectAsteroids = menu.addAction("Select visible asteroids...");
 
+    QAction* togglePartOfFortune = menu.addAction("Show Part of Fortune");
+    togglePartOfFortune->setCheckable(true);
+    togglePartOfFortune->setChecked(chartWheel_->showPartOfFortune());
+
     QAction* toggleLots = menu.addAction("Show Arabic lots");
     toggleLots->setCheckable(true);
     toggleLots->setChecked(chartWheel_->showLots());
@@ -7155,6 +7709,10 @@ void MainWindow::showChartSettingsMenu() {
     QAction* toggleAsteroidAspects = menu.addAction("Include asteroid aspects");
     toggleAsteroidAspects->setCheckable(true);
     toggleAsteroidAspects->setChecked(chartWheel_->includeAsteroidAspects());
+
+    menu.addSeparator();
+    QAction* chartDisplaySettings = menu.addAction("Chart display settings...");
+    menu.addSeparator();
 
     QMenu* orbMenu = menu.addMenu("Aspect display orb");
     QAction* orbAll = orbMenu->addAction("All (no filter)");
@@ -7272,6 +7830,11 @@ void MainWindow::showChartSettingsMenu() {
         showLots_ = toggleLots->isChecked();
         chartWheel_->setShowLots(showLots_);
         chartWheel_->update();
+    } else if (action == togglePartOfFortune) {
+        markChartReadabilityCustom();
+        showPartOfFortune_ = togglePartOfFortune->isChecked();
+        chartWheel_->setShowPartOfFortune(showPartOfFortune_);
+        chartWheel_->update();
     } else if (action == toggleDerivedPoints) {
         markChartReadabilityCustom();
         showDerivedPoints_ = toggleDerivedPoints->isChecked();
@@ -7285,6 +7848,8 @@ void MainWindow::showChartSettingsMenu() {
     } else if (action == selectFixedStars) {
         markChartReadabilityCustom();
         showFixedStarSelectionDialog();
+    } else if (action == chartDisplaySettings) {
+        showChartDisplaySettingsDialog();
     } else if (action == toggleAsteroidAspects) {
         markChartReadabilityCustom();
         includeAsteroidAspects_ = toggleAsteroidAspects->isChecked();
@@ -7301,6 +7866,10 @@ void MainWindow::showChartSettingsMenu() {
             refreshLunationsTab();
         } else if (activeTab_ == AppTab::Relocation) {
             refreshRelocationView();
+        } else if (activeTab_ == AppTab::Synastry) {
+            // Same failure as the asteroid visibility dialog: the fallback would
+            // replace the A-to-B cross grid with Person A's solo natal grid.
+            refreshSynastryView();
         } else {
             if (hasCurrentChart_) {
                 populateAspects(currentChart_);
@@ -7375,49 +7944,19 @@ QString MainWindow::findEphePath() const {
 }
 
 QString MainWindow::profilesDir() const {
-    QDir base(QCoreApplication::applicationDirPath());
-    const QString dirPath = base.absoluteFilePath("profiles");
-    if (!QDir(dirPath).exists()) {
-        QDir().mkpath(dirPath);
-    }
-    return dirPath;
+    return dracoved::profilestore::profilesDir();
 }
 
 QString MainWindow::sanitizeProfileName(const QString& name) const {
-    QString trimmed = name.trimmed();
-    if (trimmed.isEmpty()) {
-        return QString();
-    }
-    const QString invalid = "<>:\"/\\|?*";
-    QString safe;
-    safe.reserve(trimmed.size());
-    for (QChar ch : trimmed) {
-        safe.append(invalid.contains(ch) ? '_' : ch);
-    }
-    while (!safe.isEmpty() && (safe.endsWith(' ') || safe.endsWith('.'))) {
-        safe.chop(1);
-    }
-    return safe.trimmed();
+    return dracoved::profilestore::sanitizeProfileName(name);
 }
 
 QString MainWindow::profileFilePath(const QString& name) const {
-    const QString safe = sanitizeProfileName(name);
-    if (safe.isEmpty()) {
-        return QString();
-    }
-    QDir dir(profilesDir());
-    return dir.filePath(safe + ".json");
+    return dracoved::profilestore::profileFilePath(name);
 }
 
 QStringList MainWindow::listProfiles() const {
-    QDir dir(profilesDir());
-    const QStringList files = dir.entryList(QStringList() << "*.json", QDir::Files, QDir::Name);
-    QStringList names;
-    names.reserve(files.size());
-    for (const auto& file : files) {
-        names << QFileInfo(file).completeBaseName();
-    }
-    return names;
+    return dracoved::profilestore::listProfiles();
 }
 
 void MainWindow::setCurrentChartModified(bool modified) {
@@ -7755,87 +8294,17 @@ bool MainWindow::saveProfileByName(const QString& profileName, bool promptOverwr
 }
 
 bool MainWindow::loadProfileByName(const QString& profileName) {
-    QString normalized = profileName.trimmed();
-    if (normalized.isEmpty()) {
-        setStatusMessage("Select a saved chart to load.");
-        return false;
-    }
+    const QString normalized = profileName.trimmed();
 
-    const QString filePath = profileFilePath(normalized);
-    if (filePath.isEmpty() || !QFileInfo::exists(filePath)) {
-        setStatusMessage("Saved chart file not found.");
-        return false;
-    }
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        setStatusMessage(QString("Unable to load chart: %1").arg(file.errorString()));
-        return false;
-    }
-    const QByteArray data = file.readAll();
-    file.close();
-
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        setStatusMessage("Saved chart file is not valid JSON.");
-        return false;
-    }
-    const QJsonObject obj = doc.object();
-
+    // Parsing lives in profilestore so a second chart (synastry Person B) can be
+    // read without disturbing the active chart. Error strings are unchanged.
     NatalInput input;
-    input.name = obj.value("name").toString();
-    input.date = QDate::fromString(obj.value("date").toString(), Qt::ISODate);
-    input.time = QTime::fromString(obj.value("time").toString(), "HH:mm:ss");
-    if (!input.time.isValid()) {
-        input.time = QTime::fromString(obj.value("time").toString(), "HH:mm");
-    }
-    input.timezone = obj.value("timezone").toString();
-    input.zodiacSystem = zodiacSystemFromString(obj.value("zodiac_system").toString());
-    input.siderealAyanamsa = siderealAyanamsaFromString(obj.value("sidereal_ayanamsa").toString());
-    if (obj.contains("lunar_node_mode")) {
-        input.lunarNodePolicy.mode = lunarNodeModeFromString(obj.value("lunar_node_mode").toString());
-        input.lunarNodePolicy.primary = lunarNodeTypeFromString(obj.value("lunar_node_primary").toString());
-        input.useDefaultLunarNodePolicy = obj.value("lunar_node_uses_app_default").toBool(false);
-        if (input.useDefaultLunarNodePolicy) {
-            input.lunarNodePolicy = defaultLunarNodePolicy_;
-        } else if (input.lunarNodePolicy.mode == LunarNodeMode::MeanOnly) {
-            input.lunarNodePolicy.primary = LunarNodeType::Mean;
-        } else if (input.lunarNodePolicy.mode == LunarNodeMode::TrueOnly) {
-            input.lunarNodePolicy.primary = LunarNodeType::True;
-        }
-    } else {
-        // Version 3 and older had no selectable node model. The application
-        // default remains Mean for compatibility, but once the user changes
-        // that default these legacy charts should follow it instead of being
-        // silently pinned to Mean forever.
-        input.lunarNodePolicy = defaultLunarNodePolicy_;
-        input.useDefaultLunarNodePolicy = true;
-    }
-    if (!input.date.isValid()) {
-        setStatusMessage("Saved chart date is invalid.");
+    QString location;
+    QString error;
+    if (!dracoved::profilestore::readProfileInput(normalized, defaultLunarNodePolicy_,
+                                                 &input, &location, &error)) {
+        setStatusMessage(error);
         return false;
-    }
-    if (!input.time.isValid()) {
-        setStatusMessage("Saved chart time is invalid.");
-        return false;
-    }
-    if (input.timezone.trimmed().isEmpty()) {
-        input.timezone = "UTC";
-    }
-    input.gender = genderFromString(obj.value("gender").toString());
-    input.latitude = obj.value("latitude").toDouble();
-    input.longitude = obj.value("longitude").toDouble();
-    const QString houseSystem = obj.value("house_system").toString();
-    input.houseSystem = houseSystem.contains("Placidus", Qt::CaseInsensitive)
-        ? HouseSystem::Placidus
-        : HouseSystem::WholeSign;
-    const QJsonArray fixedStarsJson = obj.value("fixed_stars").toArray();
-    for (const auto& value : fixedStarsJson) {
-        const QString starName = value.toString().trimmed();
-        if (!starName.isEmpty()) {
-            input.fixedStars.push_back(starName);
-        }
     }
 
     if (!confirmUnsavedChartChanges()) {
@@ -7847,7 +8316,6 @@ bool MainWindow::loadProfileByName(const QString& profileName) {
     input.zodiacSystem = currentInput_.zodiacSystem;
     input.siderealAyanamsa = currentInput_.siderealAyanamsa;
 
-    const QString location = obj.value("location").toString();
     if (!computeChart(input, location)) {
         return false;
     }
@@ -7965,7 +8433,10 @@ void MainWindow::syncZodiacToolbarControls() {
     zodiacToolbarTropicalRadio_->setChecked(!sidereal);
     const int idx = zodiacToolbarAyanamsaCombo_->findData(static_cast<int>(currentInput_.siderealAyanamsa));
     zodiacToolbarAyanamsaCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
-    zodiacToolbarAyanamsaCombo_->setEnabled(sidereal);
+    // The Tajaka method judges a sidereal chart even while the app-level
+    // zodiac is tropical, so its ayanamsa stays selectable.
+    zodiacToolbarAyanamsaCombo_->setEnabled(
+        sidereal || solarChartMethod() == SolarChartMethod::Tajaka);
     syncingZodiacToolbar_ = false;
 }
 
@@ -8040,7 +8511,8 @@ void MainWindow::applyZodiacToolbarSelection(bool recomputeIfChartLoaded) {
         static_cast<SiderealAyanamsa>(zodiacToolbarAyanamsaCombo_->currentData().toInt());
 
     if (zodiacToolbarAyanamsaCombo_) {
-        zodiacToolbarAyanamsaCombo_->setEnabled(sidereal);
+        zodiacToolbarAyanamsaCombo_->setEnabled(
+            sidereal || solarChartMethod() == SolarChartMethod::Tajaka);
     }
 
     const bool changed =
@@ -8115,6 +8587,10 @@ void MainWindow::showFixedStarSelectionDialog() {
         refreshRelocationView();
     } else if (activeTab_ == AppTab::Transits) {
         refreshTransitsTab();
+    } else if (activeTab_ == AppTab::Synastry) {
+        // The Synastry panel describes whichever chart is on the inner ring, so
+        // it cannot fall back to Person A unconditionally.
+        refreshSynastryView();
     } else if (hasCurrentChart_) {
         populateFixedStars(currentChart_);
     }
@@ -8250,6 +8726,16 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         zodiacalReleasingController_->setNatalContext(
             currentInput_, currentChart_, currentLocation_);
     }
+    if (synastryController_) {
+        synastryController_->setDefaultLunarNodePolicy(defaultLunarNodePolicy_);
+        synastryController_->setDefaultHouseSystem(currentInput_.houseSystem);
+        synastryController_->setPersonA(currentInput_, currentLocation_);
+    }
+    // Person A just changed, so anything built on the previous A is stale. Safe
+    // to call unconditionally: refreshSynastryView early-returns off that tab.
+    // This sits after populateAspects above, so it correctly overwrites the solo
+    // grid with the cross grid rather than being clobbered by it.
+    refreshSynastryView();
     syncZodiacToolbarControls();
     syncLunarNodeToolbarControl();
     refreshNatalReport();
@@ -8347,6 +8833,12 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         }
     } else if (activeTab_ == AppTab::Astrocartography) {
         updateAstrocartographyView();
+    } else if (activeTab_ == AppTab::Synastry) {
+        // Must be handled here. The else below calls refreshNatalTransitsPanels(),
+        // which writes Current Transits and Ingress Countdown into the same two
+        // right-hand docks the synastry contact list and summary use, so it would
+        // overwrite them after they were just populated.
+        refreshSynastryView();
     } else {
         refreshNatalTransitsPanels();
     }
@@ -8587,7 +9079,7 @@ void MainWindow::handleMainTabChanged(int index) {
         bool ok = false;
         const int value = mainTabBar_->tabData(index).toInt(&ok);
         if (ok && value >= static_cast<int>(AppTab::Natal)
-            && value <= static_cast<int>(AppTab::GeodeticEquivalents)) {
+            && value <= static_cast<int>(AppTab::Synastry)) {
             activeTab_ = static_cast<AppTab>(value);
         }
     }
@@ -8608,6 +9100,8 @@ void MainWindow::handleMainTabChanged(int index) {
         } else if (activeTab_ == AppTab::GeodeticEquivalents
                    && geodeticEquivalentsDataStackIndex_ >= 0) {
             dataStack_->setCurrentIndex(geodeticEquivalentsDataStackIndex_);
+        } else if (activeTab_ == AppTab::Synastry && synastryDataStackIndex_ >= 0) {
+            dataStack_->setCurrentIndex(synastryDataStackIndex_);
         } else {
             dataStack_->setCurrentIndex(0);
         }
@@ -8656,6 +9150,10 @@ void MainWindow::handleMainTabChanged(int index) {
     const bool zodiacalReleasingActive = (activeTab_ == AppTab::ZodiacalReleasing);
     const bool geodeticEquivalentsActive =
         (activeTab_ == AppTab::GeodeticEquivalents);
+    const bool synastryActive = (activeTab_ == AppTab::Synastry);
+    if (synastryController_) {
+        synastryController_->setActive(synastryActive);
+    }
     if (planetaryHoursController_) {
         planetaryHoursController_->setActive(planetaryHoursActive);
     }
@@ -8670,7 +9168,8 @@ void MainWindow::handleMainTabChanged(int index) {
             : (planetaryHoursActive ? "Planetary Hours Controls"
                 : (zodiacalReleasingActive ? "Zodiacal Releasing Controls"
                     : (geodeticEquivalentsActive ? "Geodetic Equivalents Controls"
-                        : (activeTab_ == AppTab::Transits ? "Transit Setup" : "Chart Data")))));
+                        : (synastryActive ? "Synastry Setup"
+                            : (activeTab_ == AppTab::Transits ? "Transit Setup" : "Chart Data"))))));
     }
     updateTransitWorkspaceLayout();
     if (centerStack_) {
@@ -8725,7 +9224,9 @@ void MainWindow::handleMainTabChanged(int index) {
     updateTransitAspectGridVisibility();
     updateTransitListFilterVisibility();
 
-    if (activeTab_ == AppTab::Natal) {
+    if (activeTab_ == AppTab::Synastry) {
+        refreshSynastryView();
+    } else if (activeTab_ == AppTab::Natal) {
         if (rightTopDock_) {
             rightTopDock_->setWindowTitle("Current Transits");
         }
@@ -8955,6 +9456,10 @@ void MainWindow::handleTransitModeChanged() {
 void MainWindow::handleTransitAspectViewChanged(int index) {
     if (activeTab_ == AppTab::SolarReturn) {
         if (isSolarTechniqueTabActive() || isSolarPlacementFinderTabActive()) {
+            return;
+        }
+        if (solarChartMethod() == SolarChartMethod::Tajaka) {
+            // A single "Tajaka Aspects" tab is shown; there is no scope to switch.
             return;
         }
         if (index < 0 || index > 1) {
@@ -10043,13 +10548,20 @@ void MainWindow::handleCopyReport() {
         }
         text = buildSolarReturnReportMarkdown();
         successMessage = "Solar Return Markdown report copied to clipboard.";
-    } else {
+    } else if (activeTab_ == AppTab::Natal || activeTab_ == AppTab::Progression) {
         if (!hasCurrentChart_) {
             setStatusMessage("Load a natal chart to generate the report.");
             return;
         }
-        text = buildNatalReportText();
-        successMessage = "Natal report copied to clipboard.";
+        text = buildNatalReportMarkdown();
+        successMessage = activeTab_ == AppTab::Progression
+            ? QString("Progression report copied to clipboard.")
+            : QString("Natal report copied to clipboard.");
+    } else {
+        setStatusMessage(
+            "Report export is available on the Natal, Progression, and Solar "
+            "Return tabs.");
+        return;
     }
     if (text.isEmpty()) {
         setStatusMessage("No report content to copy.");
@@ -10058,7 +10570,9 @@ void MainWindow::handleCopyReport() {
     if (auto* clipboard = QApplication::clipboard()) {
         auto* mimeData = new QMimeData();
         mimeData->setText(text);
-        if (solarReport) {
+        if (solarReport
+            || activeTab_ == AppTab::Natal
+            || activeTab_ == AppTab::Progression) {
             mimeData->setData("text/markdown", text.toUtf8());
         }
         clipboard->setMimeData(mimeData);
@@ -10500,6 +11014,9 @@ void MainWindow::refreshNatalReport() {
             reportOptionsButton_->setVisible(true);
             reportOptionsButton_->setEnabled(true);
         }
+        if (natalReportOptionsButton_) {
+            natalReportOptionsButton_->setVisible(false);
+        }
         if (reportCopyButton_) {
             reportCopyButton_->setText("Copy Solar Return Report");
             reportCopyButton_->setToolTip(
@@ -10583,156 +11100,32 @@ void MainWindow::refreshNatalReport() {
     if (reportOptionsButton_) {
         reportOptionsButton_->setVisible(false);
     }
+    const bool natalReportTab =
+        activeTab_ == AppTab::Natal || activeTab_ == AppTab::Progression;
+    if (natalReportOptionsButton_) {
+        natalReportOptionsButton_->setVisible(natalReportTab);
+    }
     if (reportCopyButton_) {
         reportCopyButton_->setText("Copy Report");
-        reportCopyButton_->setToolTip(QString());
-        reportCopyButton_->setEnabled(hasCurrentChart_);
+        reportCopyButton_->setToolTip(natalReportTab
+            ? QString()
+            : QString("Report export is available on the Natal, Progression, "
+                      "and Solar Return tabs."));
+        reportCopyButton_->setEnabled(natalReportTab && hasCurrentChart_);
+    }
+    if (!natalReportTab) {
+        setReportPreview(
+            "Report export is available on the Natal, Progression, and Solar "
+            "Return tabs.\n\n"
+            "Switch to one of those tabs to configure and copy its report.");
+        return;
     }
     if (!hasCurrentChart_) {
         reportText_->clear();
         return;
     }
-    setReportPreview(buildNatalReportText());
+    setReportPreview(buildNatalReportMarkdown());
 }
-QString MainWindow::buildNatalReportText() const {
-    if (!hasCurrentChart_) {
-        return QString();
-    }
-    const NatalChart* chartPtr = &currentChart_;
-    const NatalInput* inputPtr = &currentInput_;
-    QString reportTitle = "Natal Report";
-    QString localTimeLabel = "Birth time (Local)";
-    QString utcTimeLabel = "Birth time (UTC)";
-    QString modeContext;
-    QVector<HouseCusp> placidusCusps = natalPlacidusCusps_;
-
-    if (activeTab_ == AppTab::Progression) {
-        reportTitle = "Progression Report";
-        localTimeLabel = "Chart time (Local)";
-        utcTimeLabel = "Chart time (UTC)";
-        if (progressionView_ != ProgressionView::NatalOnly && hasProgressionChart_) {
-            chartPtr = &currentProgressionChart_;
-            inputPtr = &currentProgressionInput_;
-            modeContext = (progressionView_ == ProgressionView::Overlay)
-                ? "Progressed (overlay mode)"
-                : "Progressed";
-            placidusCusps = currentProgressionChart_.cusps;
-        } else {
-            modeContext = "Natal (progression natal-only)";
-        }
-    }
-
-    const NatalChart& chart = *chartPtr;
-    const NatalInput& input = *inputPtr;
-    QStringList lines;
-    auto addRow = [&](const QStringList& cols) {
-        lines << cols.join('\t');
-    };
-    lines << reportTitle;
-    lines << "";
-    lines << "Summary:";
-    addRow({"Field", "Value"});
-    addRow({"Name", input.name.isEmpty() ? "-" : input.name});
-    addRow({"Gender", genderToString(input.gender)});
-    addRow({"Location", currentLocation_.isEmpty() ? "-" : currentLocation_});
-    addRow({localTimeLabel, chart.localDateTime.toString("yyyy-MM-dd HH:mm:ss")});
-    addRow({utcTimeLabel, chart.utcDateTime.toString("yyyy-MM-dd HH:mm:ss")});
-    addRow({"Latitude", QString::number(input.latitude, 'f', 6)});
-    addRow({"Longitude", QString::number(input.longitude, 'f', 6)});
-    addRow({"Timezone", chart.timezoneLabel.isEmpty() ? "-" : chart.timezoneLabel});
-    addRow({"House system (UI)", input.houseSystem == HouseSystem::Placidus ? "Placidus" : "Whole Sign"});
-    if (!modeContext.isEmpty()) {
-        addRow({"Mode Context", modeContext});
-    }
-    addRow({"Mode", zodiacModeSummary(input)});
-    addRow({"Lunar nodes", lunarNodePolicySummary(chart.lunarNodePolicy)});
-    addRow({"Day/Night", chart.isDayChart ? "Day" : "Night"});
-    lines << "";
-    lines << "Angles:";
-    addRow({"Angle", "Deg in Sign", "Sign"});
-    const auto angleRows = collectAngleAndLotRows(chart);
-    for (const auto& row : angleRows) {
-        addRow({row.label, formatDegOnly(row.lon), signName(signIndex(row.lon))});
-    }
-
-    lines << "";
-    lines << "Planets:";
-    addRow({"Body", "Deg in Sign", "Sign", "House (Whole)", "House (Placidus)", "Motion", "Element", "Mode", "Dignity"});
-    QMap<QString, BodyPosition> bodyMap;
-    for (const auto& body : chart.bodies) {
-        bodyMap.insert(body.name, body);
-    }
-    const bool hasPlacidusCusps = (placidusCusps.size() == 12);
-    for (const auto& name : bodyOrderForLunarNodePolicy(chart.lunarNodePolicy)) {
-        if (!bodyMap.contains(name)) {
-            continue;
-        }
-        const auto& body = bodyMap[name];
-        const QString motion = body.retrograde ? "Retrograde" : "Direct";
-        const int houseWhole = calcHouseForLongitude(body.longitude, {}, chart.angles.asc, HouseSystem::WholeSign);
-        const int housePlacidus = hasPlacidusCusps
-            ? calcHouseForLongitude(body.longitude, placidusCusps, chart.angles.asc, HouseSystem::Placidus)
-            : 0;
-        addRow({
-            lunarNodeDisplayName(body.name, chart.lunarNodePolicy),
-            formatDegOnly(body.longitude),
-            body.signName,
-            QString::number(houseWhole),
-            housePlacidus > 0 ? QString::number(housePlacidus) : "-",
-            motion,
-            body.element,
-            body.mode,
-            body.dignity
-        });
-    }
-
-    lines << "";
-    lines << "Fixed Stars:";
-    if (chart.fixedStars.isEmpty()) {
-        addRow({"Info", "No fixed star data."});
-    } else {
-        addRow({"Star", "Deg in Sign", "Sign", "House"});
-        QVector<FixedStarPosition> stars = chart.fixedStars;
-        std::sort(stars.begin(), stars.end(), [](const FixedStarPosition& a, const FixedStarPosition& b) {
-            return a.longitude < b.longitude;
-        });
-        for (const auto& star : stars) {
-            addRow({
-                star.name,
-                formatDegOnly(star.longitude),
-                star.signName.isEmpty() ? signName(signIndex(star.longitude)) : star.signName,
-                star.house > 0 ? QString::number(star.house) : "-"
-            });
-        }
-    }
-
-    lines << "";
-    lines << "Houses (Whole Sign):";
-    addRow({"House", "Sign"});
-    const int ascIdx = signIndex(chart.angles.asc);
-    for (int i = 0; i < 12; ++i) {
-        const int signIdx = (ascIdx + i) % 12;
-        addRow({QString::number(i + 1), signName(signIdx)});
-    }
-
-    lines << "";
-    lines << "Houses (Placidus Cusps):";
-    if (hasPlacidusCusps) {
-        addRow({"House", "Cusp Deg", "Sign"});
-        for (const auto& cusp : placidusCusps) {
-            addRow({
-                QString::number(cusp.number),
-                formatDegOnly(cusp.longitude),
-                cusp.signName
-            });
-        }
-    } else {
-        addRow({"Info", "Placidus cusps unavailable."});
-    }
-
-    return lines.join("\n");
-}
-
 QString MainWindow::buildAspectsClipboardText() const {
     QStringList lines;
     const QChar degSymbol(0x00B0);
@@ -10876,6 +11269,28 @@ QString MainWindow::buildAspectsClipboardText() const {
             lines << QString("Relocation time: %1 (%2)")
                 .arg(currentRelocationChart_.localDateTime.toString("yyyy-MM-dd HH:mm:ss"))
                 .arg(currentRelocationChart_.timezoneLabel);
+        }
+    } else if (activeTab_ == AppTab::Synastry) {
+        contextHouseSystem = currentInput_.houseSystem;
+        if (synastryController_ && synastryController_->hasPersonB()) {
+            const QString aLabel = synastryController_->personALabelText();
+            const QString bLabel = synastryController_->personBDisplayName();
+            contextLabel = QString("Synastry (%1 / %2)").arg(aLabel, bLabel);
+            lines << QString("Person A: %1").arg(aLabel);
+            lines << QString("Person B: %1").arg(bLabel);
+            const NatalInput bInput = synastryController_->personBInput();
+            if (bInput.date.isValid()) {
+                lines << QString("Person B birth: %1 %2 (%3)")
+                    .arg(bInput.date.toString("yyyy-MM-dd"),
+                         bInput.time.toString("HH:mm:ss"),
+                         bInput.timezone);
+            }
+            const QString bLocation = synastryController_->personBLocation();
+            if (!bLocation.isEmpty()) {
+                lines << QString("Person B location: %1").arg(bLocation);
+            }
+        } else {
+            contextLabel = "Synastry";
         }
     }
     lines.prepend(QString("Context: %1").arg(contextLabel));
@@ -11081,6 +11496,25 @@ QString MainWindow::buildAspectsClipboardText() const {
             appendOverlayMatrix(currentRelocationChart_, currentChart_, true, prefixRelocation, prefixNatal);
         } else {
             appendChartMatrix(currentRelocationChart_, prefixRelocation);
+        }
+    } else if (activeTab_ == AppTab::Synastry) {
+        // Without this branch the clipboard received the header lines and no
+        // matrix at all, while still reporting success.
+        if (synastryController_ && synastryController_->hasPersonB()) {
+            const QString aLabel = synastryController_->personALabelText();
+            const QString bLabel = synastryController_->personBDisplayName();
+            const NatalChart bChart = synastryController_->personBChart();
+            // Rows are the outer chart and columns the inner one, matching the
+            // orientation refreshSynastryView uses on screen, swap included.
+            if (synastryController_->isSwapped()) {
+                appendOverlayMatrix(currentChart_, bChart,
+                                    aspectGridFilter_.showAngles, aLabel, bLabel);
+            } else {
+                appendOverlayMatrix(bChart, currentChart_,
+                                    aspectGridFilter_.showAngles, bLabel, aLabel);
+            }
+        } else {
+            appendChartMatrix(currentChart_, prefixNatal);
         }
     }
     return lines.join("\n");
@@ -12110,6 +12544,7 @@ void MainWindow::refreshAstroClickedLocationView() {
         astroPreviewWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
         astroPreviewWheel_->setShowAspects(false);
         astroPreviewWheel_->setShowLots(false);
+        astroPreviewWheel_->setShowPartOfFortune(false);
         astroPreviewWheel_->setShowDerivedPoints(false);
         astroPreviewWheel_->setShowFixedStars(false);
         astroPreviewWheel_->setShowAsteroids(false);
@@ -12158,7 +12593,11 @@ void MainWindow::refreshAstroClickedLocationView() {
         }
         QSet<QString> added;
         for (const auto& name : bodyOrderForLunarNodePolicy(chart.lunarNodePolicy)) {
-            if (isArabicLotName(name) || !bodyMap.contains(name)) {
+            if (name == "Part of Fortune") {
+                if (!showPartOfFortune_ || !bodyMap.contains(name)) {
+                    continue;
+                }
+            } else if (isArabicLotName(name) || !bodyMap.contains(name)) {
                 continue;
             }
             const auto& body = bodyMap[name];
@@ -12167,7 +12606,11 @@ void MainWindow::refreshAstroClickedLocationView() {
             added.insert(name);
         }
         for (const auto& body : chart.bodies) {
-            if (added.contains(body.name) || isArabicLotName(body.name)) {
+            if (body.name == "Part of Fortune") {
+                if (!showPartOfFortune_ || added.contains(body.name)) {
+                    continue;
+                }
+            } else if (added.contains(body.name) || isArabicLotName(body.name)) {
                 continue;
             }
             rows.push_back({lunarNodeDisplayName(body.name, chart.lunarNodePolicy), body.longitude,
@@ -15352,7 +15795,10 @@ void MainWindow::refreshProgressionView() {
             const double natalAsc = currentChart_.angles.asc;
             QVector<BodyPosition> listed;
             for (const auto& b : currentProgressionChart_.bodies) {
-                if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
+                if (b.name == "Part of Fortune") {
+                    if (!showPartOfFortune_)
+                        continue;
+                } else if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
                     continue;
                 }
                 listed.push_back(b);
@@ -15495,9 +15941,15 @@ void MainWindow::updateAspectScopeTabs() {
     const bool showRelocationTabs = (activeTab_ == AppTab::Relocation);
     const bool showTabs = showTransitTabs || showSolarTabs || showLunarTabs || showRelocationTabs;
     aspectScopeTabs_->setVisible(showTabs);
+    if (aspectsTitleLabel_) {
+        aspectsTitleLabel_->setVisible(!showTabs);
+    }
     if (showTransitTabs) {
         ensureTabs({"Transit-Natal", "Transit-Transit", "Natal-Natal"});
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(transitAspectView_));
+    } else if (showSolarTabs && solarChartMethod() == SolarChartMethod::Tajaka) {
+        ensureTabs({"Tajaka Aspects"});
+        aspectScopeTabs_->setCurrentIndex(0);
     } else if (showSolarTabs) {
         ensureTabs({"Solar Return", "Solar-Natal"});
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(solarAspectView_));
@@ -15845,13 +16297,22 @@ void MainWindow::updateSolarLocationAvailability() {
         return;
     }
     const bool hasNatal = hasCurrentChart_;
-    if (!hasNatal && solarUseNatalRadio_->isChecked()) {
+    // Tajaka varshaphala charts are always cast for the birthplace; the
+    // custom-location controls stay locked while the Tajaka method is active.
+    const bool tajakaMethod = solarChartMethod() == SolarChartMethod::Tajaka;
+    if (tajakaMethod && hasNatal && !solarUseNatalRadio_->isChecked()) {
+        QSignalBlocker blocker(solarUseNatalRadio_);
+        solarUseNatalRadio_->setChecked(true);
+        solarUseCustomRadio_->setChecked(false);
+    }
+    if (!hasNatal && !tajakaMethod && solarUseNatalRadio_->isChecked()) {
         QSignalBlocker blocker(solarUseNatalRadio_);
         solarUseNatalRadio_->setChecked(false);
         solarUseCustomRadio_->setChecked(true);
     }
-    solarUseNatalRadio_->setEnabled(hasNatal);
-    const bool useNatal = hasNatal && solarUseNatalRadio_->isChecked();
+    solarUseNatalRadio_->setEnabled(hasNatal && !tajakaMethod);
+    solarUseCustomRadio_->setEnabled(!tajakaMethod);
+    const bool useNatal = (tajakaMethod && hasNatal) || (hasNatal && solarUseNatalRadio_->isChecked());
     if (solarLocationEdit_) {
         solarLocationEdit_->setEnabled(!useNatal);
     }
@@ -16234,6 +16695,59 @@ bool MainWindow::computeTransitChart(const QDateTime& localTime, const QString& 
     return ok;
 }
 
+MainWindow::SolarChartMethod MainWindow::solarChartMethod() const {
+    return solarMethodCombo_
+        ? static_cast<SolarChartMethod>(solarMethodCombo_->currentData().toInt())
+        : SolarChartMethod::Standard;
+}
+
+bool MainWindow::solarReturnTargetSunLongitude(double* outLongitude, QString* error) {
+    if (!hasCurrentChart_) {
+        if (error) {
+            *error = "Load a natal chart first to compute solar return.";
+        }
+        return false;
+    }
+    if (solarChartMethod() == SolarChartMethod::Tajaka) {
+        // Tajaka returns are defined by the Sun reaching its natal TROPICAL
+        // longitude, while the chart itself is always judged sidereally.
+        if (!currentChart_.utcDateTime.isValid()) {
+            if (error) {
+                *error = "Natal UTC date/time is unavailable for the Tajaka tropical target.";
+            }
+            return false;
+        }
+        const QDateTime utc = currentChart_.utcDateTime.toUTC();
+        const double hour = utc.time().hour() + utc.time().minute() / 60.0
+            + utc.time().second() / 3600.0 + utc.time().msec() / 3600000.0;
+        const double jd = swe_.julianDay(utc.date().year(), utc.date().month(),
+                                         utc.date().day(), hour, SE_GREG_CAL);
+        QString calcError;
+        double longitude = 0.0;
+        if (!swe_.calcUt(jd, SE_SUN, 0, &longitude, &calcError)) {
+            if (error) {
+                *error = QString("Failed to compute natal tropical Sun longitude: %1").arg(calcError);
+            }
+            return false;
+        }
+        if (outLongitude) {
+            *outLongitude = longitude;
+        }
+        return true;
+    }
+    double natalSunLon = 0.0;
+    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
+        if (error) {
+            *error = "Unable to locate natal Sun longitude.";
+        }
+        return false;
+    }
+    if (outLongitude) {
+        *outLongitude = natalSunLon;
+    }
+    return true;
+}
+
 bool MainWindow::resolveSolarReturnContext(QString* outTzLabel, QString* outLocationName, double* outLat, double* outLon,
                                            QString* error) const {
     if (!hasCurrentChart_) {
@@ -16252,7 +16766,10 @@ bool MainWindow::resolveSolarReturnContext(QString* outTzLabel, QString* outLoca
         }
         return false;
     }
-    const bool useNatal = solarUseNatalRadio_ && solarUseNatalRadio_->isChecked();
+    // Tajaka varshaphala charts are always cast for the natal (birthplace)
+    // coordinates, irrespective of where the native lives.
+    const bool forceNatal = solarChartMethod() == SolarChartMethod::Tajaka;
+    const bool useNatal = forceNatal || (solarUseNatalRadio_ && solarUseNatalRadio_->isChecked());
     const QString locationName = useNatal
         ? currentLocation_
         : (solarLocationEdit_ ? solarLocationEdit_->text().trimmed() : QString());
@@ -16288,6 +16805,10 @@ bool MainWindow::solarReturnTimeUtc(int year, const QString& tzLabel, double tar
     if (!hasCurrentChart_) {
         if (error) *error = "Load a natal chart first to compute solar return.";
         return false;
+    }
+    if (solarChartMethod() == SolarChartMethod::Tajaka) {
+        return returncalc::tajakaSolarReturnTimeUtc(swe_, currentInput_, year, tzLabel, targetLon,
+                                                    outUtc, outLocal, error);
     }
     return returncalc::solarReturnTimeUtc(swe_, currentInput_, year, tzLabel, targetLon,
                                           outUtc, outLocal, error);
@@ -16334,7 +16855,9 @@ bool MainWindow::computeSolarReturnChartPure(int year, const QString& tzLabel, d
     if (hasCurrentChart_) {
         input = currentInput_;
     }
-    input.name = QString("Solar Return %1").arg(year);
+    input.name = solarChartMethod() == SolarChartMethod::Tajaka
+        ? QString("Tajaka Varshaphala %1").arg(year)
+        : QString("Solar Return %1").arg(year);
     input.date = local.date();
     input.time = local.time();
     input.timezone = normLabel;
@@ -16342,6 +16865,16 @@ bool MainWindow::computeSolarReturnChartPure(int year, const QString& tzLabel, d
     input.longitude = lon;
     input.houseSystem = houseSystem;
     input.aspectOrbs = aspectOrbs_;
+    if (solarChartMethod() == SolarChartMethod::Tajaka) {
+        // Rao's Tajaka: time (the return moment) is tropical, but space (the
+        // rasi chart and everything judged in it) is always sidereal, with
+        // the ayanamsa carried by the natal input. Tajaka judgments are
+        // whole-sign (rasi) based, so the annual chart always uses Whole
+        // Sign houses regardless of the app-level setting. Applied after
+        // the generic assignments so nothing overwrites it.
+        input.zodiacSystem = ZodiacSystem::Sidereal;
+        input.houseSystem = HouseSystem::WholeSign;
+    }
 
     if (!engine_.compute(input, options, outChart, error)) {
         return false;
@@ -16368,6 +16901,107 @@ bool MainWindow::computeSolarReturnChart(int year, const QString& tzLabel, doubl
     return true;
 }
 
+void MainWindow::syncTajakaAyanamsaDefault() {
+    const bool anyTajaka = solarChartMethod() == SolarChartMethod::Tajaka
+        || (returnFinderController_ && returnFinderController_->tajakaMethodActive());
+    if (anyTajaka) {
+        applyTajakaDefaultAyanamsa();
+    } else {
+        restorePreTajakaAyanamsa();
+    }
+}
+
+void MainWindow::applyTajakaDefaultAyanamsa() {
+    if (!zodiacToolbarAyanamsaCombo_) {
+        return;
+    }
+    const int current = zodiacToolbarAyanamsaCombo_->currentData().toInt();
+    if (current == static_cast<int>(SiderealAyanamsa::PushyaPaksha)) {
+        return;
+    }
+    if (!hasPreTajakaAyanamsa_) {
+        // Remember what to restore when the Tajaka method is left again.
+        hasPreTajakaAyanamsa_ = true;
+        preTajakaAyanamsa_ = static_cast<SiderealAyanamsa>(current);
+    }
+    const int index = zodiacToolbarAyanamsaCombo_->findData(
+        static_cast<int>(SiderealAyanamsa::PushyaPaksha));
+    if (index >= 0) {
+        // Not signal-blocked: switching the ayanamsa recomputes the natal
+        // chart and marks dependent calculations pending, which is intended.
+        zodiacToolbarAyanamsaCombo_->setCurrentIndex(index);
+    }
+}
+
+void MainWindow::restorePreTajakaAyanamsa() {
+    if (!zodiacToolbarAyanamsaCombo_ || !hasPreTajakaAyanamsa_) {
+        return;
+    }
+    hasPreTajakaAyanamsa_ = false;
+    // Only restore when the toolbar still shows the Tajaka default; if the
+    // user deliberately picked Pushya-paksha (or anything else) themselves,
+    // their choice stands.
+    if (zodiacToolbarAyanamsaCombo_->currentData().toInt()
+        != static_cast<int>(SiderealAyanamsa::PushyaPaksha)) {
+        return;
+    }
+    const int index = zodiacToolbarAyanamsaCombo_->findData(
+        static_cast<int>(preTajakaAyanamsa_));
+    if (index >= 0) {
+        zodiacToolbarAyanamsaCombo_->setCurrentIndex(index);
+    }
+}
+
+void MainWindow::computeTajakaDataForChart(const dracoved::NatalChart& annualChart) {
+    const NatalChart* natalRef = &currentChart_;
+    NatalChart siderealNatal;
+    if (currentInput_.zodiacSystem != ZodiacSystem::Sidereal) {
+        // Muntha and the Tajaka reference points need the sidereal natal
+        // chart; recompute it when the app-level chart is tropical.
+        NatalInput siderealInput = currentInput_;
+        siderealInput.zodiacSystem = ZodiacSystem::Sidereal;
+        TropicalComputeOptions options;
+        options.includeArabicLots = false;
+        options.includeFixedStars = false;
+        options.includeAspectGrid = false;
+        QString siderealError;
+        if (engine_.compute(siderealInput, options, &siderealNatal, &siderealError)) {
+            natalRef = &siderealNatal;
+        } else {
+            setStatusMessage(QString("Tajaka sidereal natal reference unavailable: %1")
+                                 .arg(siderealError));
+        }
+    }
+    currentTajakaNatalChart_ = *natalRef;
+    hasTajakaNatalChart_ = true;
+    // Year-based completed age, consistent with the profection display; the
+    // return always falls near the birthday, and return/natal timezones can
+    // differ, so calendar-day arithmetic can be off by one.
+    const int birthYear = currentChart_.localDateTime.isValid()
+        ? currentChart_.localDateTime.date().year()
+        : currentInput_.date.year();
+    const int returnYear = annualChart.localDateTime.isValid()
+        ? annualChart.localDateTime.date().year()
+        : birthYear;
+    const int completed = std::max(0, returnYear - birthYear);
+    currentTajakaMuntha_ = tajaka::computeMuntha(*natalRef, annualChart, completed);
+    hasTajakaMuntha_ = currentTajakaMuntha_.valid;
+    currentTajakaAspects_ = tajaka::computeTajakaAspects(annualChart);
+    currentTajakaStrengths_ = tajaka::computeTajakaStrengths(annualChart);
+    currentTajakaLordOfYear_ = tajaka::computeTajakaLordOfYear(
+        *natalRef, annualChart, currentTajakaMuntha_, currentTajakaStrengths_);
+}
+
+void MainWindow::clearTajakaData() {
+    hasTajakaMuntha_ = false;
+    currentTajakaMuntha_ = tajaka::MunthaInfo{};
+    currentTajakaAspects_.clear();
+    currentTajakaStrengths_ = tajaka::TajakaStrengths{};
+    currentTajakaLordOfYear_ = tajaka::TajakaLordOfYear{};
+    hasTajakaNatalChart_ = false;
+    currentTajakaNatalChart_ = NatalChart{};
+}
+
 bool MainWindow::applySolarReturnYear(int year, QString* error) {
     QString tzLabel;
     QString locationName;
@@ -16376,21 +17010,23 @@ bool MainWindow::applySolarReturnYear(int year, QString* error) {
     if (!resolveSolarReturnContext(&tzLabel, &locationName, &lat, &lon, error)) {
         return false;
     }
-    double natalSunLon = 0.0;
-    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
-        if (error) {
-            *error = "Unable to locate natal Sun longitude.";
-        }
+    double targetSunLon = 0.0;
+    if (!solarReturnTargetSunLongitude(&targetSunLon, error)) {
         return false;
     }
     NatalChart chart;
-    if (!computeSolarReturnChart(year, tzLabel, natalSunLon, locationName, lat, lon, &chart, error)) {
+    if (!computeSolarReturnChart(year, tzLabel, targetSunLon, locationName, lat, lon, &chart, error)) {
         return false;
     }
     currentSolarChart_ = chart;
     hasSolarChart_ = true;
     solarPending_ = false;
     lastSolarCalculated_ = QDateTime::currentDateTime();
+    if (solarChartMethod() == SolarChartMethod::Tajaka) {
+        computeTajakaDataForChart(chart);
+    } else {
+        clearTajakaData();
+    }
     updateSolarStatusLabels();
     if (activeTab_ == AppTab::SolarReturn) {
         refreshSolarReturnView();
@@ -16488,9 +17124,9 @@ void MainWindow::handleSolarNow() {
         return;
     }
 
-    double natalSunLon = 0.0;
-    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
-        setStatusMessage("Unable to locate natal Sun longitude.");
+    double targetSunLon = 0.0;
+    if (!solarReturnTargetSunLongitude(&targetSunLon, &err)) {
+        setStatusMessage(err);
         return;
     }
 
@@ -16504,7 +17140,7 @@ void MainWindow::handleSolarNow() {
     const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
     int returnYear = nowUtc.toTimeZone(tz).date().year();
     QDateTime candidateUtc;
-    if (!solarReturnTimeUtc(returnYear, normalizedTimezone, natalSunLon,
+    if (!solarReturnTimeUtc(returnYear, normalizedTimezone, targetSunLon,
                             &candidateUtc, nullptr, &err)) {
         setStatusMessage(err);
         return;
@@ -16705,14 +17341,20 @@ void MainWindow::refreshSolarReturnView() {
         chartWheel_->setChart(currentSolarChart_, currentSolarInput_.houseSystem);
         chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
     }
-    switch (solarAspectView_) {
-        case SolarAspectView::SolarNatal:
-            populateSolarNatalAspectsOverlay(currentSolarChart_, currentChart_);
-            break;
-        case SolarAspectView::SolarReturn:
-        default:
-            populateAspects(currentSolarChart_);
-            break;
+    if (solarChartMethod() == SolarChartMethod::Tajaka) {
+        // Tajaka aspects follow different rules (whole-sign kinds, deeptamsa
+        // orbs): the Ptolemaic matrix must not be used for these charts.
+        populateTajakaAspectsTable();
+    } else {
+        switch (solarAspectView_) {
+            case SolarAspectView::SolarNatal:
+                populateSolarNatalAspectsOverlay(currentSolarChart_, currentChart_);
+                break;
+            case SolarAspectView::SolarReturn:
+            default:
+                populateAspects(currentSolarChart_);
+                break;
+        }
     }
 
     // --- Annual profection for the solar-return year ---
@@ -16729,8 +17371,23 @@ void MainWindow::refreshSolarReturnView() {
     const QString yearLord = solarProfectionRulerForSign(profectedSignIdx);
 
     if (chartWheel_) {
-        chartWheel_->setChartNote(QString("Profection: %1 house \u00B7 %2 \u00B7 Lord %3")
-                                      .arg(ordinalHouseLabel(profectedHouse), profectedSign, yearLord));
+        QString note;
+        if (solarChartMethod() == SolarChartMethod::Tajaka) {
+            note = QString("Tajaka \u00B7 Muntha: %1 \u00B7 H%2 (%3)")
+                .arg(hasTajakaMuntha_
+                         ? QString("%1 %2\u00B0")
+                               .arg(currentTajakaMuntha_.signName)
+                               .arg(degInSign(currentTajakaMuntha_.longitude), 0, 'f', 0)
+                         : QString("-"),
+                     hasTajakaMuntha_ ? QString::number(currentTajakaMuntha_.houseFromAnnualLagna) : QString("-"),
+                     hasTajakaMuntha_ ? currentTajakaMuntha_.houseMeaning : QString("-"));
+            note += QString(" \u00B7 Profection: %1 house \u00B7 %2 \u00B7 Lord %3")
+                        .arg(ordinalHouseLabel(profectedHouse), profectedSign, yearLord);
+        } else {
+            note = QString("Profection: %1 house \u00B7 %2 \u00B7 Lord %3")
+                       .arg(ordinalHouseLabel(profectedHouse), profectedSign, yearLord);
+        }
+        chartWheel_->setChartNote(note);
     }
 
     auto bodyPlacement = [](const NatalChart& chart, const QString& name) -> QString {
@@ -16750,6 +17407,9 @@ void MainWindow::refreshSolarReturnView() {
     if (rightTopTable_ && ownsRightDocks) {
         QVector<QPair<QString, QString>> rows;
         rows.push_back({"Solar Return", QString::number(srYear)});
+        if (solarChartMethod() == SolarChartMethod::Tajaka) {
+            rows.push_back({"Method", "Tajaka (tropical return \u00B7 sidereal chart)"});
+        }
         if (currentSolarChart_.localDateTime.isValid()) {
             rows.push_back({"Exact", currentSolarChart_.localDateTime.toString("d MMM yyyy  h:mm AP")});
         }
@@ -16767,6 +17427,41 @@ void MainWindow::refreshSolarReturnView() {
         rows.push_back({"Lord of the Year", yearLord});
         rows.push_back({"Lord in Natal", bodyPlacement(currentChart_, yearLord)});
         rows.push_back({"Lord in SR", bodyPlacement(currentSolarChart_, yearLord)});
+        if (solarChartMethod() == SolarChartMethod::Tajaka) {
+            rows.push_back({"", ""});
+            if (hasTajakaMuntha_) {
+                rows.push_back({"Muntha", formatDegInSign(currentTajakaMuntha_.longitude)});
+                rows.push_back({"Muntha Sign", currentTajakaMuntha_.signName});
+                rows.push_back({"Muntha Lord", currentTajakaMuntha_.lord});
+                rows.push_back({"Muntha House",
+                                QString("%1 (%2)")
+                                    .arg(ordinalHouseLabel(currentTajakaMuntha_.houseFromAnnualLagna),
+                                         currentTajakaMuntha_.houseMeaning)});
+                rows.push_back({"Muntha Lord in Chart",
+                                bodyPlacement(currentSolarChart_, currentTajakaMuntha_.lord)});
+            }
+            if (currentTajakaLordOfYear_.valid) {
+                rows.push_back({"Lord of the Year", currentTajakaLordOfYear_.planet});
+                const auto* loyStrength =
+                    currentTajakaStrengths_.forPlanet(currentTajakaLordOfYear_.planet);
+                if (loyStrength) {
+                    rows.push_back({"LoY Pancha Bala",
+                                    QString("%1 (%2)")
+                                        .arg(loyStrength->panchaVargeeya, 0, 'f', 2)
+                                        .arg(loyStrength->panchaRating)});
+                }
+                rows.push_back({"LoY in Chart",
+                                bodyPlacement(currentSolarChart_, currentTajakaLordOfYear_.planet)});
+                rows.push_back({"LoY Selection", currentTajakaLordOfYear_.selectionReason});
+            }
+            const int ithasalaCount = static_cast<int>(std::count_if(
+                currentTajakaAspects_.cbegin(), currentTajakaAspects_.cend(),
+                [](const tajaka::TajakaAspect& aspect) { return aspect.ithasala; }));
+            rows.push_back({"Tajaka Aspects",
+                            QString("%1 mutual (%2 ithasala)")
+                                .arg(currentTajakaAspects_.size())
+                                .arg(ithasalaCount)});
+        }
 
         setupTable(rightTopTable_, {"Field", "Value"}, rows.size());
         if (auto* header = rightTopTable_->horizontalHeader()) {
@@ -16788,11 +17483,20 @@ void MainWindow::refreshSolarReturnView() {
 
     // Right-bottom dock: where each Solar Return body falls in the natal chart.
     if (rightBottomTable_ && ownsRightDocks) {
-        const HouseSystem natalSystem = currentInput_.houseSystem;
-        const double natalAsc = currentChart_.angles.asc;
+        // Under Tajaka the SR chart is sidereal; compare against the sidereal
+        // natal reference so the two charts are never in different zodiacs.
+        const bool tajakaCompare = solarChartMethod() == SolarChartMethod::Tajaka
+            && hasTajakaNatalChart_;
+        const NatalChart& natalRef = tajakaCompare ? currentTajakaNatalChart_ : currentChart_;
+        const HouseSystem natalSystem = tajakaCompare ? HouseSystem::WholeSign
+                                                      : currentInput_.houseSystem;
+        const double natalAsc = natalRef.angles.asc;
         QVector<BodyPosition> listed;
         for (const auto& b : currentSolarChart_.bodies) {
-            if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
+            if (b.name == "Part of Fortune") {
+                if (!showPartOfFortune_)
+                    continue;
+            } else if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
                 continue;
             }
             listed.push_back(b);
@@ -16805,7 +17509,9 @@ void MainWindow::refreshSolarReturnView() {
         }
         for (int i = 0; i < listed.size(); ++i) {
             const auto& b = listed[i];
-            const int natalHouse = calcHouseForLongitude(b.longitude, natalPlacidusCusps_, natalAsc, natalSystem);
+            const int natalHouse = calcHouseForLongitude(
+                b.longitude, tajakaCompare ? natalRef.cusps : natalPlacidusCusps_,
+                natalAsc, natalSystem);
             rightBottomTable_->setItem(i, 0, makeCell(
                 lunarNodeDisplayName(b.name, currentSolarChart_.lunarNodePolicy)
                 + (b.retrograde ? " R" : "")));
@@ -17385,7 +18091,10 @@ void MainWindow::refreshLunarReturnView() {
         const double natalAsc = currentChart_.angles.asc;
         QVector<BodyPosition> listed;
         for (const auto& b : currentLunarChart_.bodies) {
-            if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
+            if (b.name == "Part of Fortune") {
+                if (!showPartOfFortune_)
+                    continue;
+            } else if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
                 continue;
             }
             listed.push_back(b);
@@ -18629,7 +19338,10 @@ void MainWindow::refreshRelocationView() {
     if (rightBottomTable_) {
         QVector<BodyPosition> listed;
         for (const auto& b : currentRelocationChart_.bodies) {
-            if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
+            if (b.name == "Part of Fortune") {
+                if (!showPartOfFortune_)
+                    continue;
+            } else if (isArabicLotName(b.name) || b.name == "Vertex" || isAsteroidBody(b.name)) {
                 continue;
             }
             listed.push_back(b);
@@ -18707,7 +19419,7 @@ void MainWindow::refreshSolarTechniqueView() {
     const QString bodySummary = solarTechniqueBodySummary(bodyFilter);
 
     double natalSunLon = 0.0;
-    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
+    if (!solarReturnTargetSunLongitude(&natalSunLon, nullptr)) {
         setInfo("Natal Sun longitude not found.");
         return;
     }
@@ -18897,7 +19609,13 @@ void MainWindow::refreshSolarTechniqueView() {
         };
 
         if (includeNatal) {
-            addHitsFromChart(currentChart_, "Natal");
+            // Under Tajaka the SR chart is sidereal; natal hits must use the
+            // sidereal natal reference to stay in one zodiac.
+            addHitsFromChart(
+                solarChartMethod() == SolarChartMethod::Tajaka && hasTajakaNatalChart_
+                    ? currentTajakaNatalChart_
+                    : currentChart_,
+                "Natal");
         }
         if (includeSolar) {
             addHitsFromChart(currentSolarChart_, "Solar");
@@ -19342,7 +20060,7 @@ void MainWindow::handleSolarPlacementFinderRun() {
     }
 
     double natalSunLon = 0.0;
-    if (!findBodyLongitude(currentChart_, "Sun", &natalSunLon)) {
+    if (!solarReturnTargetSunLongitude(&natalSunLon, nullptr)) {
         if (solarFinderStatusLabel_) {
             solarFinderStatusLabel_->setText("Idle");
         }
@@ -19398,6 +20116,13 @@ void MainWindow::handleSolarPlacementFinderRun() {
     if (modeValue < static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)
         || modeValue > static_cast<int>(SolarPlacementFinderHouseMode::BothAnd)) {
         modeValue = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
+    }
+    if (solarChartMethod() == SolarChartMethod::Tajaka
+        && modeValue != static_cast<int>(SolarPlacementFinderHouseMode::WholeSign)) {
+        // Tajaka charts are always whole-sign; Placidus/Both modes would scan
+        // years that then fail their cusp checks. Degrade with a note.
+        modeValue = static_cast<int>(SolarPlacementFinderHouseMode::WholeSign);
+        setStatusMessage("Tajaka method: the Placement Finder uses Whole Sign houses.");
     }
     const SolarPlacementFinderHouseMode houseMode = static_cast<SolarPlacementFinderHouseMode>(modeValue);
     const QString conjunctionTarget = solarFinderConjunctionTargetCombo_
@@ -20586,6 +21311,22 @@ static QTableWidgetItem* makeCell(const QString& text, Qt::Alignment align) {
     return item;
 }
 
+// Compact columns keep short headers (Pos, Spd) so nothing elides on narrow
+// docks; the full wording lives on the header tooltip instead.
+static void setTableHeaderTooltips(QTableWidget* table, const QStringList& tooltips) {
+    if (!table) {
+        return;
+    }
+    const int count = qMin(tooltips.size(), table->columnCount());
+    for (int i = 0; i < count; ++i) {
+        if (auto* headerItem = table->horizontalHeaderItem(i)) {
+            if (!tooltips[i].isEmpty()) {
+                headerItem->setToolTip(tooltips[i]);
+            }
+        }
+    }
+}
+
 static double angularDiff(double a, double b) {
     double d = std::fmod((a - b + 540.0), 360.0) - 180.0;
     return std::fabs(d);
@@ -20820,6 +21561,12 @@ void MainWindow::populateAspectMatrix(const QStringList& rowNames, const QString
     if (!aspectsTable_) {
         return;
     }
+    // Restore the matrix delegate in case the flat Tajaka aspect list was
+    // shown last (it installs a plain delegate), and clear any spans it left.
+    if (aspectDelegate_) {
+        aspectsTable_->setItemDelegate(aspectDelegate_);
+    }
+    aspectsTable_->clearSpans();
     const int rows = rowNames.size();
     const int cols = colNames.size();
     if (rows <= 0 || cols <= 0) {
@@ -20835,15 +21582,16 @@ void MainWindow::populateAspectMatrix(const QStringList& rowNames, const QString
     // ~17 bodies (planets + nodes + Vertex + angles) at 26px fit the Transits
     // column without a horizontal scrollbar.
     const int cellW = compactGrid ? (largeMatrix ? 22 : 26)
-                                  : (largeMatrix ? 34 : 42);
+                                  : (largeMatrix ? 26 : 30);
     const int cellH = compactGrid ? cellW : cellW - 6;
 
     if (aspectDelegate_) {
         AspectMatrixPalette palette = buildAspectMatrixPalette(theme_);
-        if (compactGrid) {
-            // The minimal style drops the per-cell border, and the default fill
-            // sits too close to the panel background to read on its own. Give
-            // the empty and diagonal tiles a little more separation instead.
+        {
+            // No grid draws a per-cell border any more, so the default fill sits
+            // too close to the panel background to read on its own. Give the
+            // empty and diagonal tiles more separation in every mode, not just
+            // on Transits.
             if (theme_ == ThemeMode::Dark) {
                 palette.cellBg = QColor("#1b2024");
                 palette.diagonalBg = QColor("#252c33");
@@ -20997,6 +21745,192 @@ void MainWindow::populateAspectMatrix(const QStringList& rowNames, const QString
     aspectsTable_->setUpdatesEnabled(true);
 }
 
+void MainWindow::populateTajakaAspectsTable() {
+    if (!aspectsTable_) {
+        return;
+    }
+    // Flat list, not a square matrix: switch to the row-tinting flat delegate
+    // (a null delegate would stop the table painting anything) and clear any
+    // spans left over from the matrix view. The matrix builder installs its
+    // own delegate and sizing back when it runs.
+    if (!flatAspectDelegate_) {
+        flatAspectDelegate_ = new TajakaAspectRowDelegate(aspectsTable_);
+    }
+    aspectsTable_->setItemDelegate(flatAspectDelegate_);
+    aspectsTable_->clearSpans();
+    aspectsTable_->setSortingEnabled(false);
+    const QStringList headers = {"Point A", "Aspect", "Point B", "Orb", "Nature", "Motion"};
+    // Colors mirror the chart wheel's aspect-line palette so the table and
+    // the wheel read consistently.
+    auto kindColor = [](tajaka::TajakaAspectKind kind) {
+        switch (kind) {
+            case tajaka::TajakaAspectKind::Conjunction: return QColor("#C99A2E");  // amber
+            case tajaka::TajakaAspectKind::SemiSextile: return QColor("#90A4AE");  // muted gray
+            case tajaka::TajakaAspectKind::Sextile:     return QColor("#3FA7D6");  // cyan
+            case tajaka::TajakaAspectKind::Square:      return QColor("#E0533D");  // red
+            case tajaka::TajakaAspectKind::Trine:       return QColor("#3FA66A");  // green
+            case tajaka::TajakaAspectKind::Opposition:  return QColor("#9B59B6");  // violet
+        }
+        return QColor("#90A4AE");
+    };
+    auto natureColor = [](tajaka::TajakaAspectNature nature) {
+        switch (nature) {
+            case tajaka::TajakaAspectNature::StrongBenefic: return QColor("#2E7D50");  // deep green
+            case tajaka::TajakaAspectNature::WeakBenefic:   return QColor("#3FA66A");  // green
+            case tajaka::TajakaAspectNature::WeakMalefic:   return QColor("#E67E22");  // orange
+            case tajaka::TajakaAspectNature::StrongMalefic: return QColor("#E0533D");  // red
+            case tajaka::TajakaAspectNature::Neutral:       return QColor("#8A8A8A");  // gray
+        }
+        return QColor("#8A8A8A");
+    };
+    const QColor glyphInk = theme_ == ThemeMode::Dark
+        ? QColor("#E8E0D4") : QColor("#3A2E22");
+    auto applyFlatLayout = [this]() {
+        if (auto* header = aspectsTable_->horizontalHeader()) {
+            header->setStretchLastSection(false);
+            for (int column = 0; column <= 4; ++column) {
+                header->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+            }
+            header->setSectionResizeMode(5, QHeaderView::Stretch);  // Motion: longest text
+        }
+        if (auto* vHeader = aspectsTable_->verticalHeader()) {
+            vHeader->setSectionResizeMode(QHeaderView::Interactive);
+            vHeader->setDefaultSectionSize(26);
+        }
+        aspectsTable_->setAlternatingRowColors(true);
+        aspectsTable_->setIconSize(QSize(18, 18));
+    };
+    if (currentTajakaAspects_.isEmpty()) {
+        const QString message = solarPending_
+            ? QString("Tajaka method selected - recalculate the return to show Tajaka aspects.")
+            : QString("No mutual Tajaka aspects within deeptamsa orbs.");
+        setupTable(aspectsTable_, headers, 1);
+        applyFlatLayout();
+        aspectsTable_->setItem(0, 0, makeCell(message));
+        aspectsTable_->setSpan(0, 0, 1, headers.size());
+        return;
+    }
+    setupTable(aspectsTable_, headers, currentTajakaAspects_.size());
+    applyFlatLayout();
+    // Light row tint summarizing whether the aspect's overall condition is
+    // favorable or challenging. Heuristic synthesis of the book's judging
+    // rules: aspect nature + motion (ithasala fulfills, eesarpha fails) +
+    // pancha vargeeya strength of the two planets (weak planets weaken an
+    // ithasala, per the Radda yoga principle). Not a classical formula —
+    // the breakdown is shown in each row's tooltip.
+    auto qualityScore = [this](const tajaka::TajakaAspect& aspect) {
+        int score = 0;
+        switch (aspect.nature) {
+            case tajaka::TajakaAspectNature::StrongBenefic: score += 2; break;
+            case tajaka::TajakaAspectNature::WeakBenefic:   score += 1; break;
+            case tajaka::TajakaAspectNature::WeakMalefic:   score -= 1; break;
+            case tajaka::TajakaAspectNature::StrongMalefic: score -= 2; break;
+            case tajaka::TajakaAspectNature::Neutral:       break;
+        }
+        if (aspect.ithasala) {
+            score += aspect.poorna ? 2 : 1;
+        } else if (aspect.eesarpha) {
+            score -= 2;
+        }
+        double panchaSum = 0.0;
+        int panchaCount = 0;
+        for (const QString& name : {aspect.firstName, aspect.secondName}) {
+            if (const auto* entry = currentTajakaStrengths_.forPlanet(name)) {
+                panchaSum += entry->panchaVargeeya;
+                ++panchaCount;
+            }
+        }
+        if (panchaCount == 2) {
+            const double average = panchaSum / 2.0;
+            if (average < 5.0) {
+                score -= 1;    // weak participants: radda-like
+            } else if (average >= 15.0) {
+                score += 1;    // very strong participants
+            }
+        }
+        return score;
+    };
+    auto qualityBackground = [](int score) -> QColor {
+        if (score > 0) {
+            return QColor(63, 166, 106, score >= 3 ? 84 : 52);   // green wash
+        }
+        if (score < 0) {
+            return QColor(224, 83, 61, score <= -3 ? 84 : 52);   // red wash
+        }
+        return QColor();
+    };
+    for (int i = 0; i < currentTajakaAspects_.size(); ++i) {
+        const auto& aspect = currentTajakaAspects_[i];
+        QStringList motion;
+        if (aspect.ithasala) {
+            motion.push_back(aspect.poorna ? "Poorna ithasala" : "Ithasala");
+        } else if (aspect.eesarpha) {
+            motion.push_back("Eesarpha");
+        }
+        if (aspect.firstRetrograde) {
+            motion.push_back(QString("%1 R").arg(aspect.firstName));
+        } else if (aspect.secondRetrograde) {
+            motion.push_back(QString("%1 R").arg(aspect.secondName));
+        }
+
+        auto planetItem = [&glyphInk](const QString& name) {
+            auto* item = makeCell(name);
+            item->setIcon(tintedSvgIcon(bodySvgResourcePath(name), glyphInk, 18));
+            return item;
+        };
+        auto* firstItem = planetItem(aspect.firstName);
+        auto* secondItem = planetItem(aspect.secondName);
+
+        auto* kindItem = makeCell(tajaka::tajakaAspectKindLabel(aspect.kind));
+        kindItem->setForeground(kindColor(aspect.kind));
+        QFont kindFont = kindItem->font();
+        kindFont.setBold(true);
+        kindItem->setFont(kindFont);
+
+        auto* natureItem = makeCell(tajaka::tajakaAspectNatureLabel(aspect.nature));
+        natureItem->setForeground(natureColor(aspect.nature));
+
+        auto* motionItem = makeCell(motion.join(", "));
+        if (aspect.ithasala) {
+            motionItem->setForeground(QColor(aspect.poorna ? "#2E7D50" : "#3FA66A"));
+            if (aspect.poorna) {
+                QFont motionFont = motionItem->font();
+                motionFont.setBold(true);
+                motionItem->setFont(motionFont);
+            }
+        } else if (aspect.eesarpha) {
+            motionItem->setForeground(QColor("#E0533D"));
+        }
+
+        aspectsTable_->setItem(i, 0, firstItem);
+        aspectsTable_->setItem(i, 1, kindItem);
+        aspectsTable_->setItem(i, 2, secondItem);
+        aspectsTable_->setItem(i, 3, makeCell(QString("%1 deg").arg(aspect.orb, 0, 'f', 2),
+                                              Qt::AlignRight | Qt::AlignVCenter));
+        aspectsTable_->setItem(i, 4, natureItem);
+        aspectsTable_->setItem(i, 5, motionItem);
+        const int score = qualityScore(aspect);
+        const QColor tint = qualityBackground(score);
+        const QString qualityText = score > 0
+            ? QString("favorable (quality score %1)").arg(score)
+            : score < 0
+                ? QString("challenging (quality score %1)").arg(score)
+                : QString("mixed (quality score 0)");
+        const QString rowToolTip = QString("%1\nOverall condition: %2 — from aspect nature, "
+                                           "ithasala/eesarpha motion, and the pair's pancha "
+                                           "vargeeya strength.")
+            .arg(aspect.summary, qualityText);
+        for (int column = 0; column < headers.size(); ++column) {
+            if (auto* cell = aspectsTable_->item(i, column)) {
+                cell->setToolTip(rowToolTip);
+                if (tint.isValid()) {
+                    cell->setData(Qt::UserRole + 1, tint);
+                }
+            }
+        }
+    }
+}
+
 void MainWindow::populateAspects(const NatalChart& chart) {
     const auto& grid = chart.aspects;
     QStringList names;
@@ -21037,7 +21971,7 @@ void MainWindow::populateAspects(const NatalChart& chart) {
     populateAspectMatrix(names, names, true, lookup, QString(), QString());
 }
 
-void MainWindow::populateCrossAspectsOverlay(const NatalChart& rowChart, const NatalChart& natalChart, const QString& rowPrefix) {
+void MainWindow::populateCrossAspectsOverlay(const NatalChart& rowChart, const NatalChart& natalChart, const QString& rowPrefix, const QString& colPrefix) {
     if (!aspectsTable_) {
         return;
     }
@@ -21110,7 +22044,205 @@ void MainWindow::populateCrossAspectsOverlay(const NatalChart& rowChart, const N
         return out;
     };
 
-    populateAspectMatrix(rowNames, colNames, false, lookup, rowPrefix, "Natal");
+    populateAspectMatrix(rowNames, colNames, false, lookup, rowPrefix, colPrefix);
+}
+
+void MainWindow::populateSynastryContacts(const NatalChart& aChart, const NatalChart& bChart,
+                                          const QString& aLabel, const QString& bLabel) {
+    // This list is a faithful mirror of the cross grid docked beside it: same
+    // body filter, same angle setting, same display-orb cap. Any divergence
+    // surfaces as the list and the grid reporting different contacts.
+    synastry::Options options;
+    options.orbs = aspectOrbs_;
+    options.includeAngles = aspectGridFilter_.showAngles;
+    QStringList allowed;
+    for (const auto& body : aChart.bodies) {
+        if (isBodyVisibleInAspectGrid(body.name) && !allowed.contains(body.name)) {
+            allowed << body.name;
+        }
+    }
+    for (const auto& body : bChart.bodies) {
+        if (isBodyVisibleInAspectGrid(body.name) && !allowed.contains(body.name)) {
+            allowed << body.name;
+        }
+    }
+    if (aspectGridFilter_.showAngles) {
+        allowed << "Ascendant" << "Midheaven" << "Descendant" << "IC";
+    }
+    options.allowedNames = allowed;
+
+    synastryContacts_ = synastry::contactsFor(synastry::System::WesternAspects,
+                                              aChart, bChart, options);
+
+    // The wheel and the grid both drop contacts wider than the display orb, so
+    // the list must too, or its count contradicts both.
+    if (aspectDisplayMaxOrb_ > 0.0) {
+        QVector<synastry::Contact> withinOrb;
+        withinOrb.reserve(synastryContacts_.size());
+        for (const auto& contact : synastryContacts_) {
+            if (contact.orb <= aspectDisplayMaxOrb_) {
+                withinOrb.push_back(contact);
+            }
+        }
+        synastryContacts_ = withinOrb;
+        // Re-derive mutual pairs against the visible set: a reciprocal whose
+        // partner was filtered out is no longer a visible double-whammy.
+        synastry::markMutualPairs(synastryContacts_);
+    }
+
+    if (rightTopTable_) {
+        rightTopTable_->setSortingEnabled(false);
+        setupTable(rightTopTable_, {aLabel, "Aspect", bLabel, "Orb", "Motion"},
+                   static_cast<int>(synastryContacts_.size()));
+        for (int i = 0; i < synastryContacts_.size(); ++i) {
+            const auto& contact = synastryContacts_[i];
+            rightTopTable_->setItem(i, 0, makeCell(contact.aName));
+            auto* aspectCell = makeCell(contact.label, Qt::AlignCenter);
+            if (contact.label == "Square" || contact.label == "Opposition") {
+                aspectCell->setForeground(QColor("#e05555"));
+            } else if (contact.label == "Trine" || contact.label == "Sextile") {
+                aspectCell->setForeground(QColor("#4aa3ff"));
+            }
+            rightTopTable_->setItem(i, 1, aspectCell);
+            rightTopTable_->setItem(i, 2, makeCell(contact.bName));
+            // Space-padded so the column still sorts correctly as text: a space
+            // sorts before any digit, so " 9.10" precedes "10.00".
+            rightTopTable_->setItem(i, 3, makeCell(
+                QString::number(contact.orb, 'f', 2).rightJustified(5, ' '),
+                Qt::AlignRight | Qt::AlignVCenter));
+            QString motion = (contact.applying < 0)
+                ? QStringLiteral("-")
+                : (contact.applying == 1 ? QStringLiteral("Applying")
+                                         : QStringLiteral("Separating"));
+            if (contact.mutualPair) {
+                motion += QStringLiteral(" \u00B7 mutual");
+            }
+            rightTopTable_->setItem(i, 4, makeCell(motion));
+        }
+        rightTopTable_->setSortingEnabled(true);
+    }
+
+    if (rightBottomTable_) {
+        int tight = 0;
+        int mutualCount = 0;
+        for (const auto& contact : synastryContacts_) {
+            if (contact.orb < 2.0) {
+                ++tight;
+            }
+            if (contact.mutualPair) {
+                ++mutualCount;
+            }
+        }
+        setupTable(rightBottomTable_, {"Measure", "Value"}, 4);
+        rightBottomTable_->setItem(0, 0, makeCell("Contacts"));
+        rightBottomTable_->setItem(0, 1, makeCell(QString::number(synastryContacts_.size())));
+        rightBottomTable_->setItem(1, 0, makeCell("Within 2 deg"));
+        rightBottomTable_->setItem(1, 1, makeCell(QString::number(tight)));
+        rightBottomTable_->setItem(2, 0, makeCell("Mutual pairs"));
+        rightBottomTable_->setItem(2, 1, makeCell(QString::number(mutualCount)));
+        rightBottomTable_->setItem(3, 0, makeCell("Tightest"));
+        rightBottomTable_->setItem(3, 1, makeCell(synastryContacts_.isEmpty()
+            ? QStringLiteral("-")
+            : QString("%1 %2 %3 (%4 deg)")
+                  .arg(synastryContacts_.first().aName,
+                       synastryContacts_.first().label,
+                       synastryContacts_.first().bName,
+                       QString::number(synastryContacts_.first().orb, 'f', 2))));
+    }
+}
+
+void MainWindow::refreshSynastryView() {
+    if (activeTab_ != AppTab::Synastry) {
+        return;
+    }
+    if (rightTopDock_) {
+        rightTopDock_->setWindowTitle("Synastry Contacts");
+    }
+    if (rightBottomDock_) {
+        rightBottomDock_->setWindowTitle("Synastry Summary");
+    }
+    if (!hasCurrentChart_) {
+        synastryContacts_.clear();
+        if (rightTopTable_) {
+            setupTable(rightTopTable_, {"Info"}, 1);
+            rightTopTable_->setItem(0, 0, makeCell("Load a chart for Person A first."));
+        }
+        if (rightBottomTable_) {
+            setupTable(rightBottomTable_, {"Info"}, 1);
+            rightBottomTable_->setItem(0, 0, makeCell("No comparison yet."));
+        }
+        return;
+    }
+
+    const bool hasB = synastryController_ && synastryController_->hasPersonB();
+    if (!hasB) {
+        // Person A alone: show A's own chart so the tab is never blank.
+        synastryContacts_.clear();
+        populateSummary(currentChart_, currentInput_, currentLocation_);
+        populateAngles(currentChart_);
+        populatePlanets(currentChart_);
+        populateFixedStars(currentChart_);
+        populateHouses(currentChart_, currentInput_.houseSystem);
+        populateAspects(currentChart_);
+        if (chartWheel_) {
+            chartWheel_->setChart(currentChart_, currentInput_.houseSystem);
+            chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+        }
+        if (rightTopTable_) {
+            setupTable(rightTopTable_, {"Info"}, 1);
+            rightTopTable_->setItem(0, 0, makeCell("Select Person B to compare."));
+        }
+        if (rightBottomTable_) {
+            setupTable(rightBottomTable_, {"Info"}, 1);
+            rightBottomTable_->setItem(0, 0, makeCell("No comparison yet."));
+        }
+        return;
+    }
+
+    const NatalChart bChart = synastryController_->personBChart();
+    const NatalInput bInput = synastryController_->personBInput();
+    const QString aLabel = synastryController_->personALabelText();
+    const QString bLabel = synastryController_->personBDisplayName();
+    const bool swapped = synastryController_->isSwapped();
+
+    // The wheel is oriented on the INNER chart's Ascendant, so swapping genuinely
+    // re-frames the comparison rather than only relabelling the rings.
+    const NatalChart innerChart = swapped ? bChart : currentChart_;
+    const NatalChart outerChart = swapped ? currentChart_ : bChart;
+    const NatalInput innerInput = swapped ? bInput : currentInput_;
+    const QString innerLabel = swapped ? bLabel : aLabel;
+    const QString outerLabel = swapped ? aLabel : bLabel;
+
+    if (chartWheel_) {
+        chartWheel_->setShowAspects(true);
+        chartWheel_->setOverlayLabel(outerLabel);
+        chartWheel_->setOverlayCharts(innerChart, outerChart, innerInput.houseSystem, aspectOrbs_);
+        // Must follow setOverlayCharts, which resets the base label to "Natal".
+        chartWheel_->setBaseLabel(innerLabel);
+        // Person B's angles matter in synastry, unlike in a transit overlay.
+        chartWheel_->setOverlayAnglesVisible(true);
+        // Cross-chart contacts only: each person's own internal aspects are
+        // available via the existing scope toggles but would swamp the wheel here.
+        chartWheel_->setOverlayAspectScopes(true, false, false);
+        chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
+        chartWheel_->setChartNote(QString("%1  \u00B7  %2").arg(innerLabel, outerLabel));
+    }
+
+    // Left-hand data tables describe whichever chart is on the inner ring, which
+    // is how the Progression tab behaves in overlay mode.
+    populateSummary(innerChart, innerInput,
+                    swapped ? synastryController_->personBLocation() : currentLocation_);
+    populateAngles(innerChart);
+    populatePlanets(innerChart);
+    populateFixedStars(innerChart);
+    populateHouses(innerChart, innerInput.houseSystem);
+
+    // Cross grid: rows are the outer chart, columns the inner chart.
+    populateCrossAspectsOverlay(outerChart, innerChart, outerLabel, innerLabel);
+
+    // The contact list is always A-to-B regardless of swap, so the list does not
+    // reshuffle when the user flips the rings.
+    populateSynastryContacts(currentChart_, bChart, aLabel, bLabel);
 }
 
 void MainWindow::populateTransitAspectsOverlay(const NatalChart& transitChart, const NatalChart& natalChart) {
@@ -21183,7 +22315,13 @@ void MainWindow::populateTransitList(const NatalChart& transitChart, bool overla
 
     const int filter = transitListFilterCombo_
         ? transitListFilterCombo_->currentData().toInt() : 0;
-    setupTable(rightTopTable_, {"Body", "Position", "Hse", "Speed"}, transitChart.bodies.size());
+    setupTable(rightTopTable_, {"Body", "Pos", "Hse", "Spd"}, transitChart.bodies.size());
+    setTableHeaderTooltips(rightTopTable_, {
+        "Transit body",
+        "Position (sign and degree)",
+        "House",
+        "Mean daily motion in degrees/day",
+    });
 
     QMap<QString, BodyPosition> map;
     for (const auto& body : transitChart.bodies) {
@@ -21374,14 +22512,17 @@ void MainWindow::populateTransitAspectsInEffect(const NatalChart& transitChart, 
         transitAspectsCopyButton_->setEnabled(!hits.isEmpty());
     }
 
-    // Split the old single "Aspect" column into subject / symbol / target. The
-    // combined "Transit Saturn <trine> Natal Midheaven" string outgrew the
-    // column and truncated; the words "Transit" and "Natal" are now carried by
-    // the headers instead of repeating on every row.
+    // Subject / symbol / target columns. The body cells carry only the tinted
+    // SVG glyph (or a compact AC/MC/DC/IC label for angles): text cells elided
+    // to "..." on narrow docks even after the column split. The full name lives
+    // in Qt::UserRole (the Copy button reads it from there) and on the tooltip.
     setupTable(transitAspectsTable_,
                overlayMode ? QStringList{"Transit", "", "Natal", "Orb", "Motion"}
                            : QStringList{"From", "", "To", "Orb", "Motion"},
                hits.size());
+    setTableHeaderTooltips(transitAspectsTable_,
+        overlayMode ? QStringList{"Transit body", "Aspect", "Natal point", "Orb from exact", "Applying or separating"}
+                    : QStringList{"First body", "Aspect", "Second body", "Orb from exact", "Applying or separating"});
     auto formatOrb = [](double orb) {
         const int totalMinutes = qMax(0, qRound(orb * 60.0));
         return QString("%1%2 %3%4")
@@ -21390,14 +22531,30 @@ void MainWindow::populateTransitAspectsInEffect(const NatalChart& transitChart, 
             .arg(totalMinutes % 60, 2, 10, QChar('0'))
             .arg(QChar(0x2032));
     };
-    auto shortLabel = [](const QString& fullLabel) {
+    auto makeBodyCell = [this](const QString& fullLabel, const QString& tooltip) {
         QString name = fullLabel;
         if (name.startsWith("Transit ")) {
             name = name.mid(8);
         } else if (name.startsWith("Natal ")) {
             name = name.mid(6);
         }
-        return glyphPrefixedName(name, name);
+        const QIcon icon = tintedSvgIcon(bodySvgResourcePath(name),
+                                         transitAspectsTable_->palette().text().color(), 16);
+        QString compact;
+        if (icon.isNull()) {
+            if (name == "Ascendant") compact = "AC";
+            else if (name == "Midheaven") compact = "MC";
+            else if (name == "Descendant") compact = "DC";
+            else if (name == "IC") compact = "IC";
+            else compact = name;
+        }
+        auto* item = makeCell(compact, Qt::AlignCenter);
+        if (!icon.isNull()) {
+            item->setIcon(icon);
+        }
+        item->setData(Qt::UserRole, fullLabel);
+        item->setToolTip(tooltip);
+        return item;
     };
     for (int row = 0; row < hits.size(); ++row) {
         const auto& hit = hits[row];
@@ -21409,12 +22566,10 @@ void MainWindow::populateTransitAspectsInEffect(const NatalChart& transitChart, 
             aspectColor = QColor("#3f8f68");
         }
 
-        auto* subjectItem = makeCell(shortLabel(hit.subject));
-        subjectItem->setToolTip(tooltip);
+        auto* subjectItem = makeBodyCell(hit.subject, tooltip);
         auto* symbolItem = makeCell(aspectSymbolForLabel(hit.label), Qt::AlignCenter);
         symbolItem->setToolTip(tooltip);
-        auto* targetItem = makeCell(shortLabel(hit.target));
-        targetItem->setToolTip(tooltip);
+        auto* targetItem = makeBodyCell(hit.target, tooltip);
         if (aspectColor.isValid()) {
             symbolItem->setForeground(aspectColor);
         }
@@ -21512,6 +22667,7 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
         QString nextSign;
         QString countdown;
         QString timeLabel;
+        QString timeTooltip;
     };
     QVector<IngressRow> rows;
     const QStringList bodies = {"Moon", "Mercury", "Venus", "Mars"};
@@ -21650,21 +22806,35 @@ void MainWindow::populateIngressCountdown(const NatalChart& transitChart, const 
             } else {
                 countdown = QString("%1m").arg(minutes);
             }
-            const QString timeLabel = hiUtc.toTimeZone(tz).toString("d MMM yyyy, HH:mm");
-            rows.push_back({bodyName, nextSignName, countdown, timeLabel});
+            // Short form keeps the column narrow enough for small docks; the
+            // full date (with year and weekday) stays on the tooltip.
+            const QDateTime exactLocal = hiUtc.toTimeZone(tz);
+            const QString timeLabel = exactLocal.toString("d MMM, HH:mm");
+            const QString timeTooltip = exactLocal.toString("dddd, d MMMM yyyy, HH:mm");
+            rows.push_back({bodyName, nextSignName, countdown, timeLabel, timeTooltip});
         }
 
         s_lastCacheKey = cacheKey;
         s_cachedRows = rows;
     }
 
-    setupTable(rightBottomTable_, {"Body", "Next Sign", "In", "Exact"}, rows.size());
+    setupTable(rightBottomTable_, {"Body", "Next", "In", "Exact"}, rows.size());
+    setTableHeaderTooltips(rightBottomTable_, {
+        "Transit body",
+        "Sign the body enters next",
+        "Time until the ingress",
+        "Exact ingress moment (local time)",
+    });
     for (int i = 0; i < rows.size(); ++i) {
         const auto& row = rows[i];
         rightBottomTable_->setItem(i, 0, makeCell(row.body));
         rightBottomTable_->setItem(i, 1, makeCell(row.nextSign));
         rightBottomTable_->setItem(i, 2, makeCell(row.countdown, Qt::AlignRight | Qt::AlignVCenter));
-        rightBottomTable_->setItem(i, 3, makeCell(row.timeLabel));
+        auto* exactItem = makeCell(row.timeLabel);
+        if (!row.timeTooltip.isEmpty()) {
+            exactItem->setToolTip(row.timeTooltip);
+        }
+        rightBottomTable_->setItem(i, 3, exactItem);
     }
     if (auto* header = rightBottomTable_->horizontalHeader()) {
         header->setSectionResizeMode(QHeaderView::ResizeToContents);

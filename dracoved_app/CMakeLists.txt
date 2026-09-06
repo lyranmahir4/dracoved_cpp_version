@@ -22,6 +22,7 @@ add_executable(dracoved_app
     src/gui/main_window_zodiacal_releasing.cpp
     src/gui/main_window_geodetic_equivalents.cpp
     src/gui/main_window_solar_report.cpp
+    src/gui/main_window_natal_report.cpp
     src/gui/main_window_return_finder.cpp
     src/gui/planetary_hours_controller.h
     src/gui/planetary_hours_controller.cpp
@@ -53,6 +54,12 @@ add_executable(dracoved_app
     src/gui/chart_setup_dialog.cpp
     src/gui/chart_manager_dialog.h
     src/gui/chart_manager_dialog.cpp
+    src/gui/chart_profile_store.h
+    src/gui/chart_profile_store.cpp
+    src/gui/synastry_controller.h
+    src/gui/synastry_controller.cpp
+    src/gui/synastry_calc.h
+    src/gui/synastry_calc.cpp
     src/gui/chart_wheel_widget.h
     src/gui/chart_wheel_widget.cpp
     src/gui/transit_workers.h
@@ -77,6 +84,8 @@ add_executable(dracoved_app
     src/core/geodetic_equivalents.cpp
     src/core/tropical_natal.h
     src/core/tropical_natal.cpp
+    src/core/tajaka.h
+    src/core/tajaka.cpp
     src/core/progression.h
     src/core/progression.cpp
     src/core/progressed_lunar_return.h

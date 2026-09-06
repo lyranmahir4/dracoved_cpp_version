@@ -1,6 +1,7 @@
 #include "return_finder_worker.h"
 
 #include "../core/formatting.h"
+#include "../core/tajaka.h"
 #include "../core/timezone_utils.h"
 #include "../core/tropical_natal.h"
 #include "return_calculation_service.h"
@@ -152,6 +153,29 @@ QString profectionLord(const ReturnFinderQuery& query, const QDateTime& returnLo
     return houseRulerForSign(profectedSign, query.modernRulership);
 }
 
+int completedYearsForReturn(const ReturnFinderQuery& query, const QDateTime& returnLocal) {
+    const int birthYear = query.natalChart.localDateTime.isValid()
+        ? query.natalChart.localDateTime.date().year()
+        : query.natalInput.date.year();
+    return std::max(0, returnLocal.date().year() - birthYear);
+}
+
+tajaka::MunthaInfo munthaForReturn(const ReturnFinderQuery& query,
+                                   const NatalChart& returnChart,
+                                   const QDateTime& returnLocal) {
+    return tajaka::computeMuntha(query.natalChart, returnChart,
+                                 completedYearsForReturn(query, returnLocal));
+}
+
+tajaka::TajakaLordOfYear lordOfYearForReturn(const ReturnFinderQuery& query,
+                                             const NatalChart& returnChart,
+                                             const QDateTime& returnLocal) {
+    const auto muntha = munthaForReturn(query, returnChart, returnLocal);
+    const auto strengths = tajaka::computeTajakaStrengths(returnChart);
+    return tajaka::computeTajakaLordOfYear(query.natalChart, returnChart,
+                                           muntha, strengths);
+}
+
 QVector<ResolvedPoint> resolveTarget(const ReturnFinderTarget& target,
                                      const ReturnFinderQuery& query,
                                      const NatalChart& returnChart,
@@ -169,6 +193,34 @@ QVector<ResolvedPoint> resolveTarget(const ReturnFinderTarget& target,
             ? query.natalChart : returnChart;
         if (!lord.isEmpty() && bodyLongitude(positionChart, lord, &longitude)) {
             return {{QString("Profection lord %1").arg(lord), lord, longitude, 0}};
+        }
+        return {};
+    }
+    if (target.kind == ReturnFinderTargetKind::Muntha) {
+        const auto muntha = munthaForReturn(query, returnChart, returnLocal);
+        if (!muntha.valid) {
+            return {};
+        }
+        return {{QString("Muntha (%1)").arg(muntha.signName), "Muntha", muntha.longitude,
+                 muntha.houseFromAnnualLagna}};
+    }
+    if (target.kind == ReturnFinderTargetKind::MunthaLord) {
+        const auto muntha = munthaForReturn(query, returnChart, returnLocal);
+        double longitude = 0.0;
+        const NatalChart& positionChart = target.scope == ReturnFinderScope::Natal
+            ? query.natalChart : returnChart;
+        if (muntha.valid && bodyLongitude(positionChart, muntha.lord, &longitude)) {
+            return {{QString("Muntha lord %1").arg(muntha.lord), muntha.lord, longitude, 0}};
+        }
+        return {};
+    }
+    if (target.kind == ReturnFinderTargetKind::LordOfYear) {
+        const auto lord = lordOfYearForReturn(query, returnChart, returnLocal);
+        double longitude = 0.0;
+        const NatalChart& positionChart = target.scope == ReturnFinderScope::Natal
+            ? query.natalChart : returnChart;
+        if (lord.valid && bodyLongitude(positionChart, lord.planet, &longitude)) {
+            return {{QString("Tajaka lord of the year %1").arg(lord.planet), lord.planet, longitude, 0}};
         }
         return {};
     }
@@ -576,6 +628,145 @@ ReturnFinderConditionEvaluation evaluateStellium(const ReturnFinderCondition& co
     return evaluation;
 }
 
+ReturnFinderConditionEvaluation evaluateMunthaPlacement(const ReturnFinderCondition& condition,
+                                                          const ReturnFinderQuery& query,
+                                                          const NatalChart& returnChart,
+                                                          const QDateTime& returnLocal) {
+    ReturnFinderConditionEvaluation evaluation;
+    evaluation.conditionId = condition.id;
+    evaluation.excluded = condition.exclude;
+    const auto muntha = munthaForReturn(query, returnChart, returnLocal);
+    if (!muntha.valid) {
+        evaluation.description = "Muntha is unavailable.";
+        return evaluation;
+    }
+    evaluation.resolvedSubject = QString("Muntha (%1, lord %2)")
+        .arg(muntha.signName, muntha.lord);
+    if (condition.placementKind == ReturnFinderPlacementKind::Sign) {
+        evaluation.matched = muntha.signIndex == std::clamp(condition.targetSign, 0, 11);
+    } else {
+        QVector<bool> matches;
+        for (HouseSystem system : systemsForMode(query.houseMode)) {
+            const bool matched = houseForLongitude(returnChart, muntha.longitude, system)
+                == condition.targetHouse;
+            matches.push_back(matched);
+        }
+        evaluation.matched = combineSystemMatches(query.houseMode, matches);
+        evaluation.systemLabel = systemMatchLabel(query.houseMode, matches);
+    }
+    evaluation.description = QString("Muntha %1 %2 %3%4")
+        .arg(muntha.signName)
+        .arg(evaluation.matched ? "is in" : "is not in", placementTargetLabel(condition))
+        .arg(evaluation.systemLabel.isEmpty()
+                 ? QString()
+                 : QString(" (%1)").arg(evaluation.systemLabel));
+    return evaluation;
+}
+
+ReturnFinderConditionEvaluation evaluateTajakaAspect(const ReturnFinderCondition& condition,
+                                                     const ReturnFinderQuery& query,
+                                                     const NatalChart& returnChart,
+                                                     const QDateTime& returnLocal) {
+    Q_UNUSED(query);
+    Q_UNUSED(returnLocal);
+    ReturnFinderConditionEvaluation evaluation;
+    evaluation.conditionId = condition.id;
+    evaluation.excluded = condition.exclude;
+
+    const auto aspects = tajaka::computeTajakaAspects(returnChart);
+    const auto kindMatches = [](ReturnFinderAspect requested, tajaka::TajakaAspectKind kind) {
+        switch (requested) {
+            case ReturnFinderAspect::Conjunction:
+                return kind == tajaka::TajakaAspectKind::Conjunction;
+            case ReturnFinderAspect::Sextile:
+                return kind == tajaka::TajakaAspectKind::Sextile;
+            case ReturnFinderAspect::Square:
+                return kind == tajaka::TajakaAspectKind::Square;
+            case ReturnFinderAspect::Trine:
+                return kind == tajaka::TajakaAspectKind::Trine;
+            case ReturnFinderAspect::Opposition:
+                return kind == tajaka::TajakaAspectKind::Opposition;
+            case ReturnFinderAspect::AnyMajor:
+            default:
+                // Semi-sextile is a minor aspect: "Any Major" excludes it.
+                return kind != tajaka::TajakaAspectKind::SemiSextile;
+        }
+    };
+    const QString subjectName = condition.subject.name;
+    const QString targetName = condition.target.name;
+
+    const tajaka::TajakaAspect* found = nullptr;
+    for (const auto& aspect : aspects) {
+        const bool namesMatch = (aspect.firstName == subjectName && aspect.secondName == targetName)
+            || (aspect.firstName == targetName && aspect.secondName == subjectName);
+        if (namesMatch && kindMatches(condition.aspect, aspect.kind)) {
+            found = &aspect;
+            break;
+        }
+    }
+    evaluation.resolvedSubject = QString("Return %1").arg(subjectName);
+    evaluation.resolvedTarget = QString("Return %2").arg(targetName);
+    evaluation.aspectLabel = found ? tajaka::tajakaAspectKindLabel(found->kind) : QString();
+    if (!found) {
+        evaluation.description = QString("No mutual Tajaka %1 between %2 and %3 within deeptamsa orbs.")
+            .arg(returnFinderAspectLabel(condition.aspect).toLower(), subjectName, targetName);
+        return evaluation;
+    }
+    evaluation.orb = found->orb;
+    bool motionOk = true;
+    QString motionRequirement;
+    if (condition.tajakaMotion == ReturnFinderTajakaMotion::Ithasala) {
+        motionOk = found->ithasala;
+        motionRequirement = "ithasala (applying)";
+    } else if (condition.tajakaMotion == ReturnFinderTajakaMotion::Eesarpha) {
+        motionOk = found->eesarpha;
+        motionRequirement = "eesarpha (separating)";
+    }
+    evaluation.matched = motionOk;
+    if (motionOk) {
+        evaluation.description = found->summary;
+    } else {
+        evaluation.description = QString("%1 forms this aspect, but %2 was requested.")
+            .arg(found->summary, motionRequirement);
+    }
+    return evaluation;
+}
+
+ReturnFinderConditionEvaluation evaluateLordOfYearPlacement(const ReturnFinderCondition& condition,
+                                                              const ReturnFinderQuery& query,
+                                                              const NatalChart& returnChart,
+                                                              const QDateTime& returnLocal) {
+    ReturnFinderConditionEvaluation evaluation;
+    evaluation.conditionId = condition.id;
+    evaluation.excluded = condition.exclude;
+    const auto lord = lordOfYearForReturn(query, returnChart, returnLocal);
+    double longitude = 0.0;
+    if (!lord.valid || !bodyLongitude(returnChart, lord.planet, &longitude)) {
+        evaluation.description = "Tajaka lord of the year is unavailable.";
+        return evaluation;
+    }
+    evaluation.resolvedSubject = QString("Tajaka lord of the year %1").arg(lord.planet);
+    if (condition.placementKind == ReturnFinderPlacementKind::Sign) {
+        evaluation.matched = signIndex(longitude) == std::clamp(condition.targetSign, 0, 11);
+    } else {
+        QVector<bool> matches;
+        for (HouseSystem system : systemsForMode(query.houseMode)) {
+            const bool matched = houseForLongitude(returnChart, longitude, system)
+                == condition.targetHouse;
+            matches.push_back(matched);
+        }
+        evaluation.matched = combineSystemMatches(query.houseMode, matches);
+        evaluation.systemLabel = systemMatchLabel(query.houseMode, matches);
+    }
+    evaluation.description = QString("Tajaka lord of the year %1 %2 %3%4")
+        .arg(lord.planet)
+        .arg(evaluation.matched ? "is" : "is not", placementTargetLabel(condition))
+        .arg(evaluation.systemLabel.isEmpty()
+                 ? QString()
+                 : QString(" (%1)").arg(evaluation.systemLabel));
+    return evaluation;
+}
+
 ReturnFinderConditionEvaluation evaluateCondition(const ReturnFinderCondition& condition,
                                                    const ReturnFinderQuery& query,
                                                    const NatalChart& returnChart,
@@ -589,6 +780,12 @@ ReturnFinderConditionEvaluation evaluateCondition(const ReturnFinderCondition& c
             return evaluateProfectionPlacement(condition, query, returnChart, returnLocal);
         case ReturnFinderConditionType::Stellium:
             return evaluateStellium(condition, query, returnChart);
+        case ReturnFinderConditionType::MunthaPlacement:
+            return evaluateMunthaPlacement(condition, query, returnChart, returnLocal);
+        case ReturnFinderConditionType::TajakaAspect:
+            return evaluateTajakaAspect(condition, query, returnChart, returnLocal);
+        case ReturnFinderConditionType::LordOfYearPlacement:
+            return evaluateLordOfYearPlacement(condition, query, returnChart, returnLocal);
         case ReturnFinderConditionType::PlanetPlacement:
         default:
             return evaluatePlanetPlacement(condition, query, returnChart, returnLocal);
@@ -654,6 +851,12 @@ bool buildReturnChart(TropicalNatalEngine& engine,
     input.longitude = query.longitude;
     input.houseSystem = computeHouseSystem(query.houseMode);
     input.aspectOrbs = query.aspectOrbs;
+    if (query.tajakaMode) {
+        // Rao's Tajaka: every scanned chart is judged in the sidereal zodiac
+        // with whole-sign (rasi) houses.
+        input.zodiacSystem = ZodiacSystem::Sidereal;
+        input.houseSystem = HouseSystem::WholeSign;
+    }
     TropicalComputeOptions options;
     options.includeArabicLots = false;
     options.includeFixedStars = false;
@@ -688,6 +891,36 @@ void ReturnFinderWorker::run() {
     swe.setEphePath(query.ephePath);
     TropicalNatalEngine engine(&swe, query.ephePath);
 
+    const bool tajakaScan = query.tajakaMode && query.returnType == ReturnFinderType::Solar;
+    if (query.tajakaMode && query.returnType == ReturnFinderType::Lunar) {
+        summary.warnings.push_back(
+            "Tajaka method applies to solar scans only; the lunar scan used the standard basis.");
+    }
+    if (tajakaScan) {
+        // Tajaka judgments are whole-sign (rasi) based; mirror the query-side
+        // forcing here so charts and evaluations always follow it.
+        query.houseMode = ReturnFinderHouseMode::WholeSign;
+    }
+    if (tajakaScan && query.natalInput.zodiacSystem != ZodiacSystem::Sidereal) {
+        // Muntha and the Tajaka reference points need a sidereal natal chart;
+        // the app-level natal may have been computed tropically.
+        NatalInput siderealInput = query.natalInput;
+        siderealInput.zodiacSystem = ZodiacSystem::Sidereal;
+        TropicalComputeOptions options;
+        options.includeArabicLots = false;
+        options.includeFixedStars = false;
+        options.includeAspectGrid = false;
+        NatalChart siderealNatal;
+        QString siderealError;
+        if (!engine.compute(siderealInput, options, &siderealNatal, &siderealError)) {
+            emit finished(results, summary,
+                          QString("Unable to compute the sidereal natal reference for Tajaka: %1")
+                              .arg(siderealError));
+            return;
+        }
+        query.natalChart = siderealNatal;
+    }
+
     auto targetNeedsNatalPlacidus = [](const ReturnFinderTarget& target) {
         return target.kind == ReturnFinderTargetKind::HouseLord
             && target.scope == ReturnFinderScope::Natal;
@@ -706,6 +939,9 @@ void ReturnFinderWorker::run() {
         });
     if (needsNatalPlacidus && query.natalChart.cusps.size() != 12) {
         NatalInput placidusInput = query.natalInput;
+        if (tajakaScan) {
+            placidusInput.zodiacSystem = ZodiacSystem::Sidereal;
+        }
         placidusInput.houseSystem = HouseSystem::Placidus;
         TropicalComputeOptions options;
         options.includeArabicLots = false;
@@ -729,7 +965,36 @@ void ReturnFinderWorker::run() {
 
     const QString targetBody = query.returnType == ReturnFinderType::Solar ? "Sun" : "Moon";
     double targetLongitude = 0.0;
-    if (!bodyLongitude(query.natalChart, targetBody, &targetLongitude)) {
+    if (tajakaScan) {
+        // Tajaka returns use the Sun's natal TROPICAL longitude as the target.
+        QTimeZone natalTz;
+        QString natalTzLabel;
+        QString natalTzError;
+        if (!parseTimezoneInput(query.natalInput.timezone, &natalTz, &natalTzLabel, &natalTzError)) {
+            emit finished(results, summary, natalTzError);
+            return;
+        }
+        QDateTime natalLocal(query.natalInput.date, query.natalInput.time, natalTz);
+        if (!natalLocal.isValid()) {
+            natalLocal = QDateTime(query.natalInput.date, QTime(12, 0), natalTz);
+        }
+        const QDateTime natalUtc = natalLocal.toUTC();
+        if (!natalUtc.isValid()) {
+            emit finished(results, summary, "Invalid natal date/time for the Tajaka tropical target.");
+            return;
+        }
+        const double natalHour = natalUtc.time().hour() + natalUtc.time().minute() / 60.0
+            + natalUtc.time().second() / 3600.0 + natalUtc.time().msec() / 3600000.0;
+        const double natalJd = swe.julianDay(natalUtc.date().year(), natalUtc.date().month(),
+                                             natalUtc.date().day(), natalHour, SE_GREG_CAL);
+        QString natalCalcError;
+        if (!swe.calcUt(natalJd, SE_SUN, 0, &targetLongitude, &natalCalcError)) {
+            emit finished(results, summary,
+                          QString("Failed to compute the natal tropical Sun longitude: %1")
+                              .arg(natalCalcError));
+            return;
+        }
+    } else if (!bodyLongitude(query.natalChart, targetBody, &targetLongitude)) {
         emit finished(results, summary, QString("Unable to locate natal %1 longitude.").arg(targetBody));
         return;
     }
@@ -771,8 +1036,12 @@ void ReturnFinderWorker::run() {
             QDateTime utc;
             QDateTime local;
             QString error;
-            if (!returncalc::solarReturnTimeUtc(swe, query.natalInput, year, query.timezone,
-                                                targetLongitude, &utc, &local, &error, cancelled)) {
+            const bool found = tajakaScan
+                ? returncalc::tajakaSolarReturnTimeUtc(swe, query.natalInput, year, query.timezone,
+                                                       targetLongitude, &utc, &local, &error, cancelled)
+                : returncalc::solarReturnTimeUtc(swe, query.natalInput, year, query.timezone,
+                                                 targetLongitude, &utc, &local, &error, cancelled);
+            if (!found) {
                 if (!cancelled()) {
                     ++summary.failed;
                     summary.warnings.push_back(QString("%1: %2").arg(year).arg(error));

@@ -379,6 +379,16 @@ bool TropicalNatalEngine::compute(const NatalInput& input, const TropicalCompute
             }
             positions.push_back(lot);
         }
+    } else if (options.includePartOfFortune) {
+        // The full Lots block is skipped on the performance paths, but Part of
+        // Fortune only needs the Ascendant, Sun, Moon and sect, so it is still
+        // worth computing there.
+        const BodyPosition fortune = makePartOfFortune(lotCtx);
+        if (!fortune.name.isEmpty()) {
+            pof = fortune.longitude;
+            hasPartOfFortune = true;
+            positions.push_back(fortune);
+        }
     }
 
     // Build cusps for Placidus only.

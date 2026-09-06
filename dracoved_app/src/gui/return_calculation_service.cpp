@@ -30,15 +30,18 @@ bool wasCancelled(const CancelCheck& cancelled) {
 
 }  // namespace
 
-bool solarReturnTimeUtc(SwissEph& swe,
-                        const NatalInput& natalInput,
-                        int year,
-                        const QString& timezone,
-                        double targetLongitude,
-                        QDateTime* outUtc,
-                        QDateTime* outLocal,
-                        QString* error,
-                        const CancelCheck& cancelled) {
+namespace {
+
+bool solarReturnTimeUtcImpl(SwissEph& swe,
+                            const NatalInput& natalInput,
+                            int year,
+                            const QString& timezone,
+                            double targetLongitude,
+                            QDateTime* outUtc,
+                            QDateTime* outLocal,
+                            QString* error,
+                            const CancelCheck& cancelled,
+                            bool tropicalBasis) {
     QTimeZone tz;
     QString normalizedTimezone;
     QString timezoneError;
@@ -68,8 +71,10 @@ bool solarReturnTimeUtc(SwissEph& swe,
 
     const QDateTime baseUtc = baseLocal.toUTC();
     const double target = normalizeDegrees(targetLongitude);
-    applyZodiacMode(swe, natalInput);
-    const int flags = calculationFlags(natalInput);
+    const int flags = tropicalBasis ? 0 : calculationFlags(natalInput);
+    if (!tropicalBasis) {
+        applyZodiacMode(swe, natalInput);
+    }
 
     auto sunLongitude = [&](const QDateTime& utc, double* outLongitude) {
         if (wasCancelled(cancelled)) {
@@ -176,6 +181,34 @@ bool solarReturnTimeUtc(SwissEph& swe,
     if (outUtc) *outUtc = hi;
     if (outLocal) *outLocal = hi.toTimeZone(tz);
     return true;
+}
+
+}  // namespace
+
+bool solarReturnTimeUtc(SwissEph& swe,
+                        const NatalInput& natalInput,
+                        int year,
+                        const QString& timezone,
+                        double targetLongitude,
+                        QDateTime* outUtc,
+                        QDateTime* outLocal,
+                        QString* error,
+                        const CancelCheck& cancelled) {
+    return solarReturnTimeUtcImpl(swe, natalInput, year, timezone, targetLongitude,
+                                  outUtc, outLocal, error, cancelled, false);
+}
+
+bool tajakaSolarReturnTimeUtc(SwissEph& swe,
+                              const NatalInput& natalInput,
+                              int year,
+                              const QString& timezone,
+                              double targetTropicalLongitude,
+                              QDateTime* outUtc,
+                              QDateTime* outLocal,
+                              QString* error,
+                              const CancelCheck& cancelled) {
+    return solarReturnTimeUtcImpl(swe, natalInput, year, timezone, targetTropicalLongitude,
+                                  outUtc, outLocal, error, cancelled, true);
 }
 
 bool lunarReturnTimeUtc(SwissEph& swe,

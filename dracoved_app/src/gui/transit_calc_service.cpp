@@ -171,6 +171,27 @@ QColor geodeticColorForIndex(int index) {
     return palette[idx];
 }
 
+QColor bodyAccentColor(const QString& name) {
+    // Same hues as the astrocartography map palette in main_window.cpp.
+    if (name == "Sun") return QColor("#ffd200");          // yellow
+    if (name == "Moon") return QColor("#1746b3");         // dark blue
+    if (name == "Mercury") return QColor("#37c96b");      // light green
+    if (name == "Venus") return QColor("#087a2c");        // dark green
+    if (name == "Mars") return QColor("#ff0000");         // pure red
+    if (name == "Jupiter") return QColor("#ff8a00");      // orange
+    if (name == "Saturn") return QColor("#7a3f12");       // brown
+    if (name == "Uranus") return QColor("#28a8ff");       // light blue
+    if (name == "Neptune") return QColor("#006fba");      // ocean blue
+    if (name == "Pluto") return QColor("#111111");        // black
+    if (name == "Chiron") return QColor("#7e57c2");       // muted violet
+    if (name == "Lilith") return QColor("#5a5a5a");       // charcoal
+    // Mean/True variants resolve through the shared node predicates.
+    if (isNorthLunarNodeName(name)) return QColor("#8b42c6");   // violet
+    if (isLunarNodeName(name)) return QColor("#5b2d90");        // dark violet
+    // Deliberately no identity colour: Arabic Lots, asteroids, Vertex, angles.
+    return QColor();
+}
+
 double aspectAngleForLabel(const QString& label) {
     if (label == "Conjunction") return 0.0;
     if (label == "Sextile") return 60.0;

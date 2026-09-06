@@ -27,6 +27,13 @@ QStringList transitCalculableBodyOrder();
 QStringList geodeticBodyOrder();
 QColor geodeticColorForIndex(int index);
 
+// Identity colour for a body, using the same hues the astrocartography map
+// draws, so the map and the chart wheel agree on what "Mars" looks like.
+// Returns an INVALID QColor for everything without an identity hue (Arabic
+// Lots, asteroids, Vertex and the four chart angles) so callers keep their own
+// lane colour for those instead of turning the wheel into confetti.
+QColor bodyAccentColor(const QString& name);
+
 double aspectAngleForLabel(const QString& label);
 double clampStepDays(double speedAbs);
 QDateTime midTimeUtc(const QDateTime& a, const QDateTime& b);

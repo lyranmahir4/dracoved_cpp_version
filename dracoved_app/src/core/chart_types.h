@@ -153,6 +153,7 @@ enum class SiderealAyanamsa {
     Yukteshwar,
     TrueCitra,
     TrueRevati,
+    PushyaPaksha,
 };
 
 inline QString siderealAyanamsaToString(SiderealAyanamsa ayanamsa) {
@@ -169,6 +170,8 @@ inline QString siderealAyanamsaToString(SiderealAyanamsa ayanamsa) {
             return "True Citra";
         case SiderealAyanamsa::TrueRevati:
             return "True Revati";
+        case SiderealAyanamsa::PushyaPaksha:
+            return "Pushya-paksha";
         case SiderealAyanamsa::Lahiri:
         default:
             return "Lahiri";
@@ -195,6 +198,9 @@ inline SiderealAyanamsa siderealAyanamsaFromString(const QString& text) {
     if (normalized.compare("True Revati", Qt::CaseInsensitive) == 0) {
         return SiderealAyanamsa::TrueRevati;
     }
+    if (normalized.compare("Pushya-paksha", Qt::CaseInsensitive) == 0) {
+        return SiderealAyanamsa::PushyaPaksha;
+    }
     return SiderealAyanamsa::Lahiri;
 }
 
@@ -213,6 +219,10 @@ inline int siderealAyanamsaSwissMode(SiderealAyanamsa ayanamsa) {
             return 27;
         case SiderealAyanamsa::TrueRevati:
             return 28;
+        case SiderealAyanamsa::PushyaPaksha:
+            // True Pushya: Delta Cancri fixed at 16 Cancer 0' (P.V.R. Rao's
+            // Pushya-paksha ayanamsa, computed exactly per date).
+            return 29;
         case SiderealAyanamsa::Lahiri:
         default:
             return 1;
@@ -228,6 +238,7 @@ inline QStringList availableSiderealAyanamsaNames() {
         siderealAyanamsaToString(SiderealAyanamsa::Yukteshwar),
         siderealAyanamsaToString(SiderealAyanamsa::TrueCitra),
         siderealAyanamsaToString(SiderealAyanamsa::TrueRevati),
+        siderealAyanamsaToString(SiderealAyanamsa::PushyaPaksha),
     };
 }
 

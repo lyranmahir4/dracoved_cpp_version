@@ -39,6 +39,7 @@ public:
     void clearNatalContext();
     void setReturnType(ReturnFinderType type);
     ReturnFinderType returnType() const;
+    bool tajakaMethodActive() const;
 
     bool isRunning() const;
     bool hasCompletedRun() const;
@@ -58,6 +59,7 @@ signals:
     void openResultRequested(const dracoved::ReturnFinderResult& result,
                              const dracoved::ReturnFinderQuery& query);
     void statusMessage(const QString& message);
+    void tajakaMethodChanged(bool tajaka);
 
 private:
     void buildFiltersUi();
@@ -104,6 +106,7 @@ private:
     QComboBox* houseModeCombo_ = nullptr;
     QComboBox* rulershipCombo_ = nullptr;
     QComboBox* matchModeCombo_ = nullptr;
+    QComboBox* returnMethodCombo_ = nullptr;
     QComboBox* presetCombo_ = nullptr;
     QWidget* conditionsContainer_ = nullptr;
     QVBoxLayout* conditionsLayout_ = nullptr;

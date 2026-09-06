@@ -45,6 +45,21 @@ struct ChartWheelTheme {
     QColor retrogradeIndicator;
     QColor angularHouseLabel;
     QColor transitLaneBand;  // subtle background for the outer (transit) lane in overlay
+    // --- Surface tokens (appended; every one has a paint-time fallback derived
+    // from the tokens above, so older brace-initialised theme literals that stop
+    // at transitLaneBand still render correctly). ---
+    QColor zodiacBandInner = QColor();      // radial-gradient stop nearer the centre
+    QColor zodiacBandOuter = QColor();      // radial-gradient stop nearer the rim
+    QColor zodiacEdgeHighlight = QColor();  // 1px outer bevel on the zodiac ring
+    QColor zodiacEdgeShadow = QColor();     // 1px inner bevel on the zodiac ring
+    QColor aspectDiscFill = QColor();       // faint plate behind the aspect web
+    QColor wheelHalo = QColor();            // soft lift just outside zodiacOuter
+    QColor cardinalBoundary = QColor();     // emphasised 0 Aries/Cancer/Libra/Capricorn strokes
+    QColor labelChipBg = QColor();          // rounded chip behind degree/angle text
+    QColor labelChipBorder = QColor();
+    QColor infoRule = QColor();             // hairline under the info/title block
+    QColor dignityStrong = QColor();        // Ruler / Exalt dot (warm)
+    QColor dignityWeak = QColor();          // Detriment / Fall dot (cool grey)
 };
 
 class ChartWheelWidget : public QWidget {
@@ -68,6 +83,15 @@ public:
     void setTransitChart(const NatalChart& chart, HouseSystem system);
     void setOverlayCharts(const NatalChart& natal, const NatalChart& transit, HouseSystem system, const AspectOrbs& orbs);
     void setOverlayLabel(const QString& label);
+    // Label for the INNER chart. Defaults to "Natal" and is reset to that by
+    // setOverlayCharts, so any caller wanting something else (Synastry uses a
+    // person's name) must call this AFTER setOverlayCharts.
+    void setBaseLabel(const QString& label);
+    // Draw the OUTER chart's angles. Off by default and reset to off by
+    // setOverlayCharts. Transits deliberately omit them because a transiting
+    // Ascendant moves about a degree every four minutes; synastry needs them
+    // because a planet on the partner's Descendant is a primary contact.
+    void setOverlayAnglesVisible(bool visible);
     void setChartNote(const QString& note);
     void setOverlayAspectScopes(bool transitNatal, bool transitTransit, bool natalNatal);
     void setAspectDisplayMaxOrb(double maxOrb);
@@ -83,9 +107,14 @@ public:
     void setIncludeAsteroidAspects(bool value);
     void setVisibleAsteroids(const QStringList& names);
     void setShowLots(bool value);
+    // Part of Fortune is an Arabic Lot by classification, but it is a first-class
+    // traditional point in practice, so it gets its own switch rather than being
+    // hidden behind the all-or-nothing Lots toggle.
+    void setShowPartOfFortune(bool value);
     void setShowDerivedPoints(bool value);
     void setShowFixedStars(bool value);
     void setVisibleFixedStars(const QStringList& names);
+    void setHiddenBodies(const QStringList& names);
     void setTickDensity(TickDensity density);
     void setFontScale(double scale);
     void setTheme(const ChartWheelTheme& theme);
@@ -97,6 +126,7 @@ public:
     bool includeAsteroidAspects() const;
     QStringList visibleAsteroids() const;
     bool showLots() const;
+    bool showPartOfFortune() const;
     bool showDerivedPoints() const;
     bool showFixedStars() const;
     QStringList visibleFixedStars() const;
@@ -109,6 +139,10 @@ public:
     void clearChart();
     void setHighlight(const QString& bodyName, bool transit, const QString& label, const QColor& color);
     void clearHighlight();
+    // Click-to-focus state (the "Focus: X" pin). Cleared via Esc from the main
+    // window's application-wide event filter, so the widget exposes it here.
+    bool hasFocusBody() const;
+    void clearFocusBody();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -131,8 +165,13 @@ private:
         double baseWidth = 1.0;
         QString symbol;
         Qt::PenStyle style = Qt::SolidLine;
-        QString rawNameA;   // unprefixed body name (for click-to-focus matching)
+        QString rawNameA;   // unprefixed body name (kept for diagnostics)
         QString rawNameB;
+        // Scope-qualified endpoint names ("Transit Venus" / "Natal Mercury").
+        // A raw name matches a body in BOTH overlay lanes, so raw-name matching
+        // ringed four glyphs for a two-body aspect.
+        QString scopedNameA;
+        QString scopedNameB;
     };
 
     struct PlacedBody {
@@ -144,6 +183,8 @@ private:
         bool   retrograde;
         bool   lockLongitude = false;
         LunarNodeType lunarNodeType = LunarNodeType::Mean;
+        // Pure passthrough for rendering only: no placement arithmetic reads it.
+        QString dignity;
     };
 
     double angleForLongitude(double lon) const;
@@ -157,6 +198,7 @@ private:
     void updateCursor();
     bool isAsteroidVisible(const QString& name) const;
     bool isFixedStarVisible(const QString& name) const;
+    bool isBodyHidden(const QString& name) const;
     QVector<PlacedBody> computePlanetPlacements(
         const QVector<BodyPosition>& bodies,
         double baseRadius,
@@ -181,10 +223,14 @@ private:
     QStringList visibleAsteroids_;
     QSet<QString> visibleAsteroidSet_;
     bool showLots_ = true;
+    bool showPartOfFortune_ = true;
     bool showDerivedPoints_ = true;
     bool showFixedStars_ = false;
     QStringList visibleFixedStars_;
     QSet<QString> visibleFixedStarSet_;
+    // Per-body hide list. Empty means nothing is hidden, so the default
+    // rendering is unchanged.
+    QSet<QString> hiddenBodySet_;
     TickDensity tickDensity_ = TickDensity::Full;
     double zoom_ = 1.0;
     double fontScale_ = 1.0;
@@ -193,14 +239,20 @@ private:
     bool overlayTransitTransitAspects_ = false;
     bool overlayNatalNatalAspects_ = false;
     QString overlayLabel_ = "Transit";
+    QString baseLabel_ = "Natal";
+    bool overlayAnglesVisible_ = false;
     QString chartNote_;
     QHash<QString, QPixmap> glyphPixmapCache_;
     ChartWheelTheme theme_;
     QVector<QRectF> planetHitAreas_;
     QVector<QString> planetTooltips_;
     QVector<QString> planetHitNames_;   // parallel to planetHitAreas_; empty for non-focusable hits
+    // Parallel to planetHitAreas_, but scope-qualified so overlay lanes are
+    // distinguishable. Empty wherever planetHitNames_ is empty.
+    QVector<QString> planetHitScopedNames_;
     QVector<AspectLineInfo> aspectLines_;
     int hoveredAspectIndex_ = -1;
+    QString hoveredPlanetScope_;        // scoped name of hovered planet ("" = none); drives hover ring + cursor
     QPointF panOffset_ = {0.0, 0.0};
     QPointF lastPanPos_;
     bool panning_ = false;
