@@ -64,6 +64,7 @@ struct ChartWheelTheme {
 
 class ChartWheelWidget : public QWidget {
     Q_OBJECT
+    friend struct LunarReturnViewChecks;
 
 public:
     enum class Mode {
@@ -143,6 +144,11 @@ public:
     // window's application-wide event filter, so the widget exposes it here.
     bool hasFocusBody() const;
     void clearFocusBody();
+    // Opt-in aspect selection for chart comparisons; chart changes reset it.
+    void setAspectSelectionEnabled(bool enabled);
+    void setAspectHighlight(const QString& scopedBodyA, const QString& scopedBodyB);
+    bool hasAspectHighlight() const;
+    void clearAspectHighlight();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -193,6 +199,7 @@ private:
     QString formatDegShort(double longitude) const;
     int houseForLongitude(double lon, const QVector<double>& cusps) const;
     int hitTestAspect(const QPointF& point) const;
+    bool isAspectHighlighted(const AspectLineInfo& aspect) const;
     bool focusActiveNow() const;
     QPixmap coloredSvgPixmap(const QString& path, const QColor& color, const QSize& sizePx, qreal dpr);
     void updateCursor();
@@ -260,6 +267,9 @@ private:
     bool leftPressActive_ = false;
     bool hasFocus_ = false;             // click-to-focus: only show aspects touching focusBody_
     QString focusBody_;
+    bool aspectSelectionEnabled_ = false;
+    QString selectedAspectBodyA_;
+    QString selectedAspectBodyB_;
     bool showAspectLegend_ = true;
     bool hasHighlight_ = false;
     bool highlightTransit_ = false;

@@ -52,6 +52,9 @@ where ninja.exe >nul 2>&1 || (
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 
+call :check_executables
+if errorlevel 1 goto :preflight_blocked
+
 echo.
 echo [1/7] Configuring CMake...
 call :run cmake -S "%APP_DIR%" -B "%BUILD_DIR%" -G Ninja -DCMAKE_PREFIX_PATH="%QT_ROOT%"
@@ -59,6 +62,10 @@ if errorlevel 1 goto :failed
 
 echo.
 echo [2/7] Building executable...
+rem Refresh these disposable AutoGen files before CMake tries to overwrite them.
+rem Previously this happened only after a failed first attempt.
+call :clear_autogen_state
+if errorlevel 1 goto :failed
 call :run cmake --build "%BUILD_DIR%" --parallel 2
 if errorlevel 1 (
     echo.
@@ -66,6 +73,7 @@ if errorlevel 1 (
     >> "%LOGFILE%" echo First build attempt failed; retrying after AutoGen cleanup.
     timeout /t 2 /nobreak >nul
     call :clear_autogen_state
+    if errorlevel 1 goto :failed
     call :run cmake --build "%BUILD_DIR%" --parallel 2
     if errorlevel 1 goto :failed
 )
@@ -77,8 +85,13 @@ if not exist "%BUILD_EXE%" (
 
 echo.
 echo [3/7] Copying fresh executable to dist...
-call :run copy /Y "%BUILD_EXE%" "%DIST_EXE%"
+call :check_executables
 if errorlevel 1 goto :failed
+call :run copy /Y "%BUILD_EXE%" "%DIST_EXE%"
+if errorlevel 1 (
+    call :fail "Could not replace the dist executable. Close DracoVed and any tool holding that file, then retry."
+    goto :failed
+)
 
 echo.
 echo [4/7] Deploying Qt runtime files...
@@ -126,14 +139,26 @@ echo Log:       %LOGFILE%
 echo ============================================================
 goto :finish
 
+:check_executables
+call :run powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%check_build_files.ps1" -BuildExe "%BUILD_EXE%" -DistExe "%DIST_EXE%" -LogFile "%LOGFILE%"
+exit /b %ERRORLEVEL%
+
 :clear_autogen_state
 if exist "%BUILD_DIR%\dracoved_app_autogen\deps" (
     attrib -R "%BUILD_DIR%\dracoved_app_autogen\deps" >nul 2>&1
     del /F /Q "%BUILD_DIR%\dracoved_app_autogen\deps" >nul 2>&1
+    if exist "%BUILD_DIR%\dracoved_app_autogen\deps" (
+        call :fail "Cannot refresh Qt AutoGen deps. Close any other build using this folder and retry."
+        exit /b 1
+    )
 )
 if exist "%BUILD_DIR%\dracoved_app_autogen\timestamp" (
     attrib -R "%BUILD_DIR%\dracoved_app_autogen\timestamp" >nul 2>&1
     del /F /Q "%BUILD_DIR%\dracoved_app_autogen\timestamp" >nul 2>&1
+    if exist "%BUILD_DIR%\dracoved_app_autogen\timestamp" (
+        call :fail "Cannot refresh Qt AutoGen timestamp. Close any other build using this folder and retry."
+        exit /b 1
+    )
 )
 exit /b 0
 
@@ -157,9 +182,19 @@ goto :failed
 :failed
 echo.
 echo ============================================================
-echo BUILD FAILED - the old dist executable was not replaced.
+echo BUILD OR PACKAGING FAILED - dist may not be fully updated.
 echo Read the error above or open:
 echo %LOGFILE%
+echo ============================================================
+if /I not "%~1"=="--no-pause" pause
+exit /b 1
+
+:preflight_blocked
+echo.
+echo ============================================================
+echo BUILD NOT STARTED - existing application files were not changed.
+echo Resolve the file lock reported above, then retry.
+echo Log: %LOGFILE%
 echo ============================================================
 if /I not "%~1"=="--no-pause" pause
 exit /b 1

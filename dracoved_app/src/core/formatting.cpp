@@ -6,6 +6,7 @@
 #include <QSet>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace dracoved {
 
@@ -42,23 +43,32 @@ QString signName(int index) {
 }
 
 double normalizeDegrees(double deg) {
-    double v = deg;
-    while (v < 0.0) {
+    if (!std::isfinite(deg)) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    double v = std::fmod(deg, 360.0);
+    if (v < 0.0) {
         v += 360.0;
     }
-    while (v >= 360.0) {
-        v -= 360.0;
+    if (v >= 360.0) {
+        v = std::nextafter(360.0, 0.0);
     }
-    return v;
+    return v == 0.0 ? 0.0 : v;
 }
 
 int signIndex(double longitude) {
     double norm = normalizeDegrees(longitude);
+    if (!std::isfinite(norm)) {
+        return -1;
+    }
     return static_cast<int>(norm / 30.0);
 }
 
 double degInSign(double longitude) {
     double norm = normalizeDegrees(longitude);
+    if (!std::isfinite(norm)) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
     return std::fmod(norm, 30.0);
 }
 

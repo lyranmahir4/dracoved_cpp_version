@@ -32,6 +32,9 @@ enum class SearchEventType {
     Aspect,
     DegreeHit,
     Station,
+    TransitAspect,
+    RetrogradeShadow,
+    ClosestApproach,
 };
 
 enum class SearchDirection {
@@ -70,6 +73,8 @@ struct SearchParams {
     double orb = 0.0;
     double aspectAngle = 0.0;
     QString aspectLabel;
+    QString movingTarget;
+    int shadowPhase = 0; // Both / pre-shadow entry / post-shadow exit.
     bool anyMajorAspect = false;
     int signFilter = -1;
     int houseFilter = 0;
@@ -198,6 +203,13 @@ public slots:
             return;
         }
 
+        if (params_.eventType == SearchEventType::TransitAspect
+            || params_.eventType == SearchEventType::RetrogradeShadow
+            || params_.eventType == SearchEventType::ClosestApproach) {
+            runAdvancedSearch();
+            return;
+        }
+
         const qint64 totalSecs = std::max<qint64>(1, std::llabs(params_.startUtc.secsTo(params_.endUtc)));
         int lastProgress = -1;
 
@@ -302,6 +314,8 @@ signals:
     void finished(bool cancelled, const QString& error);
 
 private:
+    void runAdvancedSearch();
+
     bool planetLongitude(const QDateTime& utc, const QString& name, double* outLon, QString* error) {
         const int bodyId = transitcalc::bodyIdForName(
             name, effectivePrimaryNodeType(params_.lunarNodePolicy));
@@ -443,6 +457,12 @@ private:
     }
 
     void handleHouseEvent(const QDateTime& t0, const QDateTime& t1, double lon0, double lon1, const QString& planetName) {
+        // Ingress/egress describes chronological motion, even when finding
+        // the previous event. Refine and label the bracket in time order.
+        if (t1 < t0) {
+            handleHouseEvent(t1, t0, lon1, lon0, planetName);
+            return;
+        }
         int house0 = 0;
         int house1 = 0;
         if (params_.overlayMode) {

@@ -19,6 +19,9 @@
 #include "aspect_matrix_delegate.h"
 #include "synastry_calc.h"
 
+class QFormLayout;
+class QGridLayout;
+class QDateTimeEdit;
 class QDockWidget;
 class QToolButton;
 class QAction;
@@ -55,10 +58,13 @@ class ChartSetupDialog;
 class SearchWorker;
 class AstroMapWidget;
 class ReturnFinderController;
+class SolarTransitPanel;
+struct SolarTransitSource;
 class PlanetaryHoursController;
 class ZodiacalReleasingController;
 class GeodeticEquivalentsController;
 class SynastryController;
+class VedicPanel;
 struct ReturnFinderResult;
 struct ReturnFinderQuery;
 
@@ -165,6 +171,9 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    friend struct SolarTransitWorkspaceChecks;
+    friend struct LunarReturnViewChecks;
+    friend struct VedicPanelIntegrationChecks;
     enum class AppTab {
         Natal = 0,
         Transits = 1,
@@ -179,6 +188,8 @@ private:
         Astrocartography = 8,
         GeodeticEquivalents = 11,
         Synastry = 12,
+        SolarTransits = 13,
+        Vedic = 14,
     };
 
     enum class ThemeMode {
@@ -365,6 +376,8 @@ private:
 
     struct LunationDegreeGroup {
         double degree = 0.0;
+        double minimum = 0.0;
+        double maximum = 0.0;
         int signIndex = -1;
         int house = 0;
         QVector<int> eventIndices;
@@ -451,6 +464,7 @@ private:
     void handleSolarShiftYear(int delta);
     void handleSolarNow();
     void refreshSolarReturnView();
+    void clearSolarTransitOverlay();
     // Rebuilds the shared aspects panel as a flat Tajaka aspect list (whole
     // sign kinds, per-planet deeptamsa orbs, ithasala/eesarpha motion).
     void populateTajakaAspectsTable();
@@ -607,6 +621,14 @@ private:
     QString solarTechniqueBodySummary(const SolarTechniqueBodyFilter& filter) const;
     bool solarTechniqueIncludesBodyName(const QString& name, const SolarTechniqueBodyFilter& filter) const;
     bool isSolarTechniqueTabActive() const;
+    bool provideSolarTransitSource(SolarTransitSource* source, QString* error);
+    SolarTransitPanel* solarTransitPanel_ = nullptr;
+    bool solarTransitOverlayActive_ = false;
+    int solarTransitDataStackIndex_ = -1;
+    bool solarTransitGridVisible_ = false;
+    int solarTransitPreviousDockWidth_ = 0;
+    bool solarTransitWorkspaceActive_ = false;
+    bool solarTransitResultsExpanded_ = false;
     bool isSolarPlacementFinderTabActive() const;
     void updateSolarTechniqueDockTitles();
     void handleProgressionNow();
@@ -796,7 +818,13 @@ private:
     QList<int> nonTransitLeftSplitterSizes_;
     QList<int> transitWorkspaceSplitterSizes_;
     bool transitWorkspaceLayoutActive_ = false;
+    bool vedicWorkspaceActive_ = false;
+    bool vedicDataDockWasVisible_ = false;
+    bool vedicRightTopDockWasVisible_ = false;
+    bool vedicTransitAspectsDockWasVisible_ = false;
+    bool vedicRightBottomDockWasVisible_ = false;
     QTabWidget* tabs_ = nullptr;
+    QWidget* zodiacToolbarRow_ = nullptr;
     QTabBar* aspectScopeTabs_ = nullptr;
     QTableWidget* summaryTable_ = nullptr;
     QTableWidget* anglesTable_ = nullptr;
@@ -845,6 +873,14 @@ private:
     QDoubleSpinBox* transitLatSpin_ = nullptr;
     QDoubleSpinBox* transitLonSpin_ = nullptr;
     QCheckBox* transitUseNatalLocation_ = nullptr;
+    QFormLayout* searchFilterLayout_ = nullptr;
+    QFormLayout* searchRangeLayout_ = nullptr;
+    QComboBox* searchFindModeCombo_ = nullptr;
+    QComboBox* searchMatchCombo_ = nullptr;
+    QComboBox* searchShadowCombo_ = nullptr;
+    QWidget* searchEndRow_ = nullptr;
+    QLabel* searchAnchorLabel_ = nullptr;
+    QLabel* searchHintLabel_ = nullptr;
     QComboBox* searchEventCombo_ = nullptr;
     QComboBox* searchTransitPlanetCombo_ = nullptr;
     QComboBox* searchTargetCombo_ = nullptr;
@@ -870,6 +906,8 @@ private:
     QPushButton* searchUseCurrentButton_ = nullptr;
     QLabel* searchStatusLabel_ = nullptr;
     QLabel* searchTargetLabel_ = nullptr;
+    QLabel* searchResultsSummaryLabel_ = nullptr;
+    QString searchResultsSummary_;
     QComboBox* calendarYearCombo_ = nullptr;
     QComboBox* calendarMonthCombo_ = nullptr;
     QComboBox* calendarPlanetCombo_ = nullptr;
@@ -907,6 +945,15 @@ private:
     QRadioButton* lunationModeNextRadio_ = nullptr;
     QRadioButton* lunationModeRangeRadio_ = nullptr;
     QSpinBox* lunationStartYearSpin_ = nullptr;
+    QDateTimeEdit* lunationReferenceEdit_ = nullptr;
+    QGridLayout* lunationSearchLayout_ = nullptr;
+    QGridLayout* lunationAnalysisLayout_ = nullptr;
+    QLabel* lunationHouseFilterLabel_ = nullptr;
+    QSpinBox* lunationMinimumCountSpin_ = nullptr;
+    QComboBox* lunationGroupSortCombo_ = nullptr;
+    QCheckBox* lunationSeparateTypesCheck_ = nullptr;
+    QString lunationResearchSource_;
+    void copyLunationGroups(bool all);
     QSpinBox* lunationEndYearSpin_ = nullptr;
     QCheckBox* lunationDegreeRangeCheck_ = nullptr;
     QDoubleSpinBox* lunationDegreeRangeStartSpin_ = nullptr;
@@ -1182,6 +1229,7 @@ private:
     ZodiacalReleasingController* zodiacalReleasingController_ = nullptr;
     GeodeticEquivalentsController* geodeticEquivalentsController_ = nullptr;
     SynastryController* synastryController_ = nullptr;
+    VedicPanel* vedicPanel_ = nullptr;
     QWidget* chartViewPanel_ = nullptr;
     QWidget* worldMapPanel_ = nullptr;
     AstroMapWidget* astroMapWidget_ = nullptr;

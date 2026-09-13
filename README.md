@@ -36,12 +36,13 @@ Charts, aspect tables, selected-event details, and copyable reports share the sa
 | Workspace | Capabilities |
 | --- | --- |
 | **Natal** | Birth chart, placements, angles, houses, fixed stars, aspect matrix, and natal report. |
+| **Vedic** | Sidereal D1 nakshatra/pada/lord placements and Moorthi Nirnaya sign-entry search, with metal indicators, filters and copyable output. |
 | **Transits** | Current or selected-time charts, natal overlays, event searches, aspect peaks, calendars, conjunctions, Best Days scans, and profections. |
 | **Progression** | Secondary progressions, natal comparisons, and previous/next progressed lunar returns. |
 | **Synastry** | Compare the active chart with a second saved or manually entered chart using Western cross-aspects and reciprocal-contact marking. |
 | **Zodiacal Releasing** | Release from Spirit, Fortune, or Eros; explore up to four period levels, active chains, and timing markers. |
 | **Solar Return** | Standard solar returns, Tajaka Varshaphala, natal comparisons, technique views, placement searches, and configurable reports. |
-| **Lunar Return** | Previous/next return navigation, natal comparisons, and lunar-return placement searches. |
+| **Lunar Return** | Previous/next return navigation, a Natal + Lunar Return wheel with selectable cross-aspects, and lunar-return placement searches. |
 | **Return Finder** | Search solar or lunar returns with reusable conditions and presets; inspect matches and open their charts. |
 | **Planetary Hours** | Sunrise-to-sunrise planetary days, day/night hour intervals, rulers, and the active hour. |
 | **Lunations** | New/full moons and eclipse searches, degree filters, conjunction filters, and degree-group analysis. |
@@ -50,6 +51,8 @@ Charts, aspect tables, selected-event details, and copyable reports share the sa
 | **Geodetic Equivalents** | Geographic angle calculations, map overlays, and contacts at a selected location. |
 
 Western aspect synastry is implemented; Vedic Ashtakoota is reserved in the code but is not implemented. Reports can be copied into external research tools; the current application source does not include a direct AI-service integration.
+
+In **Lunar Return**, calculate a return and choose **Lunar–Natal** above the aspect matrix to show natal inside and Lunar Return outside on the main wheel. The natal houses form the inner frame; the return's angles appear on the outer ring. Click an aspect cell or a wheel aspect line to highlight its two endpoints. Escape or an empty chart/grid click clears the highlight. **Lunar Return** restores the single return chart. See [Lunar Return view notes and checks](dracoved_app/src/gui/LUNAR_RETURN.md).
 
 ## Getting started
 
@@ -77,6 +80,8 @@ Timezone input accepts zone IDs such as `Asia/Dhaka`, `UTC`, and fixed offsets s
 Selecting a research result updates the chart and relevant detail panes in supported workflows. Check the selected row and displayed date before copying a report. After changing calculation inputs, use the workspace's Calculate or Run control when the status indicates that results need refreshing.
 
 Use chart display settings to reduce visible bodies, lots, stars, or aspect lines when the wheel is crowded. These controls make dense charts easier to inspect.
+
+The **Vedic** workspace is a sidereal-only presentation of the active natal input. It keeps the app's tropical/sidereal toolbar, node policy, and natal chart unchanged; its ayanamsa is persisted independently under `vedic/ayanamsa`. Its table uses canonical Aries-to-Pisces and Ashwini-to-Revati ordering for Sign and Nakshatra sorting. See [Vedic D1 notes and checks](dracoved_app/src/gui/VEDIC.md).
 
 ## Research workflows
 
@@ -162,6 +167,10 @@ do_build.bat
 Do not run the script through a Bash/POSIX shell layer. Close the running packaged application before replacing its executable.
 
 The script configures CMake, builds the application, copies the executable to `dist`, deploys Qt dependencies, copies the Swiss Ephemeris DLL and data, and reports build/dist executable information. It writes `build_step.log` in the repository root.
+
+Before building and before copying the EXE, the script checks write access. Readers that permit replacement are allowed. If DracoVed is running or another process blocks writes, the check reports the blocker and waits up to 15 seconds for you to save/close it or for a temporary lock to clear. It never terminates a process. An initial check failure reports **BUILD NOT STARTED**, with the existing application files unchanged; lock details are included in `build_step.log`.
+
+To validate this check independently, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\check_build_files_tests.ps1`. It uses temporary test files under `build`, verifies compatible readers against an actual CMD copy, and checks write blockers and retry recovery. It does not build or launch DracoVed.
 
 For a CMD session that should not pause at completion:
 
@@ -312,6 +321,14 @@ The active map widget is a custom Qt Widgets implementation. A QML map resource 
 Follow [AGENTS.md](AGENTS.md) for repository conventions, product behavior rules, and the required build/package sequence. Keep application changes under `dracoved_app/src/`, follow the surrounding four-space C++ style, and keep header/source changes consistent.
 
 There is no standalone automated test framework wired into the application's CMake target. Tajaka and Zodiacal Releasing include internal self-checks, but these do not replace workflow validation.
+
+The focused Vedic checks compile a separate offscreen Qt executable and do not build or package `dracoved_app.exe`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\dracoved_app\src\gui\vedic_panel_integration_check.ps1
+```
+
+They use isolated settings beside the check executable, the bundled Swiss Ephemeris fixture, and write the reviewed screenshot to `dracoved_app/build/vedic_panel_integration_checks/vedic_d1.png`.
 
 After code changes:
 

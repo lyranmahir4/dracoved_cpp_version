@@ -369,6 +369,7 @@ ChartWheelWidget::ChartWheelWidget(QWidget* parent)
 }
 
 void ChartWheelWidget::setChart(const NatalChart& chart, HouseSystem system) {
+    setAspectSelectionEnabled(false);
     chart_ = chart;
     houseSystem_ = system;
     hasChart_ = true;
@@ -381,6 +382,7 @@ void ChartWheelWidget::setChart(const NatalChart& chart, HouseSystem system) {
 }
 
 void ChartWheelWidget::setTransitChart(const NatalChart& chart, HouseSystem system) {
+    setAspectSelectionEnabled(false);
     chart_ = chart;
     houseSystem_ = system;
     hasChart_ = true;
@@ -393,6 +395,7 @@ void ChartWheelWidget::setTransitChart(const NatalChart& chart, HouseSystem syst
 }
 
 void ChartWheelWidget::setOverlayCharts(const NatalChart& natal, const NatalChart& transit, HouseSystem system, const AspectOrbs& orbs) {
+    setAspectSelectionEnabled(false);
     chart_ = natal;
     overlayChart_ = transit;
     houseSystem_ = system;
@@ -680,6 +683,7 @@ const ChartWheelTheme& ChartWheelWidget::theme() const {
 }
 
 void ChartWheelWidget::clearChart() {
+    setAspectSelectionEnabled(false);
     hasChart_ = false;
     hasOverlay_ = false;
     mode_ = Mode::NatalOnly;
@@ -716,6 +720,35 @@ void ChartWheelWidget::clearHighlight() {
 
 bool ChartWheelWidget::hasFocusBody() const {
     return hasFocus_ && !focusBody_.isEmpty();
+}
+
+void ChartWheelWidget::setAspectSelectionEnabled(bool enabled) {
+    aspectSelectionEnabled_ = enabled;
+    if (!enabled) clearAspectHighlight();
+}
+
+void ChartWheelWidget::setAspectHighlight(const QString& scopedBodyA, const QString& scopedBodyB) {
+    if (!aspectSelectionEnabled_ || scopedBodyA.isEmpty() || scopedBodyB.isEmpty()) return;
+    clearFocusBody();
+    selectedAspectBodyA_ = scopedBodyA;
+    selectedAspectBodyB_ = scopedBodyB;
+    update();
+}
+
+bool ChartWheelWidget::hasAspectHighlight() const {
+    return !selectedAspectBodyA_.isEmpty() && !selectedAspectBodyB_.isEmpty();
+}
+
+void ChartWheelWidget::clearAspectHighlight() {
+    selectedAspectBodyA_.clear();
+    selectedAspectBodyB_.clear();
+    update();
+}
+
+bool ChartWheelWidget::isAspectHighlighted(const AspectLineInfo& aspect) const {
+    return hasAspectHighlight()
+        && ((aspect.scopedNameA == selectedAspectBodyA_ && aspect.scopedNameB == selectedAspectBodyB_)
+            || (aspect.scopedNameA == selectedAspectBodyB_ && aspect.scopedNameB == selectedAspectBodyA_));
 }
 
 void ChartWheelWidget::clearFocusBody() {
@@ -969,6 +1002,7 @@ void ChartWheelWidget::mouseReleaseEvent(QMouseEvent* event) {
                 }
             }
             if (!hitName.isEmpty()) {
+                clearAspectHighlight();
                 if (hasFocus_ && focusBody_ == hitName) {
                     hasFocus_ = false;
                     focusBody_.clear();
@@ -976,9 +1010,14 @@ void ChartWheelWidget::mouseReleaseEvent(QMouseEvent* event) {
                     hasFocus_ = true;
                     focusBody_ = hitName;
                 }
-            } else if (hasFocus_) {
-                hasFocus_ = false;
-                focusBody_.clear();
+            } else {
+                const int aspect = aspectSelectionEnabled_ && showAspects_ ? hitTestAspect(event->position()) : -1;
+                if (aspect >= 0 && !isAspectHighlighted(aspectLines_[aspect])) {
+                    setAspectHighlight(aspectLines_[aspect].scopedNameA, aspectLines_[aspect].scopedNameB);
+                } else {
+                    clearAspectHighlight();
+                }
+                hasFocus_ = false; focusBody_.clear();
             }
             update();
             event->accept();
@@ -2229,6 +2268,8 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             hoveredAspectIndex_ = -1;
         }
         const bool hasHover = hoveredAspectIndex_ >= 0 && hoveredAspectIndex_ < aspectLines_.size();
+        const bool hasSelectedAspect = std::any_of(aspectLines_.cbegin(), aspectLines_.cend(),
+            [this](const AspectLineInfo& aspect) { return isAspectHighlighted(aspect); });
         // Focus is only "active" this frame if at least one drawn aspect touches
         // the focused body; this gracefully ignores a stale focus after the chart
         // changes (otherwise every line would dim).
@@ -2246,6 +2287,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         for (int i = 0; i < aspectLines_.size(); ++i) {
             const auto& info = aspectLines_[i];
             const bool isHover = (i == hoveredAspectIndex_);
+            const bool isSelected = isAspectHighlighted(info);
             const bool involvesFocus = focusActive
                 && (info.scopedNameA == focusBody_ || info.scopedNameB == focusBody_);
             double opacity = info.baseOpacity;
@@ -2261,9 +2303,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 width += 0.6;
             }
             // Hover still emphasises a single line on top of any focus state.
-            if (hasHover && !isHover) {
+            if ((hasHover || hasSelectedAspect) && !isHover && !isSelected) {
                 opacity *= 0.25;
-            } else if (hasHover && isHover) {
+            } else if (isHover || isSelected) {
                 opacity = std::min(1.0, opacity + 0.35);
                 width += 0.8;
             }
@@ -2898,18 +2940,20 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             (overlay ? baseLabel_ + QStringLiteral(" ") : QString()) + angleFocusNames[i]);
     }
 
-    // --- Hovered aspect: ring the two endpoints it joins ---
+    // --- Hovered/selected aspects: ring the two endpoints they join ---
     // Deliberately last and purely additive: the hit vectors are only complete
     // once bodies and angles have been drawn. Matching is scope-qualified: a raw
     // name such as "Venus" exists in BOTH overlay lanes, so comparing raw names
     // ringed four glyphs for a two-body aspect.
-    if (showAspects_ && hoveredAspectIndex_ >= 0 && hoveredAspectIndex_ < aspectLines_.size()) {
-        const auto& hovered = aspectLines_[hoveredAspectIndex_];
+    for (int aspectIndex = 0; showAspects_ && aspectIndex < aspectLines_.size(); ++aspectIndex) {
+        const auto& hovered = aspectLines_[aspectIndex];
+        const bool selected = isAspectHighlighted(hovered);
+        if (aspectIndex != hoveredAspectIndex_ && !selected) continue;
         const int hitCount = static_cast<int>(
             std::min(planetHitAreas_.size(), planetHitScopedNames_.size()));
         painter.save();
         painter.setBrush(Qt::NoBrush);
-        painter.setPen(QPen(hovered.color, 1.4));
+        painter.setPen(QPen(hovered.color, selected ? 2.2 : 1.4));
         for (int i = 0; i < hitCount; ++i) {
             const QString& hitName = planetHitScopedNames_[i];
             if (hitName.isEmpty()

@@ -11,6 +11,7 @@
 #include "zodiacal_releasing_controller.h"
 #include "geodetic_equivalents_controller.h"
 #include "synastry_controller.h"
+#include "vedic_panel.h"
 #include "preferences_dialog.h"
 #include "return_calculation_service.h"
 #include "return_finder_controller.h"
@@ -55,6 +56,9 @@
 #include <QMap>
 #include <QHash>
 #include <QLocale>
+#include <QDateTimeEdit>
+#include "lunation_degree_groups.h"
+#include "solar_transit_panel.h"
 #include <QSet>
 #include <QSignalBlocker>
 #include <QMenu>
@@ -67,6 +71,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScrollArea>
+#include <QFormLayout>
 #include <QScrollBar>
 #include <QSaveFile>
 #include <QStackedWidget>
@@ -884,6 +889,7 @@ void MainWindow::setupDockLayout() {
         mainTabBar_->setTabData(index, static_cast<int>(tab));
     };
     addMainTab("Natal", AppTab::Natal);
+    addMainTab("Vedic", AppTab::Vedic);
     addMainTab("Transits", AppTab::Transits);
     addMainTab("Progression", AppTab::Progression);
     addMainTab("Synastry", AppTab::Synastry);
@@ -891,6 +897,7 @@ void MainWindow::setupDockLayout() {
     addMainTab("Solar Return", AppTab::SolarReturn);
     addMainTab("Lunar Return", AppTab::LunarReturn);
     addMainTab("Return Finder", AppTab::ReturnFinder);
+    addMainTab("Transits to Return", AppTab::SolarTransits);
     addMainTab("Planetary Hours", AppTab::PlanetaryHours);
     addMainTab("Lunations", AppTab::Lunations);
     addMainTab("Relocation", AppTab::Relocation);
@@ -911,6 +918,7 @@ void MainWindow::setupDockLayout() {
     profileRowLayout->setContentsMargins(0, 0, 0, 0);
     profileRowLayout->setSpacing(6);
     auto* zodiacRow = new QWidget(profileToolbarFrame_);
+    zodiacToolbarRow_ = zodiacRow;
     auto* zodiacRowLayout = new QHBoxLayout(zodiacRow);
     zodiacRowLayout->setContentsMargins(0, 0, 0, 0);
     zodiacRowLayout->setSpacing(6);
@@ -1118,6 +1126,8 @@ void MainWindow::setupDockLayout() {
     // Synastry reuses the shared chart view the way Transits does, so it adds no
     // page to centerStack_ - only a filters panel to dataStack_.
     synastryController_ = new SynastryController(&swe_, net_, this);
+    vedicPanel_ = new VedicPanel(&engine_, &swe_, this);
+    centerStack_->addWidget(vedicPanel_);
     centerStack_->setCurrentWidget(chartViewPanel_);
 
     chartLayout->addWidget(centerStack_, 1);
@@ -1515,6 +1525,18 @@ void MainWindow::setupDockLayout() {
     solarTechniquePanel_ = solarTechniqueScroll;
     tabs_->addTab(solarTechniquePanel_, "Technique");
     tabs_->setTabVisible(tabs_->indexOf(solarTechniquePanel_), false);
+    solarTransitPanel_ = new SolarTransitPanel([this](SolarTransitSource* source, QString* error) {
+        return provideSolarTransitSource(source, error);
+    });
+    solarTransitPanel_->selectionChanged = [this]() {
+        if (activeTab_ == AppTab::SolarTransits)
+            refreshSolarReturnView();
+    };
+    solarTransitPanel_->expandResultsChanged = [this](bool expanded) {
+        solarTransitResultsExpanded_ = expanded;
+        if (activeTab_ == AppTab::SolarTransits && dataDock_)
+            resizeDocks({dataDock_}, {int(width() * (expanded ? 0.68 : 0.44))}, Qt::Horizontal);
+    };
 
     auto* solarPlacementFinderPage = new QWidget();
     solarPlacementFinderPanel_ = solarPlacementFinderPage;
@@ -1971,6 +1993,12 @@ void MainWindow::setupDockLayout() {
     solarLayout->addWidget(solarYearGroup);
     solarLayout->addWidget(solarLocationGroup);
     solarLayout->addWidget(solarRunGroup);
+    auto* solarTransitsShortcut = new QPushButton("Open Transits to Return", solarControls_);
+    solarLayout->addWidget(solarTransitsShortcut);
+    connect(solarTransitsShortcut, &QPushButton::clicked, this, [this]() {
+        for (int i = 0; i < mainTabBar_->count(); ++i)
+            if (mainTabBar_->tabData(i).toInt() == int(AppTab::SolarTransits)) mainTabBar_->setCurrentIndex(i);
+    });
     solarLayout->addStretch();
     connect(solarFinderShortcutButton, &QPushButton::clicked, this, [this]() {
         if (returnFinderController_) returnFinderController_->setReturnType(ReturnFinderType::Solar);
@@ -2376,10 +2404,11 @@ void MainWindow::setupDockLayout() {
     transitSearchLayout->setSpacing(5);
 
     auto* searchRangeGroup = new QGroupBox("Search Range", transitSearchPanel_);
-    auto* searchRangeLayout = new QGridLayout(searchRangeGroup);
-    searchRangeLayout->setHorizontalSpacing(8);
-    searchRangeLayout->setVerticalSpacing(6);
-    searchRangeLayout->setColumnStretch(1, 1);
+    auto* searchRangeLayout = new QFormLayout(searchRangeGroup);
+    searchRangeLayout_ = searchRangeLayout;
+    searchRangeLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    searchRangeLayout->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    searchRangeLayout->setVerticalSpacing(4);
     searchModeRangeRadio_ = new QRadioButton("Range", searchRangeGroup);
     searchModeNextRadio_ = new QRadioButton("Find Next", searchRangeGroup);
     searchModePrevRadio_ = new QRadioButton("Find Previous", searchRangeGroup);
@@ -2413,26 +2442,34 @@ void MainWindow::setupDockLayout() {
     searchEndTimeEdit_->setTime(nowSearch.time());
     const QByteArray searchTzId = QTimeZone::systemTimeZoneId();
     searchTimezoneEdit_->setText(searchTzId.isEmpty() ? "UTC" : QString::fromUtf8(searchTzId));
-    searchRangeLayout->addWidget(new QLabel("Mode", searchRangeGroup), 0, 0);
-    searchRangeLayout->addWidget(searchModeRow, 0, 1, 1, 2);
-    searchRangeLayout->addWidget(new QLabel("Direction", searchRangeGroup), 1, 0);
-    searchRangeLayout->addWidget(searchRangeModeCombo_, 1, 1, 1, 2);
-    searchRangeLayout->addWidget(new QLabel("Start Date", searchRangeGroup), 2, 0);
-    searchRangeLayout->addWidget(searchStartDateEdit_, 2, 1);
-    searchRangeLayout->addWidget(new QLabel("Start Time", searchRangeGroup), 3, 0);
-    searchRangeLayout->addWidget(searchStartTimeEdit_, 3, 1);
-    searchRangeLayout->addWidget(new QLabel("End Date", searchRangeGroup), 4, 0);
-    searchRangeLayout->addWidget(searchEndDateEdit_, 4, 1);
-    searchRangeLayout->addWidget(new QLabel("End Time", searchRangeGroup), 5, 0);
-    searchRangeLayout->addWidget(searchEndTimeEdit_, 5, 1);
-    searchRangeLayout->addWidget(new QLabel("Timezone", searchRangeGroup), 6, 0);
-    searchRangeLayout->addWidget(searchTimezoneEdit_, 6, 1, 1, 2);
+    searchModeRow->hide(); // Existing mode state is retained behind the compact selector.
+    searchRangeModeCombo_->hide();
+    searchFindModeCombo_ = new QComboBox(searchRangeGroup);
+    searchFindModeCombo_->addItems({"Between dates", "Next after", "Previous before"});
+    searchRangeLayout->addRow("When", searchFindModeCombo_);
+    auto dateTimeRow = [&](QDateEdit* date, QTimeEdit* time) {
+        auto* row = new QWidget(searchRangeGroup);
+        auto* layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+        date->setMinimumWidth(0);
+        time->setMinimumWidth(0);
+        layout->addWidget(date, 1);
+        layout->addWidget(time, 1);
+        return row;
+    };
+    searchAnchorLabel_ = new QLabel("Start", searchRangeGroup);
+    searchRangeLayout->addRow(searchAnchorLabel_, dateTimeRow(searchStartDateEdit_, searchStartTimeEdit_));
+    searchEndRow_ = dateTimeRow(searchEndDateEdit_, searchEndTimeEdit_);
+    searchRangeLayout->addRow("End", searchEndRow_);
+    searchRangeLayout->addRow("Timezone", searchTimezoneEdit_);
 
     auto* searchFilterGroup = new QGroupBox("Search Filters", transitSearchPanel_);
-    auto* searchFilterLayout = new QGridLayout(searchFilterGroup);
-    searchFilterLayout->setHorizontalSpacing(8);
-    searchFilterLayout->setVerticalSpacing(6);
-    searchFilterLayout->setColumnStretch(1, 1);
+    auto* searchFilterLayout = new QFormLayout(searchFilterGroup);
+    searchFilterLayout_ = searchFilterLayout;
+    searchFilterLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    searchFilterLayout->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    searchFilterLayout->setVerticalSpacing(4);
     searchEventCombo_ = new QComboBox(searchFilterGroup);
     searchEventCombo_->addItems({"Sign Ingress", "Sign Egress", "House Ingress", "House Egress", "Aspect to Natal", "Degree Hit", "Station"});
     searchTransitPlanetCombo_ = new QComboBox(searchFilterGroup);
@@ -2495,38 +2532,50 @@ void MainWindow::setupDockLayout() {
     for (int i = 0; i < 12; ++i) {
         searchDegreeSignCombo_->addItem(signName(i));
     }
-    searchFilterLayout->addWidget(new QLabel("Event Type", searchFilterGroup), 0, 0);
-    searchFilterLayout->addWidget(searchEventCombo_, 0, 1, 1, 2);
-    searchFilterLayout->addWidget(new QLabel("Transit Planets", searchFilterGroup), 1, 0);
-    searchFilterLayout->addWidget(searchTransitPlanetCombo_, 1, 1, 1, 2);
-    searchFilterLayout->addWidget(searchTargetLabel_, 2, 0);
-    searchFilterLayout->addWidget(searchTargetCombo_, 2, 1, 1, 2);
-    searchFilterLayout->addWidget(new QLabel("Aspect", searchFilterGroup), 3, 0);
-    searchFilterLayout->addWidget(searchAspectCombo_, 3, 1);
-    searchFilterLayout->addWidget(new QLabel("Orb", searchFilterGroup), 3, 2);
-    searchFilterLayout->addWidget(searchOrbSpin_, 3, 3);
-    searchFilterLayout->addWidget(new QLabel("House", searchFilterGroup), 4, 0);
-    searchFilterLayout->addWidget(searchHouseCombo_, 4, 1);
-    searchFilterLayout->addWidget(new QLabel("Sign", searchFilterGroup), 4, 2);
-    searchFilterLayout->addWidget(searchSignCombo_, 4, 3);
-    searchFilterLayout->addWidget(searchDegreeLabel_, 5, 0);
-    searchFilterLayout->addWidget(searchDegreeSpin_, 5, 1);
-    searchFilterLayout->addWidget(searchDegreeSignLabel_, 5, 2);
-    searchFilterLayout->addWidget(searchDegreeSignCombo_, 5, 3);
+    searchMatchCombo_ = new QComboBox(searchFilterGroup);
+    searchMatchCombo_->addItems({"Exact", "Within orb (entry / exit)"});
+    searchShadowCombo_ = new QComboBox(searchFilterGroup);
+    searchShadowCombo_->addItems({"Both", "Pre-shadow entry", "Post-shadow exit"});
+    searchOrbSpin_->setRange(0.01, 10.0);
+    searchOrbSpin_->setDecimals(2);
+    searchOrbSpin_->setValue(3.0);
+    searchOrbSpin_->setSuffix(QString(QChar(0x00B0)));
+    searchFilterLayout->addRow("Event", searchEventCombo_);
+    searchFilterLayout->addRow("Moving bodies", searchTransitPlanetCombo_);
+    searchFilterLayout->addRow(searchTargetLabel_, searchTargetCombo_);
+    searchFilterLayout->addRow("Aspect", searchAspectCombo_);
+    searchFilterLayout->addRow("Match", searchMatchCombo_);
+    searchFilterLayout->addRow("Orb", searchOrbSpin_);
+    searchFilterLayout->addRow("House", searchHouseCombo_);
+    searchFilterLayout->addRow("Sign", searchSignCombo_);
+    searchFilterLayout->addRow(searchDegreeSignLabel_, searchDegreeSignCombo_);
+    searchFilterLayout->addRow(searchDegreeLabel_, searchDegreeSpin_);
+    searchFilterLayout->addRow("Shadow phase", searchShadowCombo_);
+    searchHintLabel_ = new QLabel(searchFilterGroup);
+    searchHintLabel_->setWordWrap(true);
+    searchHintLabel_->setObjectName("hintLabel");
+    searchHintLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    searchFilterLayout->addRow(searchHintLabel_);
+    const QList<QWidget*> searchFields = {searchEventCombo_, searchTransitPlanetCombo_,
+        searchTargetCombo_, searchAspectCombo_, searchMatchCombo_, searchShadowCombo_};
+    for (QWidget* field : searchFields) {
+        field->setMinimumWidth(0);
+        field->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    }
 
     auto* searchRunGroup = new QGroupBox("Run Search", transitSearchPanel_);
-    auto* searchRunLayout = new QHBoxLayout(searchRunGroup);
+    auto* searchRunLayout = new QGridLayout(searchRunGroup);
     searchRunButton_ = new QPushButton("Search", searchRunGroup);
     searchStopButton_ = new QPushButton("Stop", searchRunGroup);
     searchUseCurrentButton_ = new QPushButton("Use Current Transit Time", searchRunGroup);
     searchStopButton_->setEnabled(false);
     searchStatusLabel_ = new QLabel("Idle", searchRunGroup);
     searchStatusLabel_->setObjectName("hintLabel");
-    searchRunLayout->addWidget(searchRunButton_);
-    searchRunLayout->addWidget(searchStopButton_);
-    searchRunLayout->addWidget(searchUseCurrentButton_);
-    searchRunLayout->addStretch();
-    searchRunLayout->addWidget(searchStatusLabel_);
+    searchRangeLayout->addRow(searchUseCurrentButton_);
+    searchRunLayout->addWidget(searchRunButton_, 0, 0);
+    searchRunLayout->addWidget(searchStopButton_, 0, 1);
+    searchStatusLabel_->setWordWrap(true);
+    searchRunLayout->addWidget(searchStatusLabel_, 1, 0, 1, 2);
 
     transitSearchLayout->addWidget(searchRangeGroup);
     transitSearchLayout->addWidget(searchFilterGroup);
@@ -2953,6 +3002,10 @@ void MainWindow::setupDockLayout() {
     lunationFullMoonCheck_ = new QCheckBox("Full Moon", lunationEventGroup);
     lunationSolarEclipseCheck_ = new QCheckBox("Solar Eclipse", lunationEventGroup);
     lunationLunarEclipseCheck_ = new QCheckBox("Lunar Eclipse", lunationEventGroup);
+    lunationSolarEclipseCheck_->setToolTip("Search eclipse events in addition to any selected ordinary lunar phases. For eclipse-only results, uncheck New Moon and Full Moon.");
+    lunationLunarEclipseCheck_->setToolTip(lunationSolarEclipseCheck_->toolTip());
+    connect(lunationSolarEclipseCheck_, &QCheckBox::toggled, this, &MainWindow::updateLunationModeAvailability);
+    connect(lunationLunarEclipseCheck_, &QCheckBox::toggled, this, &MainWindow::updateLunationModeAvailability);
     lunationNewMoonCheck_->setChecked(true);
     lunationFullMoonCheck_->setChecked(true);
     lunationEventLayout->addWidget(lunationNewMoonCheck_, 0, 0);
@@ -2962,6 +3015,7 @@ void MainWindow::setupDockLayout() {
 
     auto* lunationModeGroup = new QGroupBox("Search", transitLunationPanel_);
     auto* lunationModeLayout = new QGridLayout(lunationModeGroup);
+    lunationSearchLayout_ = lunationModeLayout;
     lunationModeLayout->setHorizontalSpacing(8);
     lunationModeLayout->setVerticalSpacing(6);
     lunationModeLayout->setColumnStretch(1, 1);
@@ -2989,7 +3043,8 @@ void MainWindow::setupDockLayout() {
     const int lunationYear = QDate::currentDate().year();
     lunationStartYearSpin_->setValue(lunationYear);
     lunationEndYearSpin_->setValue(lunationYear);
-    lunationDegreeRangeCheck_ = new QCheckBox("Filter by degree range (in sign)", lunationModeGroup);
+    lunationDegreeRangeCheck_ = new QCheckBox("Filter Moon degree within sign", lunationModeGroup);
+    lunationDegreeRangeCheck_->setToolTip("Uses the Moon's degree in each sign, including Full Moons. From greater than To wraps across 30°/0°. Sign selections further restrict results.");
     auto* lunationDegreeRangeRow = new QWidget(lunationModeGroup);
     auto* lunationDegreeRangeLayout = new QHBoxLayout(lunationDegreeRangeRow);
     lunationDegreeRangeLayout->setContentsMargins(0, 0, 0, 0);
@@ -3013,8 +3068,36 @@ void MainWindow::setupDockLayout() {
     lunationDegreeRangeLayout->addStretch();
     lunationTimezoneLabel_ = new QLabel("Timezone: natal", lunationModeGroup);
     lunationTimezoneLabel_->setObjectName("hintLabel");
-    auto* lunationRefLabel = new QLabel("Reference: system now", lunationModeGroup);
-    lunationRefLabel->setObjectName("hintLabel");
+    auto* referenceRow = new QWidget(lunationModeGroup);
+    auto* referenceLayout = new QHBoxLayout(referenceRow);
+    referenceLayout->setContentsMargins(0, 0, 0, 0);
+    lunationReferenceEdit_ = new QDateTimeEdit(referenceRow);
+    lunationReferenceEdit_->setDisplayFormat("d MMM yyyy h:mm:ss AP");
+    lunationReferenceEdit_->setCalendarPopup(true);
+    lunationReferenceEdit_->setDateRange(QDate(1800, 1, 1), QDate(2399, 12, 31));
+    auto* referenceNow = new QPushButton("Now", referenceRow);
+    auto* referenceChart = new QPushButton("Use chart time", referenceRow);
+    referenceChart->setToolTip("Use the selected transit date/time as the search reference.");
+    referenceLayout->addWidget(lunationReferenceEdit_, 1);
+    referenceLayout->addWidget(referenceNow);
+    referenceLayout->addWidget(referenceChart);
+    auto setReference = [this](const QDateTime& instant) {
+        QTimeZone zone; QString label, error;
+        const QString inputZone = currentInput_.timezone.trimmed().isEmpty() ? "UTC" : currentInput_.timezone;
+        if (!parseTimezoneInput(inputZone, &zone, &label, &error)) {
+            setStatusMessage(error);
+            return;
+        }
+        const auto local = instant.toTimeZone(zone);
+        lunationReferenceEdit_->setDate(local.date());
+        lunationReferenceEdit_->setTime(local.time());
+    };
+    connect(referenceNow, &QPushButton::clicked, this, [setReference]() { setReference(QDateTime::currentDateTimeUtc()); });
+    connect(referenceChart, &QPushButton::clicked, this, [this, setReference]() {
+        const auto selected = transitSelectedLocal();
+        if (selected.isValid()) setReference(selected);
+    });
+    setReference(QDateTime::currentDateTimeUtc());
     lunationModeLayout->addWidget(new QLabel("Mode", lunationModeGroup), 0, 0);
     lunationModeLayout->addWidget(lunationModeRow, 0, 1, 1, 2);
     lunationModeLayout->addWidget(new QLabel("Eclipse Rule", lunationModeGroup), 1, 0);
@@ -3027,11 +3110,13 @@ void MainWindow::setupDockLayout() {
     lunationModeLayout->addWidget(lunationDegreeRangeRow, 5, 1, 1, 2);
     lunationModeLayout->addWidget(new QLabel("Timezone", lunationModeGroup), 6, 0);
     lunationModeLayout->addWidget(lunationTimezoneLabel_, 6, 1, 1, 2);
-    lunationModeLayout->addWidget(lunationRefLabel, 7, 0, 1, 3);
+    lunationModeLayout->addWidget(new QLabel("After", lunationModeGroup), 7, 0);
+    lunationModeLayout->addWidget(referenceRow, 7, 1, 1, 2);
 
     auto* lunationAnalysisSection = new CollapsibleSection("Degree Analysis (advanced)", false, transitLunationPanel_);
     QWidget* lunationAnalysisGroup = lunationAnalysisSection->contentWidget();
     auto* lunationAnalysisLayout = new QGridLayout();
+    lunationAnalysisLayout_ = lunationAnalysisLayout;
     lunationAnalysisLayout->setHorizontalSpacing(8);
     lunationAnalysisLayout->setVerticalSpacing(6);
     lunationAnalysisLayout->setColumnStretch(1, 1);
@@ -3144,15 +3229,51 @@ void MainWindow::setupDockLayout() {
     lunationAnalysisLayout->addWidget(strictnessRow, analysisRow++, 1, 1, 2);
     lunationAnalysisLayout->addWidget(new QLabel("Match Key", lunationAnalysisGroup), analysisRow, 0);
     lunationAnalysisLayout->addWidget(lunationMatchCombo_, analysisRow++, 1, 1, 2);
-    lunationAnalysisLayout->addWidget(new QLabel("Sign Filter", lunationAnalysisGroup), analysisRow, 0);
-    lunationAnalysisLayout->addWidget(lunationSignModeCombo_, analysisRow, 1);
-    lunationAnalysisLayout->addWidget(lunationSignCombo_, analysisRow++, 2);
-    lunationAnalysisLayout->addWidget(new QLabel("House Filter", lunationAnalysisGroup), analysisRow, 0);
-    lunationAnalysisLayout->addWidget(lunationHouseModeCombo_, analysisRow, 1);
-    lunationAnalysisLayout->addWidget(lunationHouseCombo_, analysisRow++, 2);
+    auto* placementGroup = new QGroupBox("Placement Filters · Moon", transitLunationPanel_);
+    auto* placementLayout = new QGridLayout(placementGroup);
+    placementLayout->addWidget(new QLabel("Sign", placementGroup), 0, 0);
+    placementLayout->addWidget(lunationSignModeCombo_, 0, 1);
+    placementLayout->addWidget(lunationSignCombo_, 0, 2);
+    lunationHouseFilterLabel_ = new QLabel("Natal house", placementGroup);
+    placementLayout->addWidget(lunationHouseFilterLabel_, 1, 0);
+    placementLayout->addWidget(lunationHouseModeCombo_, 1, 1);
+    placementLayout->addWidget(lunationHouseCombo_, 1, 2);
+    auto* placementHint = new QLabel("Filters the events found. Use Year Range to find multiple matches. Natal houses require a loaded chart.", placementGroup);
+    placementHint->setWordWrap(true);
+    placementHint->setObjectName("hintLabel");
+    placementLayout->addWidget(placementHint, 2, 0, 1, 3);
     lunationAnalysisLayout->addWidget(new QLabel("Target Degree", lunationAnalysisGroup), analysisRow, 0);
     lunationAnalysisLayout->addWidget(targetRow, analysisRow++, 1, 1, 2);
     lunationAnalysisLayout->addWidget(lunationAnalysisHintLabel_, analysisRow, 0, 1, 3);
+    ++analysisRow;
+    lunationMinimumCountSpin_ = new QSpinBox(lunationAnalysisGroup);
+    lunationMinimumCountSpin_->setRange(2, 100000);
+    lunationMinimumCountSpin_->setValue(2);
+    lunationAnalysisLayout->addWidget(new QLabel("Minimum occurrences", lunationAnalysisGroup), analysisRow, 0);
+    lunationAnalysisLayout->addWidget(lunationMinimumCountSpin_, analysisRow++, 1, 1, 2);
+    lunationGroupSortCombo_ = new QComboBox(lunationAnalysisGroup);
+    lunationGroupSortCombo_->addItems({"Most occurrences", "Degree ascending", "Tightest spread"});
+    lunationAnalysisLayout->addWidget(new QLabel("Sort groups", lunationAnalysisGroup), analysisRow, 0);
+    lunationAnalysisLayout->addWidget(lunationGroupSortCombo_, analysisRow++, 1, 1, 2);
+    lunationSeparateTypesCheck_ = new QCheckBox("Separate event types", lunationAnalysisGroup);
+    lunationAnalysisLayout->addWidget(lunationSeparateTypesCheck_, analysisRow++, 0, 1, 3);
+    auto* groupCopyRow = new QWidget(lunationAnalysisGroup);
+    auto* groupCopyLayout = new QHBoxLayout(groupCopyRow);
+    groupCopyLayout->setContentsMargins(0, 0, 0, 0);
+    auto* copyGroup = new QPushButton("Copy Group", groupCopyRow);
+    auto* copyGroups = new QPushButton("Copy All Groups", groupCopyRow);
+    groupCopyLayout->addWidget(copyGroup);
+    groupCopyLayout->addWidget(copyGroups);
+    lunationAnalysisLayout->addWidget(groupCopyRow, analysisRow++, 0, 1, 3);
+    auto* groupHint = new QLabel("Non-overlapping groups, starting at the lowest unused degree. Spread is highest minus lowest; 29° and 0° stay separate. Counts are event records, including separately requested eclipse records.", lunationAnalysisGroup);
+    groupHint->setWordWrap(true);
+    groupHint->setObjectName("hintLabel");
+    lunationAnalysisLayout->addWidget(groupHint, analysisRow, 0, 1, 3);
+    connect(copyGroup, &QPushButton::clicked, this, [this]() { copyLunationGroups(false); });
+    connect(copyGroups, &QPushButton::clicked, this, [this]() { copyLunationGroups(true); });
+    connect(lunationMinimumCountSpin_, &QSpinBox::valueChanged, this, &MainWindow::updateLunationAnalysisAvailability);
+    connect(lunationGroupSortCombo_, &QComboBox::currentIndexChanged, this, &MainWindow::updateLunationAnalysisAvailability);
+    connect(lunationSeparateTypesCheck_, &QCheckBox::toggled, this, &MainWindow::updateLunationAnalysisAvailability);
     lunationAnalysisSection->setContentLayout(lunationAnalysisLayout);
 
     auto* lunationRunGroup = new QGroupBox("Run", transitLunationPanel_);
@@ -3174,7 +3295,7 @@ void MainWindow::setupDockLayout() {
     lunationConjLayout->setColumnStretch(1, 1);
     lunationPlanetConjCheck_ = new QCheckBox("Require planet conjunction", lunationConjGroup);
     lunationPlanetConjCheck_->setToolTip(
-        "Only keep lunations where the chosen planet is conjunct one of the selected points "
+        "Uses Year Range. At each lunation moment, keep events where the chosen transiting planet is conjunct any selected point "
         "(Sun / Moon / Nodes) within the orb.");
     lunationPlanetCombo_ = new QComboBox(lunationConjGroup);
     for (const auto& bodyName : solarPlacementFinderPlanetOrder()) {
@@ -3205,13 +3326,20 @@ void MainWindow::setupDockLayout() {
     lunationConjLayout->addWidget(lunationPlanetConjCheck_, 0, 0, 1, 2);
     lunationConjLayout->addWidget(new QLabel("Planet", lunationConjGroup), 1, 0);
     lunationConjLayout->addWidget(lunationPlanetCombo_, 1, 1);
-    lunationConjLayout->addWidget(new QLabel("Conjunct", lunationConjGroup), 2, 0);
+    lunationConjLayout->addWidget(new QLabel("Conjunct any", lunationConjGroup), 2, 0);
     lunationConjLayout->addWidget(lunationConjTargetRow, 2, 1);
     lunationConjLayout->addWidget(new QLabel("Orb", lunationConjGroup), 3, 0);
     lunationConjLayout->addWidget(lunationConjOrbSpin_, 3, 1);
 
-    auto updateLunationConjEnabled = [this]() {
+    auto updateLunationConjEnabled = [this, lunationConjLayout]() {
         const bool on = lunationPlanetConjCheck_ && lunationPlanetConjCheck_->isChecked();
+        for (int row = 1; row <= 3; ++row) {
+            for (int col = 0; col < 2; ++col) {
+                if (auto* item = lunationConjLayout->itemAtPosition(row, col))
+                    if (item->widget()) item->widget()->setVisible(on);
+            }
+        }
+        if (on && lunationModeRangeRadio_) lunationModeRangeRadio_->setChecked(true);
         if (lunationPlanetCombo_) lunationPlanetCombo_->setEnabled(on);
         if (lunationConjSunCheck_) lunationConjSunCheck_->setEnabled(on);
         if (lunationConjMoonCheck_) lunationConjMoonCheck_->setEnabled(on);
@@ -3219,13 +3347,15 @@ void MainWindow::setupDockLayout() {
         if (lunationConjSouthNodeCheck_) lunationConjSouthNodeCheck_->setEnabled(on);
         if (lunationConjOrbSpin_) lunationConjOrbSpin_->setEnabled(on);
     };
-    connect(lunationPlanetConjCheck_, &QCheckBox::toggled, this, [updateLunationConjEnabled](bool) {
+    connect(lunationPlanetConjCheck_, &QCheckBox::toggled, this, [this, updateLunationConjEnabled](bool) {
         updateLunationConjEnabled();
+        updateLunationModeAvailability();
     });
     updateLunationConjEnabled();
 
     lunationLayout->addWidget(lunationEventGroup);
     lunationLayout->addWidget(lunationModeGroup);
+    lunationLayout->addWidget(placementGroup);
     lunationLayout->addWidget(lunationConjGroup);
     lunationLayout->addWidget(lunationAnalysisSection);
 
@@ -3443,6 +3573,7 @@ void MainWindow::setupDockLayout() {
         });
     }
     dataStack_->addWidget(transitScroll);
+    solarTransitDataStackIndex_ = dataStack_->addWidget(solarTransitPanel_);
 
     // Lunations is its own main tab; wrap its control panel in a scroll area and
     // register it as a dedicated data-stack page (index captured for switching).
@@ -3553,11 +3684,19 @@ void MainWindow::setupDockLayout() {
     transitListFilterLayout->addWidget(transitListFilterCombo_, 1);
     transitListFilterPanel_->setVisible(false);
     rightTopLayout->addWidget(transitListFilterPanel_);
+    searchResultsSummaryLabel_ = new QLabel(rightTopPanel);
+    searchResultsSummaryLabel_->setWordWrap(true);
+    searchResultsSummaryLabel_->setTextFormat(Qt::PlainText);
+    searchResultsSummaryLabel_->hide();
+    rightTopLayout->addWidget(searchResultsSummaryLabel_);
     rightTopLayout->addWidget(rightTopTable_);
 
     rightTopDock_ = new QDockWidget("Transits", this);
     rightTopDock_->setObjectName("dock_right_top");
     rightTopDock_->setWidget(rightTopPanel);
+    connect(rightTopDock_, &QWidget::windowTitleChanged, this, [this](const QString& title) {
+        searchResultsSummaryLabel_->setVisible(title == "Search Results" && !searchResultsSummary_.isEmpty());
+    });
     rightTopDock_->setAllowedAreas(Qt::AllDockWidgetAreas);
     addDockWidget(Qt::RightDockWidgetArea, rightTopDock_);
 
@@ -4172,7 +4311,7 @@ QString MainWindow::aspectHeaderLabel(const QString& name) const {
     } else if (activeTab_ == AppTab::Progression && progressionView_ != ProgressionView::NatalOnly
                && hasProgressionChart_) {
         nodePolicy = currentProgressionChart_.lunarNodePolicy;
-    } else if (activeTab_ == AppTab::SolarReturn && hasSolarChart_) {
+    } else if ((activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) && hasSolarChart_) {
         nodePolicy = currentSolarChart_.lunarNodePolicy;
     } else if (activeTab_ == AppTab::LunarReturn && hasLunarChart_) {
         nodePolicy = currentLunarChart_.lunarNodePolicy;
@@ -4234,6 +4373,12 @@ void MainWindow::refreshAspectsForHeaderMode() {
         }
         return;
     }
+    if (activeTab_ == AppTab::SolarTransits) {
+        if (solarTransitPanel_ && solarTransitPanel_->selectedTransitChart() && solarTransitPanel_->selectedSource())
+            populateCrossAspectsOverlay(*solarTransitPanel_->selectedTransitChart(), solarTransitPanel_->selectedSource()->returnChart, "Transit", "SR");
+        else setupTable(aspectsTable_, {}, 0);
+        return;
+    }
     if (activeTab_ == AppTab::SolarReturn) {
         if (!hasCurrentChart_ || !hasSolarChart_) {
             setupTable(aspectsTable_, {}, 0);
@@ -4261,6 +4406,7 @@ void MainWindow::refreshAspectsForHeaderMode() {
             setupTable(aspectsTable_, {}, 0);
             return;
         }
+        if (chartWheel_) chartWheel_->clearAspectHighlight();
         switch (lunarAspectView_) {
             case LunarAspectView::LunarNatal:
                 populateCrossAspectsOverlay(currentLunarChart_, currentChart_, "Lunar");
@@ -4481,6 +4627,10 @@ void MainWindow::setupConnections() {
     if (mainTabBar_) {
         connect(mainTabBar_, &QTabBar::currentChanged, this, &MainWindow::handleMainTabChanged);
     }
+    if (vedicPanel_) {
+        connect(vedicPanel_, &VedicPanel::statusMessage, this,
+                [this](const QString& message) { setStatusMessage(message); });
+    }
     if (returnFinderController_) {
         connect(returnFinderController_, &ReturnFinderController::selectionChanged,
                 this, &MainWindow::refreshReturnFinderDocks);
@@ -4641,7 +4791,8 @@ void MainWindow::setupConnections() {
     if (transitAspectGridToggleButton_) {
         connect(transitAspectGridToggleButton_, &QToolButton::toggled, this,
                 [this](bool checked) {
-            transitAspectGridVisible_ = checked;
+            if (activeTab_ == AppTab::SolarTransits) solarTransitGridVisible_ = checked;
+            else transitAspectGridVisible_ = checked;
             updateTransitAspectGridVisibility();
             setStatusMessage(checked
                 ? "Transit aspect matrix shown."
@@ -5234,7 +5385,8 @@ void MainWindow::setupConnections() {
             if (tabs_->currentWidget() == reportPanel_) {
                 refreshNatalReport();
             }
-            if (activeTab_ == AppTab::SolarReturn) {
+            if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
+                refreshSolarReturnView();
                 updateAspectScopeTabs();
                 updateSolarTechniqueDockTitles();
                 refreshSolarTechniqueView();
@@ -5250,6 +5402,31 @@ void MainWindow::setupConnections() {
             }
         });
     }
+    connect(searchFindModeCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        QSignalBlocker rangeBlock(searchModeRangeRadio_);
+        QSignalBlocker nextBlock(searchModeNextRadio_);
+        QSignalBlocker previousBlock(searchModePrevRadio_);
+        if (index == 1) searchModeNextRadio_->setChecked(true);
+        else if (index == 2) searchModePrevRadio_->setChecked(true);
+        else searchModeRangeRadio_->setChecked(true);
+        searchRangeModeCombo_->setCurrentIndex(0);
+        updateTransitSearchVisibility();
+    });
+    connect(searchMatchCombo_, &QComboBox::currentIndexChanged, this, [this](int) {
+        updateTransitSearchVisibility();
+    });
+    connect(rightTopTable_, &QTableWidget::currentCellChanged, this,
+        [this](int row, int column, int, int) {
+            if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Search
+                && row >= 0 && row < transitSearchResults_.size()) {
+                const auto& result = transitSearchResults_[row];
+                if (!hasTransitSearchSelection_ || result.timeUtc != lastTransitSearchSelection_.timeUtc
+                    || result.planet != lastTransitSearchSelection_.planet
+                    || result.event != lastTransitSearchSelection_.event
+                    || result.aspect != lastTransitSearchSelection_.aspect)
+                    handleTransitSearchResultActivated(row, column);
+            }
+        });
     if (searchRunButton_) {
         connect(searchRunButton_, &QPushButton::clicked, this, &MainWindow::handleTransitSearchRun);
     }
@@ -5457,6 +5634,14 @@ void MainWindow::setupConnections() {
         connect(astroMapWidget_, &AstroMapWidget::mapClicked, this, &MainWindow::handleAstroMapClicked);
         connect(astroMapWidget_, &AstroMapWidget::mapHovered, this, &MainWindow::handleAstroMapHovered);
         connect(astroMapWidget_, &AstroMapWidget::mapHoverCleared, this, &MainWindow::clearAstroHoverPreview);
+    }
+    if (searchHouseCombo_) {
+        connect(searchHouseCombo_, QOverload<int>::of(&QComboBox::activated), this, [this](int) {
+            // A manual house choice replaces the natal-body shortcut.
+            if (!searchTargetCombo_ || !searchEventCombo_->currentText().contains("House")) return;
+            const QSignalBlocker blocker(searchTargetCombo_);
+            searchTargetCombo_->setCurrentIndex(0);
+        });
     }
     if (searchTargetCombo_) {
         connect(searchTargetCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
@@ -5951,6 +6136,18 @@ void MainWindow::setupConnections() {
     }
     if (aspectsTable_) {
         connect(aspectsTable_, &QTableWidget::cellEntered, this, &MainWindow::updateAspectHover);
+        connect(aspectsTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
+            if (activeTab_ != AppTab::LunarReturn || lunarAspectView_ != LunarAspectView::LunarNatal
+                || !hasLunarChart_ || !chartWheel_) return;
+            const auto* item = aspectsTable_->item(row, column);
+            if (!item || item->data(AspectRoles::Kind).toInt() != AspectFilled) {
+                chartWheel_->clearAspectHighlight();
+                return;
+            }
+            chartWheel_->setAspectHighlight("Lunar Return " + item->data(AspectRoles::BodyA).toString(),
+                                           "Natal " + item->data(AspectRoles::BodyB).toString());
+            setStatusMessage(item->toolTip() + ". Press Esc or click empty chart space to clear the highlight.");
+        });
     }
     // Clean full-row hover highlight for the data/results tables (the aspect
     // matrix keeps its own delegate).
@@ -6009,7 +6206,7 @@ void MainWindow::setupConnections() {
         });
     }
     if (rightBottomTable_) {
-        connect(rightBottomTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
+        connect(rightBottomTable_, &QTableWidget::currentCellChanged, this, [this](int row, int column, int, int) {
             Q_UNUSED(column);
             if (!inLunationsView()) {
                 return;
@@ -6024,7 +6221,15 @@ void MainWindow::setupConnections() {
             if (idx < 0 || idx >= lunationResults_.size()) {
                 return;
             }
+            const int groupIndex = lunationSelectedGroupIndex_;
             applyLunationResult(lunationResults_[idx]);
+            // Keep the research group's event list available after loading
+            // a chart, rather than replacing it with single-event details.
+            if (groupIndex >= 0 && groupIndex < lunationDegreeGroups_.size()) {
+                showLunationGroupDetails(groupIndex);
+                const QSignalBlocker blocker(rightBottomTable_);
+                rightBottomTable_->selectRow(row);
+            }
         });
     }
 
@@ -6036,6 +6241,16 @@ void MainWindow::setupConnections() {
 void MainWindow::resetDockLayout() {
     if (!defaultDockState_.isEmpty()) {
         restoreState(defaultDockState_);
+        if (vedicWorkspaceActive_) {
+            vedicDataDockWasVisible_ = dataDock_ && !dataDock_->isHidden();
+            vedicRightTopDockWasVisible_ = rightTopDock_ && !rightTopDock_->isHidden();
+            vedicTransitAspectsDockWasVisible_ = transitAspectsDock_ && !transitAspectsDock_->isHidden();
+            vedicRightBottomDockWasVisible_ = rightBottomDock_ && !rightBottomDock_->isHidden();
+            if (dataDock_) dataDock_->hide();
+            if (rightTopDock_) rightTopDock_->hide();
+            if (transitAspectsDock_) transitAspectsDock_->hide();
+            if (rightBottomDock_) rightBottomDock_->hide();
+        }
         setLayoutLocked(layoutLocked_);
         updateTransitSearchVisibility();
     }
@@ -6778,7 +6993,19 @@ void MainWindow::saveUiState() {
                       defaultZodiacalReleasingSettings_.maximumAge);
     settings.setValue("calculations/zodiacal_releasing/maximum_level",
                       defaultZodiacalReleasingSettings_.maximumLevel);
+    if (vedicWorkspaceActive_) {
+        if (dataDock_) dataDock_->setVisible(vedicDataDockWasVisible_);
+        if (rightTopDock_) rightTopDock_->setVisible(vedicRightTopDockWasVisible_);
+        if (transitAspectsDock_) transitAspectsDock_->setVisible(vedicTransitAspectsDockWasVisible_);
+        if (rightBottomDock_) rightBottomDock_->setVisible(vedicRightBottomDockWasVisible_);
+    }
     settings.setValue("ui/dock_state", saveState());
+    if (vedicWorkspaceActive_) {
+        if (dataDock_) dataDock_->hide();
+        if (rightTopDock_) rightTopDock_->hide();
+        if (transitAspectsDock_) transitAspectsDock_->hide();
+        if (rightBottomDock_) rightBottomDock_->hide();
+    }
     settings.setValue("ui/layout_locked", layoutLocked_);
     if (leftSplitter_ && leftSplitter_->count() > 1) {
         settings.setValue("ui/left_splitter", leftSplitter_->saveState());
@@ -7109,7 +7336,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             && QApplication::activeWindow() == this
             && !QApplication::activeModalWidget()
             && !QApplication::activePopupWidget()
-            && chartWheel_ && chartWheel_->hasFocusBody()) {
+            && chartWheel_ && (chartWheel_->hasFocusBody() || chartWheel_->hasAspectHighlight())) {
             QWidget* focus = QApplication::focusWidget();
             auto* focusedTextEdit = qobject_cast<QTextEdit*>(focus);
             auto* focusedCombo = qobject_cast<QComboBox*>(focus);
@@ -7119,6 +7346,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 || (focusedCombo && focusedCombo->isEditable());
             if (!editableFocus) {
                 chartWheel_->clearFocusBody();
+                chartWheel_->clearAspectHighlight();
                 setStatusMessage("Chart focus cleared.");
                 return true;
             }
@@ -7254,7 +7482,7 @@ void MainWindow::showAsteroidSelectionDialog() {
         refreshTransitsTab();
     } else if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
-    } else if (activeTab_ == AppTab::SolarReturn) {
+    } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         refreshSolarReturnView();
     } else if (activeTab_ == AppTab::LunarReturn) {
         refreshLunarReturnView();
@@ -7501,7 +7729,7 @@ void MainWindow::refreshAspectMatrixForCurrentView() {
         refreshSynastryView();
     } else if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
-    } else if (activeTab_ == AppTab::SolarReturn) {
+    } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         refreshSolarReturnView();
     } else if (activeTab_ == AppTab::LunarReturn) {
         refreshLunarReturnView();
@@ -7858,7 +8086,7 @@ void MainWindow::showChartSettingsMenu() {
             refreshTransitsTab();
         } else if (activeTab_ == AppTab::Progression) {
             refreshProgressionView();
-        } else if (activeTab_ == AppTab::SolarReturn) {
+        } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
             refreshSolarReturnView();
         } else if (activeTab_ == AppTab::LunarReturn) {
             refreshLunarReturnView();
@@ -8577,7 +8805,7 @@ void MainWindow::showFixedStarSelectionDialog() {
     }
     if (activeTab_ == AppTab::Progression) {
         refreshProgressionView();
-    } else if (activeTab_ == AppTab::SolarReturn) {
+    } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         refreshSolarReturnView();
     } else if (activeTab_ == AppTab::LunarReturn) {
         refreshLunarReturnView();
@@ -8712,6 +8940,9 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     currentLocation_ = location;
     currentChart_ = chart;
     hasCurrentChart_ = true;
+    if (vedicPanel_) {
+        vedicPanel_->setNatalContext(currentInput_, currentChart_, currentLocation_);
+    }
     transitAspectPeakResults_.clear();
     transitAspectPeakDisplayOrder_.clear();
     hasTransitAspectPeakSelection_ = false;
@@ -8783,7 +9014,7 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
         // Progression view already refreshed.
     } else if (activeTab_ == AppTab::Relocation) {
         refreshRelocationView();
-    } else if (activeTab_ == AppTab::SolarReturn) {
+    } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         // A natal recompute (e.g., switching Tropical/Sidereal) must re-derive the
         // solar return in the new zodiac so the chart, technique and finder views
         // all reflect the selected mode instead of staying on the old one.
@@ -9001,7 +9232,7 @@ void MainWindow::updateTransitWorkspaceLayout() {
         return;
     }
 
-    const bool useTransitWorkspace = (activeTab_ == AppTab::Transits);
+    const bool useTransitWorkspace = (activeTab_ == AppTab::Transits || activeTab_ == AppTab::SolarTransits);
     if (useTransitWorkspace == transitWorkspaceLayoutActive_) {
         return;
     }
@@ -9043,18 +9274,20 @@ void MainWindow::updateTransitAspectGridVisibility() {
         return;
     }
 
-    const bool inTransitWorkspace = (activeTab_ == AppTab::Transits);
+    const bool inTransitWorkspace = (activeTab_ == AppTab::Transits || activeTab_ == AppTab::SolarTransits);
+    const bool gridVisible = activeTab_ == AppTab::SolarTransits ? solarTransitGridVisible_ : transitAspectGridVisible_;
     if (transitAspectGridToggleButton_) {
         transitAspectGridToggleButton_->setVisible(inTransitWorkspace);
-        if (transitAspectGridToggleButton_->isChecked() != transitAspectGridVisible_) {
-            transitAspectGridToggleButton_->setChecked(transitAspectGridVisible_);
+        if (transitAspectGridToggleButton_->isChecked() != gridVisible) {
+            const QSignalBlocker block(transitAspectGridToggleButton_);
+            transitAspectGridToggleButton_->setChecked(gridVisible);
         }
     }
     if (!inTransitWorkspace) {
         return;
     }
 
-    if (!transitAspectGridVisible_) {
+    if (!gridVisible) {
         const QList<int> sizes = chartWorkspaceSplitter_->sizes();
         if (sizes.size() == 2 && sizes[0] > 0 && sizes[1] > 0) {
             transitWorkspaceSplitterSizes_ = sizes;
@@ -9074,18 +9307,42 @@ void MainWindow::updateTransitAspectGridVisibility() {
 }
 
 void MainWindow::handleMainTabChanged(int index) {
+    clearSolarTransitOverlay();
     activeTab_ = AppTab::Natal;
     if (mainTabBar_ && index >= 0 && index < mainTabBar_->count()) {
         bool ok = false;
         const int value = mainTabBar_->tabData(index).toInt(&ok);
         if (ok && value >= static_cast<int>(AppTab::Natal)
-            && value <= static_cast<int>(AppTab::Synastry)) {
+            && value <= static_cast<int>(AppTab::Vedic)) {
             activeTab_ = static_cast<AppTab>(value);
         }
+    }
+    const bool enteringVedic = activeTab_ == AppTab::Vedic && !vedicWorkspaceActive_;
+    const bool leavingVedic = activeTab_ != AppTab::Vedic && vedicWorkspaceActive_;
+    if (enteringVedic) {
+        vedicDataDockWasVisible_ = dataDock_ && !dataDock_->isHidden();
+        vedicRightTopDockWasVisible_ = rightTopDock_ && !rightTopDock_->isHidden();
+        vedicTransitAspectsDockWasVisible_ = transitAspectsDock_ && !transitAspectsDock_->isHidden();
+        vedicRightBottomDockWasVisible_ = rightBottomDock_ && !rightBottomDock_->isHidden();
+        if (dataDock_) dataDock_->hide();
+        if (rightTopDock_) rightTopDock_->hide();
+        if (transitAspectsDock_) transitAspectsDock_->hide();
+        if (rightBottomDock_) rightBottomDock_->hide();
+        vedicWorkspaceActive_ = true;
+        if (zodiacToolbarRow_) zodiacToolbarRow_->hide();
+    } else if (leavingVedic) {
+        if (dataDock_) dataDock_->setVisible(vedicDataDockWasVisible_);
+        if (rightTopDock_) rightTopDock_->setVisible(vedicRightTopDockWasVisible_);
+        if (transitAspectsDock_) transitAspectsDock_->setVisible(vedicTransitAspectsDockWasVisible_);
+        if (rightBottomDock_) rightBottomDock_->setVisible(vedicRightBottomDockWasVisible_);
+        vedicWorkspaceActive_ = false;
+        if (zodiacToolbarRow_) zodiacToolbarRow_->show();
     }
     if (dataStack_) {
         if (activeTab_ == AppTab::Transits) {
             dataStack_->setCurrentIndex(1);
+        } else if (activeTab_ == AppTab::SolarTransits && solarTransitDataStackIndex_ >= 0) {
+            dataStack_->setCurrentIndex(solarTransitDataStackIndex_);
         } else if (activeTab_ == AppTab::Lunations && lunationsDataStackIndex_ >= 0) {
             dataStack_->setCurrentIndex(lunationsDataStackIndex_);
         } else if (activeTab_ == AppTab::Astrocartography && astrocartographyDataStackIndex_ >= 0) {
@@ -9134,6 +9391,7 @@ void MainWindow::handleMainTabChanged(int index) {
             }
         };
         updateSolarToolTabVisibility(solarTechniquePanel_);
+        if (showSolarTools && solarTransitPanel_) solarTransitPanel_->refreshSource();
         if (solarPlacementFinderPanel_) {
             const int finderIndex = tabs_->indexOf(solarPlacementFinderPanel_);
             if (finderIndex >= 0) tabs_->setTabVisible(finderIndex, false);
@@ -9151,6 +9409,7 @@ void MainWindow::handleMainTabChanged(int index) {
     const bool geodeticEquivalentsActive =
         (activeTab_ == AppTab::GeodeticEquivalents);
     const bool synastryActive = (activeTab_ == AppTab::Synastry);
+    const bool vedicActive = (activeTab_ == AppTab::Vedic);
     if (synastryController_) {
         synastryController_->setActive(synastryActive);
     }
@@ -9169,8 +9428,19 @@ void MainWindow::handleMainTabChanged(int index) {
                 : (zodiacalReleasingActive ? "Zodiacal Releasing Controls"
                     : (geodeticEquivalentsActive ? "Geodetic Equivalents Controls"
                         : (synastryActive ? "Synastry Setup"
-                            : (activeTab_ == AppTab::Transits ? "Transit Setup" : "Chart Data"))))));
+                            : (vedicActive ? "Vedic Birth Chart"
+                                : (activeTab_ == AppTab::Transits ? "Transit Setup" : "Chart Data")))))));
     }
+    if (dataDock_ && solarTransitWorkspaceActive_ != (activeTab_ == AppTab::SolarTransits)) {
+        if (activeTab_ == AppTab::SolarTransits) {
+            solarTransitPreviousDockWidth_ = dataDock_->width();
+            resizeDocks({dataDock_}, {int(width() * (solarTransitResultsExpanded_ ? 0.68 : 0.44))}, Qt::Horizontal);
+        } else if (solarTransitPreviousDockWidth_ > 0) {
+            resizeDocks({dataDock_}, {solarTransitPreviousDockWidth_}, Qt::Horizontal);
+        }
+        solarTransitWorkspaceActive_ = (activeTab_ == AppTab::SolarTransits);
+    }
+    if (activeTab_ == AppTab::SolarTransits && dataDock_) dataDock_->setWindowTitle("Transits to Return — Results");
     updateTransitWorkspaceLayout();
     if (centerStack_) {
         if (astroActive && worldMapPanel_) {
@@ -9184,6 +9454,8 @@ void MainWindow::handleMainTabChanged(int index) {
         } else if (geodeticEquivalentsActive && geodeticEquivalentsController_) {
             centerStack_->setCurrentWidget(
                 geodeticEquivalentsController_->workspaceWidget());
+        } else if (vedicActive && vedicPanel_) {
+            centerStack_->setCurrentWidget(vedicPanel_);
         } else {
             centerStack_->setCurrentWidget(chartViewPanel_);
         }
@@ -9194,11 +9466,12 @@ void MainWindow::handleMainTabChanged(int index) {
                 : (planetaryHoursActive ? "Planetary Hours"
                     : (zodiacalReleasingActive ? "Zodiacal Releasing Timeline"
                         : (geodeticEquivalentsActive ? "Geodetic Equivalents Map"
-                            : "Chart Wheel")))));
+                            : (vedicActive ? "Vedic Birth Chart · D1"
+                                : "Chart Wheel"))))));
     }
     const bool showChartControls = !astroActive && !returnFinderActive
         && !planetaryHoursActive && !zodiacalReleasingActive
-        && !geodeticEquivalentsActive;
+        && !geodeticEquivalentsActive && !vedicActive;
     if (chartSettingsButton_) {
         chartSettingsButton_->setVisible(showChartControls);
     }
@@ -9219,6 +9492,7 @@ void MainWindow::handleMainTabChanged(int index) {
         aspectsPanel_->setVisible(!astroActive && !returnFinderActive
             && !planetaryHoursActive && !zodiacalReleasingActive
             && !geodeticEquivalentsActive
+            && !vedicActive
             && (activeTab_ != AppTab::Transits || transitAspectGridVisible_));
     }
     updateTransitAspectGridVisibility();
@@ -9246,6 +9520,10 @@ void MainWindow::handleMainTabChanged(int index) {
             populateAspects(currentChart_);
         }
         refreshNatalTransitsPanels();
+    } else if (activeTab_ == AppTab::Vedic) {
+        if (vedicPanel_ && hasCurrentChart_) {
+            vedicPanel_->setNatalContext(currentInput_, currentChart_, currentLocation_);
+        }
     } else if (activeTab_ == AppTab::Progression) {
         if (rightTopDock_) {
             rightTopDock_->setWindowTitle("Progression");
@@ -9256,7 +9534,7 @@ void MainWindow::handleMainTabChanged(int index) {
         updateProgressionTimezoneStatus();
         updateProgressionStatusLabels();
         refreshProgressionView();
-    } else if (activeTab_ == AppTab::SolarReturn) {
+    } else if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         updateSolarTechniqueDockTitles();
         updateSolarLocationAvailability();
         syncSolarLocationFromNatal();
@@ -10533,6 +10811,51 @@ void MainWindow::handleCopyLunationDetails() {
     setStatusMessage("Lunation details copied to clipboard.");
 }
 
+void MainWindow::copyLunationGroups(bool all) {
+    if (lunationAnalysisMode_ != LunationAnalysisMode::RepeatedDegrees || lunationRunning_) {
+        setStatusMessage("Finish a repeated-degree search first.");
+        return;
+    }
+    QVector<int> groups = all ? lunationDegreeGroupDisplayOrder_ : QVector<int>{lunationSelectedGroupIndex_};
+    QStringList lines;
+    lines << "Repeated lunar degrees — Moon degree within sign"
+        << lunationResearchSource_
+        << QString("Grouping: %1; match key: %2; minimum records: %3; separate types: %4")
+            .arg(lunationDegreeExactRadio_->isChecked() ? "same rounded arcsecond"
+                : QString("maximum total spread %1 degrees, lowest-first non-overlapping groups").arg(lunationOrbCombo_->currentData().toDouble()))
+            .arg(lunationMatchCombo_->currentText()).arg(lunationMinimumCountSpin_->value())
+            .arg(lunationSeparateTypesCheck_->isChecked() ? "yes" : "no")
+        << QString("Placement filters: signs %1 [%2]; natal houses %3 [%4]; house system %5")
+            .arg(lunationSignModeCombo_->currentText(), selectedCheckableItems(lunationSignCombo_).join(", "),
+                 lunationHouseModeCombo_->currentText(), selectedCheckableItems(lunationHouseCombo_).join(", "),
+                 lunationHouseSystemForInput(currentInput_) == HouseSystem::Placidus ? "Placidus" : "Whole Sign")
+        << "Counts are event records, not necessarily distinct lunar cycles. Separately requested eclipses may coexist with phase records."
+        << "Group\tAverage degree\tMinimum\tMaximum\tSpread\tCount\tLocal date/time\tTimezone\tUTC\tEvent\tMoon degree\tSign\tNatal house\tDelta from average (degrees)";
+    int exported = 0;
+    for (int groupIndex : groups) {
+        if (groupIndex < 0 || groupIndex >= lunationDegreeGroups_.size()) continue;
+        const auto& group = lunationDegreeGroups_[groupIndex];
+        auto indices = group.eventIndices;
+        std::sort(indices.begin(), indices.end(), [this](int a, int b) { return lunationResults_[a].timeUtc < lunationResults_[b].timeUtc; });
+        ++exported;
+        for (int index : indices) {
+            const auto& event = lunationResults_[index];
+            const int house = hasCurrentChart_ ? calcHouseForLongitude(event.moonLon, natalPlacidusCusps_,
+                currentChart_.angles.asc, lunationHouseSystemForInput(currentInput_)) : 0;
+            QStringList fields{QString::number(exported), QString::number(group.degree, 'f', 8),
+                QString::number(group.minimum, 'f', 8), QString::number(group.maximum, 'f', 8),
+                QString::number(group.maximum - group.minimum, 'f', 8), QString::number(indices.size()),
+                event.timeLocal.toString("yyyy-MM-dd HH:mm:ss"), event.tzLabel, event.timeUtc.toString(Qt::ISODate),
+                event.event, QString::number(degInSign(event.moonLon), 'f', 8), signName(signIndex(event.moonLon)),
+                house > 0 ? QString::number(house) : "N/A", QString::number(degInSign(event.moonLon) - group.degree, 'f', 8)};
+            lines << fields.join('\t');
+        }
+    }
+    if (!exported) { setStatusMessage("No repeated-degree group selected."); return; }
+    QApplication::clipboard()->setText(lines.join('\n'));
+    setStatusMessage(QString("Copied %1 group(s), including all member events, as tab-separated text.").arg(exported));
+}
+
 void MainWindow::handleCopyReport() {
     QString text;
     QString successMessage;
@@ -11666,70 +11989,44 @@ void MainWindow::updateTransitSearchVisibility() {
     }
     updateLunationCopyButtonState();
 
-    const QString eventType = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
-    const bool isSignEvent = eventType.contains("Sign", Qt::CaseInsensitive);
-    const bool isHouseEvent = eventType.contains("House", Qt::CaseInsensitive);
-    const bool isAspectEvent = eventType.contains("Aspect", Qt::CaseInsensitive);
-    const bool isDegreeEvent = eventType.contains("Degree", Qt::CaseInsensitive);
-    const bool isStationEvent = eventType.contains("Station", Qt::CaseInsensitive);
-    const bool canUseNatalTargets = (transitMode_ == TransitMode::NatalOverlay && hasCurrentChart_);
-    const bool showNatalTarget = canUseNatalTargets && (isAspectEvent || isHouseEvent);
+    const QString event = searchEventCombo_ ? searchEventCombo_->currentText() : QString();
+    const bool sign = event.startsWith("Sign");
+    const bool house = event.startsWith("House");
+    const bool moving = event == "Transit-to-transit Aspect";
+    const bool closest = event == "Closest Approach to Natal";
+    const bool aspect = moving || closest || event == "Aspect to Natal";
+    const bool degree = event == "Degree Hit";
+    const bool shadow = event == "Retrograde Shadow";
+    const bool natalTarget = hasCurrentChart_ && transitMode_ == TransitMode::NatalOverlay && (aspect || house);
     const bool findNext = searchModeNextRadio_ && searchModeNextRadio_->isChecked();
     const bool findPrev = searchModePrevRadio_ && searchModePrevRadio_->isChecked();
-    const bool findMode = findNext || findPrev;
+    if (searchFilterLayout_) {
+        searchFilterLayout_->setRowVisible(searchTargetCombo_, moving || natalTarget);
+        searchTargetLabel_->setText(moving ? "Other transiting body" : house ? "Use natal body's house" : "Natal target");
+        searchFilterLayout_->setRowVisible(searchAspectCombo_, aspect);
+        searchFilterLayout_->setRowVisible(searchMatchCombo_, (aspect || degree) && !closest);
+        searchFilterLayout_->setRowVisible(searchOrbSpin_, closest || ((aspect || degree) && searchMatchCombo_->currentIndex() == 1));
+        if (auto* label = qobject_cast<QLabel*>(searchFilterLayout_->labelForField(searchOrbSpin_)))
+            label->setText(closest ? "Maximum near-miss orb" : "Orb");
+        searchFilterLayout_->setRowVisible(searchHouseCombo_, house);
+        if (auto* label = qobject_cast<QLabel*>(searchFilterLayout_->labelForField(searchHouseCombo_)))
+            label->setText(transitHouseSystem_ == HouseSystem::Placidus ? "House (Placidus)" : "House (Whole Sign)");
+        searchFilterLayout_->setRowVisible(searchSignCombo_, sign);
+        searchFilterLayout_->setRowVisible(searchDegreeSignCombo_, degree);
+        searchFilterLayout_->setRowVisible(searchDegreeSpin_, degree);
+        searchFilterLayout_->setRowVisible(searchShadowCombo_, shadow);
+        searchHintLabel_->setText(moving ? "Both bodies move. Self-pairs and same-type node counterparts are excluded."
+            : closest ? "Find a non-exact natal aspect that reaches its smallest orb at a planetary station, then widens. Exact hits are excluded."
+            : shadow ? "Entry crosses the upcoming direct-station degree; exit crosses the preceding retrograde-station degree. Sun, Moon, nodes and Lilith are excluded."
+            : house ? "Search natal houses. Selecting a natal body fills its house below; the House field is the effective filter."
+            : (aspect || degree) ? "Exact finds the contact. Within orb finds entry and exit of the chosen orb."
+            : "Choose moving bodies and a search period.");
+    }
+    if (searchRangeLayout_) {
+        searchRangeLayout_->setRowVisible(searchEndRow_, !findNext && !findPrev);
+        searchAnchorLabel_->setText(findNext ? "After" : findPrev ? "Before" : "Start");
+    }
 
-    if (searchSignCombo_) {
-        searchSignCombo_->setEnabled(isSignEvent);
-    }
-    if (searchHouseCombo_) {
-        searchHouseCombo_->setEnabled(isHouseEvent);
-    }
-    if (searchAspectCombo_) {
-        searchAspectCombo_->setEnabled(isAspectEvent);
-    }
-    if (searchOrbSpin_) {
-        searchOrbSpin_->setEnabled(isAspectEvent || isDegreeEvent);
-    }
-    if (searchRangeModeCombo_) {
-        searchRangeModeCombo_->setEnabled(!findMode);
-    }
-    if (searchEndDateEdit_) {
-        searchEndDateEdit_->setEnabled(!findMode);
-    }
-    if (searchEndTimeEdit_) {
-        searchEndTimeEdit_->setEnabled(!findMode);
-    }
-    if (searchTargetLabel_) {
-        searchTargetLabel_->setText(isHouseEvent ? "House Of Natal" : "Natal Target");
-        searchTargetLabel_->setVisible(showNatalTarget);
-    }
-    if (searchTargetCombo_) {
-        searchTargetCombo_->setEnabled(showNatalTarget);
-        searchTargetCombo_->setVisible(showNatalTarget);
-    }
-    if (searchDegreeLabel_) {
-        searchDegreeLabel_->setVisible(isDegreeEvent);
-    }
-    if (searchDegreeSpin_) {
-        searchDegreeSpin_->setEnabled(isDegreeEvent);
-        searchDegreeSpin_->setVisible(isDegreeEvent);
-    }
-    if (searchDegreeSignLabel_) {
-        searchDegreeSignLabel_->setVisible(isDegreeEvent);
-    }
-    if (searchDegreeSignCombo_) {
-        searchDegreeSignCombo_->setEnabled(isDegreeEvent);
-        searchDegreeSignCombo_->setVisible(isDegreeEvent);
-    }
-    if (isStationEvent) {
-        if (searchSignCombo_) searchSignCombo_->setEnabled(false);
-        if (searchHouseCombo_) searchHouseCombo_->setEnabled(false);
-        if (searchAspectCombo_) searchAspectCombo_->setEnabled(false);
-        if (searchOrbSpin_) searchOrbSpin_->setEnabled(false);
-        if (searchTargetCombo_) searchTargetCombo_->setEnabled(false);
-        if (searchDegreeSpin_) searchDegreeSpin_->setEnabled(false);
-        if (searchDegreeSignCombo_) searchDegreeSignCombo_->setEnabled(false);
-    }
 }
 
 // Astrocartography map update helpers.
@@ -12692,7 +12989,7 @@ void MainWindow::updateLunationModeAvailability() {
         if (!parseTimezoneInput(tzLabel, &tz, &normLabel, &tzErr)) {
             normLabel = "UTC";
         }
-        lunationTimezoneLabel_->setText(QString("Timezone: %1").arg(normLabel));
+        lunationTimezoneLabel_->setText(normLabel);
     }
     updateLunationAnalysisAvailability();
 }
@@ -12766,7 +13063,7 @@ void MainWindow::updateLunationAnalysisAvailability() {
     const bool targetMode = (lunationAnalysisMode_ == LunationAnalysisMode::TargetDegree);
 
     if (lunationModeRangeRadio_ && lunationModePrevRadio_ && lunationModeNextRadio_) {
-        if (analysisActive) {
+        if (analysisActive || (lunationPlanetConjCheck_ && lunationPlanetConjCheck_->isChecked())) {
             const QSignalBlocker blockRange(lunationModeRangeRadio_);
             lunationModeRangeRadio_->setChecked(true);
             lunationModePrevRadio_->setEnabled(false);
@@ -12800,15 +13097,15 @@ void MainWindow::updateLunationAnalysisAvailability() {
         lunationSignModeCombo_->setEnabled(true);
     }
     if (lunationSignCombo_) {
-        lunationSignCombo_->setEnabled(true);
+        lunationSignCombo_->setEnabled(lunationSignModeCombo_->currentIndex() != 0);
     }
 
     const bool hasNatal = hasCurrentChart_;
     if (lunationHouseModeCombo_) {
-        lunationHouseModeCombo_->setEnabled(analysisActive && hasNatal);
+        lunationHouseModeCombo_->setEnabled(hasNatal);
     }
     if (lunationHouseCombo_) {
-        lunationHouseCombo_->setEnabled(analysisActive && hasNatal);
+        lunationHouseCombo_->setEnabled(hasNatal && lunationHouseModeCombo_->currentIndex() != 0);
     }
     if (lunationAnalysisHintLabel_) {
         lunationAnalysisHintLabel_->setVisible(analysisActive && !hasNatal);
@@ -12832,7 +13129,43 @@ void MainWindow::updateLunationAnalysisAvailability() {
         lunationTargetSecSpin_->setEnabled(analysisActive && targetMode);
     }
 
-    if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Lunations && !lunationRunning_) {
+    auto setGridRowVisible = [](QGridLayout* layout, int row, bool visible) {
+        if (!layout) return;
+        for (int col = 0; col < layout->columnCount(); ++col) {
+            if (auto* item = layout->itemAtPosition(row, col))
+                if (item->widget()) item->widget()->setVisible(visible);
+        }
+    };
+    const bool range = lunationModeRangeRadio_ && lunationModeRangeRadio_->isChecked();
+    setGridRowVisible(lunationSearchLayout_, 2, range);
+    setGridRowVisible(lunationSearchLayout_, 1, lunationSolarEclipseCheck_->isChecked() || lunationLunarEclipseCheck_->isChecked());
+    setGridRowVisible(lunationSearchLayout_, 3, range);
+    setGridRowVisible(lunationSearchLayout_, 5, lunationDegreeRangeCheck_->isChecked());
+    setGridRowVisible(lunationSearchLayout_, 7, !range);
+    if (lunationSearchLayout_) {
+        auto* item = lunationSearchLayout_->itemAtPosition(7, 0);
+        if (auto* label = item ? qobject_cast<QLabel*>(item->widget()) : nullptr)
+            label->setText(lunationModePrevRadio_->isChecked() ? "Before" : "After");
+    }
+    setGridRowVisible(lunationAnalysisLayout_, 1, analysisActive);
+    setGridRowVisible(lunationAnalysisLayout_, 2, analysisActive);
+    setGridRowVisible(lunationAnalysisLayout_, 3, targetMode);
+    const bool repeated = lunationAnalysisMode_ == LunationAnalysisMode::RepeatedDegrees;
+    for (int row = 5; row <= 9; ++row) setGridRowVisible(lunationAnalysisLayout_, row, repeated);
+    lunationDegreeExactRadio_->setText("Same rounded arcsecond");
+    lunationDegreeOrbRadio_->setText(repeated ? "Maximum spread" : "Within orb");
+    for (int i = 0; i < lunationOrbCombo_->count(); ++i) {
+        const QString value = QString::number(lunationOrbCombo_->itemData(i).toDouble()) + QChar(0x00B0);
+        lunationOrbCombo_->setItemText(i, repeated ? value : QString(QChar(0x00B1)) + value);
+    }
+    if (lunationOrbCombo_) lunationOrbCombo_->setVisible(analysisActive && lunationDegreeOrbRadio_->isChecked());
+    if (lunationHouseFilterLabel_) {
+        lunationHouseFilterLabel_->setText(lunationHouseSystemForInput(currentInput_) == HouseSystem::Placidus
+            ? "Natal house (Placidus)" : "Natal house (Whole Sign)");
+        lunationHouseFilterLabel_->setToolTip("Uses the Moon's placement in the loaded natal chart's houses.");
+    }
+
+    if (inLunationsView() && !lunationRunning_) {
         lunationAutoApplied_ = false;
         showLunationResults();
     }
@@ -13417,9 +13750,11 @@ void MainWindow::updateTransitSearchTargets() {
         return;
     }
     const QString currentEvent = searchEventCombo_->currentText();
-    const QStringList desiredEvents = (transitMode_ == TransitMode::TransitOnly)
+    QStringList desiredEvents = (transitMode_ == TransitMode::TransitOnly)
         ? QStringList({"Sign Ingress", "Sign Egress", "Degree Hit", "Station"})
         : QStringList({"House Ingress", "House Egress", "Aspect to Natal", "Degree Hit"});
+    desiredEvents << "Transit-to-transit Aspect" << "Retrograde Shadow";
+    if (transitMode_ == TransitMode::NatalOverlay) desiredEvents << "Closest Approach to Natal";
     bool rebuild = (searchEventCombo_->count() != desiredEvents.size());
     if (!rebuild) {
         for (int i = 0; i < desiredEvents.size(); ++i) {
@@ -13441,11 +13776,19 @@ void MainWindow::updateTransitSearchTargets() {
     }
 
     if (searchTargetCombo_) {
+        const QString previousTarget = searchTargetCombo_->currentData(Qt::UserRole + 1).toString();
         QSignalBlocker targetBlocker(searchTargetCombo_);
         searchTargetCombo_->clear();
         const QString eventType = searchEventCombo_->currentText();
-        const bool isAspectEvent = eventType.contains("Aspect", Qt::CaseInsensitive);
+        const bool moving = eventType == "Transit-to-transit Aspect";
+        const bool isAspectEvent = !moving && (eventType.contains("Aspect", Qt::CaseInsensitive) || eventType == "Closest Approach to Natal");
         const bool isHouseEvent = eventType.contains("House", Qt::CaseInsensitive);
+        if (moving) {
+            for (const auto& name : transitCalculableBodyOrder()) {
+                searchTargetCombo_->addItem(name);
+                searchTargetCombo_->setItemData(searchTargetCombo_->count() - 1, name, Qt::UserRole + 1);
+            }
+        }
         if ((isAspectEvent || isHouseEvent) && hasCurrentChart_ && transitMode_ == TransitMode::NatalOverlay) {
             searchTargetCombo_->addItem("Any");
             auto addTarget = [&](const QString& name, double lon) {
@@ -13462,18 +13805,66 @@ void MainWindow::updateTransitSearchTargets() {
                     searchTargetCombo_->setItemData(index, house, Qt::UserRole);
                 }
             };
-            for (const auto& body : currentChart_.bodies) {
-                addTarget(body.name, body.longitude);
-            }
-            if (isAspectEvent) {
-                for (const auto& star : currentChart_.fixedStars) {
-                    addTarget(star.name, star.longitude);
+            auto addCategory = [&](const QString& title) {
+                searchTargetCombo_->addItem(title);
+                if (auto* model = qobject_cast<QStandardItemModel*>(searchTargetCombo_->model())) {
+                    auto* item = model->item(searchTargetCombo_->count() - 1);
+                    item->setFlags(Qt::NoItemFlags);
+                    QFont font = item->font();
+                    font.setBold(true);
+                    item->setFont(font);
+                }
+            };
+            addCategory("Planets and nodes");
+            QSet<QString> added;
+            const QStringList planetOrder = {"Sun", "Moon", "Mercury", "Venus", "Mars",
+                "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"};
+            for (const auto& name : planetOrder) {
+                for (const auto& body : currentChart_.bodies) {
+                    if (body.name == name) {
+                        addTarget(body.name, body.longitude);
+                        added.insert(body.name);
+                    }
                 }
             }
+            for (const auto& body : currentChart_.bodies) {
+                if (isLunarNodeName(body.name)) {
+                    addTarget(body.name, body.longitude);
+                    added.insert(body.name);
+                }
+            }
+            bool otherHeading = false;
+            for (const auto& body : currentChart_.bodies) {
+                if (added.contains(body.name) || isArabicLotName(body.name)) continue;
+                if (!otherHeading) { addCategory("Other bodies and points"); otherHeading = true; }
+                addTarget(body.name, body.longitude);
+            }
+            addCategory("Angles");
             addTarget("Ascendant", currentChart_.angles.asc);
             addTarget("Midheaven", currentChart_.angles.mc);
             addTarget("Descendant", currentChart_.angles.desc);
             addTarget("IC", currentChart_.angles.ic);
+            if (isAspectEvent && !currentChart_.fixedStars.isEmpty()) {
+                addCategory("Fixed stars");
+                for (const auto& star : currentChart_.fixedStars) addTarget(star.name, star.longitude);
+            }
+            bool lotsHeading = false;
+            for (const auto& body : currentChart_.bodies) {
+                if (!isArabicLotName(body.name)) continue;
+                if (!lotsHeading) { addCategory("Arabic Lots"); lotsHeading = true; }
+                addTarget(body.name, body.longitude);
+            }
+        }
+        const int restore = searchTargetCombo_->findData(previousTarget, Qt::UserRole + 1);
+        if (restore >= 0) {
+            searchTargetCombo_->setCurrentIndex(restore);
+            // Rebuilding blocks selection signals. Explicitly synchronize a
+            // restored natal target's house after changing house systems.
+            if (isHouseEvent && !previousTarget.isEmpty() && searchHouseCombo_) {
+                const int house = searchTargetCombo_->itemData(restore, Qt::UserRole).toInt();
+                const int index = searchHouseCombo_->findText(QString::number(house));
+                if (house > 0 && index >= 0) searchHouseCombo_->setCurrentIndex(index);
+            }
         }
     }
     updateTransitSearchVisibility();
@@ -13525,7 +13916,9 @@ void MainWindow::runTransitSearch() {
         params.natalCusps.push_back(normalizeDegrees(cusp.longitude));
     }
 
-    if (params.overlayMode && !hasCurrentChart_ && !requestedDegreeEvent) {
+    const bool requestedIndependent = requestedEventType == "Transit-to-transit Aspect"
+        || requestedEventType == "Retrograde Shadow";
+    if (params.overlayMode && !hasCurrentChart_ && !requestedDegreeEvent && !requestedIndependent) {
         setStatusMessage("Load a natal chart before running overlay searches.");
         return;
     }
@@ -13556,7 +13949,7 @@ void MainWindow::runTransitSearch() {
         }
     } else {
         const QDateTime endLocal(searchEndDateEdit_->date(), searchEndTimeEdit_->time(), tz);
-        if (!endLocal.isValid()) {
+        if (!endLocal.isValid() || endLocal <= startLocal) {
             setStatusMessage("Invalid search range.");
             return;
         }
@@ -13574,7 +13967,15 @@ void MainWindow::runTransitSearch() {
     }
 
     const QString eventType = requestedEventType;
-    if (eventType.contains("Sign Ingress", Qt::CaseInsensitive)) {
+    if (eventType == "Transit-to-transit Aspect") {
+        params.eventType = SearchEventType::TransitAspect;
+        params.movingTarget = searchTargetCombo_->currentData(Qt::UserRole + 1).toString();
+    } else if (eventType == "Retrograde Shadow") {
+        params.eventType = SearchEventType::RetrogradeShadow;
+        params.shadowPhase = searchShadowCombo_->currentIndex();
+    } else if (eventType == "Closest Approach to Natal") {
+        params.eventType = SearchEventType::ClosestApproach;
+    } else if (eventType.contains("Sign Ingress", Qt::CaseInsensitive)) {
         params.eventType = SearchEventType::SignIngress;
     } else if (eventType.contains("Sign Egress", Qt::CaseInsensitive)) {
         params.eventType = SearchEventType::SignEgress;
@@ -13590,7 +13991,8 @@ void MainWindow::runTransitSearch() {
         params.eventType = SearchEventType::Station;
     }
 
-    if (params.eventType == SearchEventType::Aspect || params.eventType == SearchEventType::DegreeHit) {
+    if (params.eventType == SearchEventType::Aspect || params.eventType == SearchEventType::DegreeHit
+        || params.eventType == SearchEventType::TransitAspect || params.eventType == SearchEventType::ClosestApproach) {
         const bool isDegreeHit = (params.eventType == SearchEventType::DegreeHit);
         const QString aspectLabel = isDegreeHit
             ? QString("Conjunction")
@@ -13599,8 +14001,10 @@ void MainWindow::runTransitSearch() {
         params.anyMajorAspect = !isDegreeHit
             && aspectLabel.compare("Any Major Aspect", Qt::CaseInsensitive) == 0;
         params.aspectAngle = isDegreeHit ? 0.0 : aspectAngleForLabel(aspectLabel);
-        params.orb = searchOrbSpin_ ? searchOrbSpin_->value() : 0.0;
-        params.aspectMode = (params.orb <= 0.01) ? AspectMode::Exact : AspectMode::WithinOrb;
+        const bool withinOrb = params.eventType == SearchEventType::ClosestApproach
+            || (searchMatchCombo_ && searchMatchCombo_->currentIndex() == 1);
+        params.orb = withinOrb ? searchOrbSpin_->value() : 0.0;
+        params.aspectMode = withinOrb ? AspectMode::WithinOrb : AspectMode::Exact;
 
         QMap<QString, double> targets;
         if (isDegreeHit) {
@@ -13611,7 +14015,7 @@ void MainWindow::runTransitSearch() {
             targets.insert(targetName, targetLon);
             params.natalTargets = targets;
             params.targetNames = {targetName};
-        } else {
+        } else if (params.eventType != SearchEventType::TransitAspect) {
             for (const auto& body : currentChart_.bodies) {
                 targets.insert(body.name, body.longitude);
             }
@@ -13650,11 +14054,50 @@ void MainWindow::runTransitSearch() {
     }
 
     params.transitPlanets = selectedTransitPlanets(searchTransitPlanetCombo_);
+    if (params.eventType == SearchEventType::RetrogradeShadow || params.eventType == SearchEventType::ClosestApproach) {
+        params.transitPlanets.removeIf([](const QString& name) {
+            return name == "Sun" || name == "Moon" || name == "Lilith" || isLunarNodeName(name);
+        });
+    }
+    if (params.eventType == SearchEventType::TransitAspect) {
+        params.transitPlanets.removeAll(params.movingTarget);
+        if (params.movingTarget.isEmpty()) {
+            setStatusMessage("Select the other transiting body.");
+            return;
+        }
+        params.transitPlanets.removeIf([&](const QString& name) {
+            return isLunarNodeName(name) && isLunarNodeName(params.movingTarget)
+                && lunarNodeTypeForName(name, effectivePrimaryNodeType(params.lunarNodePolicy))
+                    == lunarNodeTypeForName(params.movingTarget, effectivePrimaryNodeType(params.lunarNodePolicy));
+        });
+    }
     if (params.transitPlanets.isEmpty()) {
-        setStatusMessage("Select at least one transit planet.");
+        setStatusMessage("Select at least one eligible moving body. Shadow/near-miss searches require a retrograding planet; transit aspects require distinct bodies.");
         return;
     }
 
+    // Snapshot the submitted settings; editing controls must not relabel results.
+    const QString movingSummary = params.transitPlanets.size() > 3
+        ? QString("%1 moving bodies").arg(params.transitPlanets.size()) : params.transitPlanets.join(", ");
+    QStringList summaryParts{eventType, movingSummary};
+    if (params.eventType == SearchEventType::HouseIngress || params.eventType == SearchEventType::HouseEgress) {
+        summaryParts << (params.houseSystem == HouseSystem::Placidus ? "Placidus" : "Whole Sign")
+            << (params.houseFilter > 0 ? QString("House %1").arg(params.houseFilter) : "Any house");
+    } else if (params.eventType == SearchEventType::Aspect || params.eventType == SearchEventType::TransitAspect
+        || params.eventType == SearchEventType::ClosestApproach || params.eventType == SearchEventType::DegreeHit) {
+        summaryParts << params.aspectLabel
+            << (params.eventType == SearchEventType::TransitAspect ? params.movingTarget
+                : params.targetNames.size() > 1 ? QString("Any natal target (%1)").arg(params.targetNames.size())
+                : params.targetNames.join(", "))
+            << (params.aspectMode == AspectMode::Exact ? "Exact" : QString("Orb ≤ %1°").arg(params.orb));
+    } else if (params.eventType == SearchEventType::RetrogradeShadow) {
+        summaryParts << searchShadowCombo_->currentText();
+    }
+    const auto readableDate = [](const QDateTime& date) { return QLocale::c().toString(date, "d MMM yyyy h:mm AP"); };
+    const QString period = findNext ? "After " + readableDate(startLocal)
+        : findPrev ? "Before " + readableDate(startLocal)
+        : readableDate(startLocal) + " – " + readableDate(params.endUtc.toTimeZone(tz));
+    searchResultsSummary_ = summaryParts.join(" · ") + "\n" + period + " · " + tzLabel;
     transitSearchResults_.clear();
     searchResultsDirty_ = false;
     hasTransitSearchSelection_ = false;
@@ -13670,12 +14113,11 @@ void MainWindow::runTransitSearch() {
             searchStatusLabel_->setText(status);
         }
     });
-    connect(searchWorker_, &SearchWorker::resultFound, this, [this](const TransitSearchResult& result) {
+    connect(searchWorker_, &SearchWorker::resultFound, this, [this, findMode = params.findMode](const TransitSearchResult& result) {
         transitSearchResults_.push_back(result);
         scheduleTransitSearchResultsRefresh();
-        const bool findMode = (searchModeNextRadio_ && searchModeNextRadio_->isChecked())
-            || (searchModePrevRadio_ && searchModePrevRadio_->isChecked());
-        if (findMode) {
+        if (findMode != SearchFindMode::Range && activeTab_ == AppTab::Transits
+            && transitSubTab_ == TransitSubTab::Search) {
             applyTransitSearchResult(result);
             if (rightTopTable_) {
                 rightTopTable_->selectRow(0);
@@ -13685,6 +14127,8 @@ void MainWindow::runTransitSearch() {
     });
     connect(searchWorker_, &SearchWorker::finished, this, [this](bool cancelled, const QString& error) {
         searchRunning_ = false;
+        searchEventCombo_->parentWidget()->setEnabled(true);
+        searchFindModeCombo_->parentWidget()->setEnabled(true);
         QStringList warnings;
         if (searchWorker_) {
             warnings = searchWorker_->warnings();
@@ -13722,9 +14166,12 @@ void MainWindow::runTransitSearch() {
         if (searchResultsRefreshTimer_ && searchResultsRefreshTimer_->isActive()) {
             searchResultsRefreshTimer_->stop();
         }
-        showTransitSearchResults();
+        if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Search)
+            showTransitSearchResults();
     });
     searchRunning_ = true;
+    searchEventCombo_->parentWidget()->setEnabled(false);
+    searchFindModeCombo_->parentWidget()->setEnabled(false);
     if (searchRunButton_) {
         searchRunButton_->setEnabled(false);
     }
@@ -13741,10 +14188,17 @@ void MainWindow::showTransitSearchResults() {
     if (!rightTopTable_) {
         return;
     }
+    if (searchResultsSummaryLabel_) {
+        searchResultsSummaryLabel_->setText(searchResultsSummary_ + QString("\n%1 result(s)").arg(transitSearchResults_.size()));
+        searchResultsSummaryLabel_->setVisible(activeTab_ == AppTab::Transits
+            && transitSubTab_ == TransitSubTab::Search && !searchResultsSummary_.isEmpty());
+    }
+    const QSignalBlocker selectionBlocker(rightTopTable_);
+    const int scrollPosition = rightTopTable_->verticalScrollBar()->value();
     if (transitSearchResults_.isEmpty()) {
         hasTransitSearchSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
-        rightTopTable_->setItem(0, 0, makeCell(searchRunning_ ? "Searching..." : "No results yet."));
+        rightTopTable_->setItem(0, 0, makeCell(searchRunning_ ? "Searching..." : searchStatusLabel_ && searchStatusLabel_->text().startsWith("Done") ? "No matching events in this search interval." : "No results yet."));
         if (rightBottomTable_) {
             setupTable(rightBottomTable_, {"Info"}, 1);
             rightBottomTable_->setItem(0, 0, makeCell("Select a result to view details."));
@@ -13763,9 +14217,33 @@ void MainWindow::showTransitSearchResults() {
     setupTable(rightTopTable_, {"Date/Time", "Planet", "Event", "Sign/House", "Aspect+Orb"}, transitSearchResults_.size());
     for (int i = 0; i < transitSearchResults_.size(); ++i) {
         const auto& res = transitSearchResults_[i];
-        rightTopTable_->setItem(i, 0, makeCell(res.timeLocal.toString("MMMM d yyyy, h:mm AP")));
+        auto* dateItem = makeCell(QLocale::c().toString(res.timeLocal, "d MMM yyyy · h:mm AP"));
+        dateItem->setToolTip(QLocale::c().toString(res.timeLocal, "dddd, d MMMM yyyy · h:mm:ss AP tttt")
+            + "\nUTC: " + res.timeUtc.toString("yyyy-MM-dd HH:mm:ss"));
+        rightTopTable_->setItem(i, 0, dateItem);
         rightTopTable_->setItem(i, 1, makeCell(res.planet));
-        rightTopTable_->setItem(i, 2, makeCell(res.event));
+        auto* eventItem = makeCell(res.event);
+        // Read the actual result, so mixed-aspect searches and later filter
+        // changes cannot mislabel an existing row.
+        const QString aspectName = res.aspect.section(' ', 0, 0);
+        const QString aspectGlyph = aspectSymbolForLabel(aspectName);
+        if (!aspectGlyph.isEmpty() && (res.event.contains("Aspect")
+            || res.event.startsWith("Closest Approach"))) {
+            QString label = QString("%1 %2").arg(aspectGlyph, aspectName);
+            if (res.event.contains("Entry")) label += " Entry";
+            else if (res.event.contains("Exit")) label += " Exit";
+            else if (res.event.startsWith("Closest Approach")) label += " (near miss)";
+            eventItem->setText(label);
+            // Match the chart wheel's five aspect colors.
+            static const QMap<QString, QColor> colors = {
+                {"Conjunction", QColor("#C99A2E")}, {"Sextile", QColor("#3FA7D6")},
+                {"Square", QColor("#E0533D")}, {"Trine", QColor("#3FA66A")},
+                {"Opposition", QColor("#9B59B6")}
+            };
+            eventItem->setForeground(colors.value(aspectName));
+            eventItem->setToolTip(QString("%1: %2").arg(res.event, res.aspect));
+        }
+        rightTopTable_->setItem(i, 2, eventItem);
         rightTopTable_->setItem(i, 3, makeCell(res.signHouse.isEmpty() ? "-" : res.signHouse));
         QString aspectText = res.aspect;
         if (res.hasOrb) {
@@ -13781,23 +14259,31 @@ void MainWindow::showTransitSearchResults() {
         header->setSectionResizeMode(4, QHeaderView::Stretch);
     }
     rightTopTable_->setUpdatesEnabled(true);
-    if (!transitSearchResults_.isEmpty()) {
-        if (searchRunning_ && !hasTransitSearchSelection_) {
-            if (rightBottomTable_) {
-                setupTable(rightBottomTable_, {"Info"}, 1);
-                rightBottomTable_->setItem(0, 0, makeCell("Search running. Select a result to load transit placements."));
+    int selectedRow = -1;
+    if (hasTransitSearchSelection_) {
+        for (int i = 0; i < transitSearchResults_.size(); ++i) {
+            const auto& result = transitSearchResults_[i];
+            if (result.timeUtc == lastTransitSearchSelection_.timeUtc
+                && result.planet == lastTransitSearchSelection_.planet
+                && result.event == lastTransitSearchSelection_.event
+                && result.aspect == lastTransitSearchSelection_.aspect) {
+                selectedRow = i;
+                break;
             }
-        } else {
-            showTransitSearchDetails(transitSearchResults_.front());
-        }
-        if (!searchAutoApplied_ && !searchRunning_) {
-            applyTransitSearchResult(transitSearchResults_.front());
-            if (rightTopTable_) {
-                rightTopTable_->selectRow(0);
-            }
-            searchAutoApplied_ = true;
         }
     }
+    if (selectedRow >= 0) {
+        rightTopTable_->selectRow(selectedRow);
+        showTransitSearchDetails(transitSearchResults_[selectedRow]);
+    } else if (!searchAutoApplied_ && !searchRunning_) {
+        applyTransitSearchResult(transitSearchResults_.front());
+        rightTopTable_->selectRow(0);
+        searchAutoApplied_ = true;
+    } else if (rightBottomTable_) {
+        setupTable(rightBottomTable_, {"Info"}, 1);
+        rightBottomTable_->setItem(0, 0, makeCell("Select a result to load transit placements."));
+    }
+    rightTopTable_->verticalScrollBar()->setValue(scrollPosition);
     updateLunationCopyButtonState();
 }
 
@@ -14391,14 +14877,20 @@ void MainWindow::runLunationSearch() {
         params.endUtc = endLocal.toUTC();
     } else if (lunationModePrevRadio_ && lunationModePrevRadio_->isChecked()) {
         params.findMode = LunationFindMode::Previous;
-        const QDateTime nowLocal = QDateTime::currentDateTimeUtc().toTimeZone(tz);
-        params.startUtc = nowLocal.toUTC();
+        const QDateTime reference(lunationReferenceEdit_->date(), lunationReferenceEdit_->time(), tz);
+        if (!reference.isValid()) { setStatusMessage("Invalid reference date/time."); return; }
+        params.startUtc = reference.toUTC();
     } else {
         params.findMode = LunationFindMode::Next;
-        const QDateTime nowLocal = QDateTime::currentDateTimeUtc().toTimeZone(tz);
-        params.startUtc = nowLocal.toUTC();
+        const QDateTime reference(lunationReferenceEdit_->date(), lunationReferenceEdit_->time(), tz);
+        if (!reference.isValid()) { setStatusMessage("Invalid reference date/time."); return; }
+        params.startUtc = reference.toUTC();
     }
 
+    lunationResearchSource_ = QString("Source search (UTC): %1 to %2; timezone: %3; zodiac: %4; ayanamsa ID: %5; eclipse rule ID: %6")
+        .arg(params.startUtc.toString(Qt::ISODate), params.endUtc.toString(Qt::ISODate), params.tzLabel,
+             params.zodiacSystem == ZodiacSystem::Sidereal ? "Sidereal" : "Tropical")
+        .arg(static_cast<int>(params.siderealAyanamsa)).arg(static_cast<int>(params.eclipseRule));
     lunationRunning_ = true;
     lunationAutoApplied_ = false;
     lunationResults_.clear();
@@ -14536,6 +15028,9 @@ void MainWindow::showLunationResults() {
         return true;
     };
 
+    const int houseFilterMode = lunationHouseModeCombo_ ? lunationHouseModeCombo_->currentIndex() : 0;
+    const QStringList selectedHouses = selectedCheckableItems(lunationHouseCombo_);
+    const HouseSystem houseSystem = lunationHouseSystemForInput(currentInput_);
     lunationListDisplayOrder_.reserve(lunationResults_.size());
     for (int i = 0; i < lunationResults_.size(); ++i) {
         const auto& res = lunationResults_[i];
@@ -14543,12 +15038,17 @@ void MainWindow::showLunationResults() {
         if (!signFilterAllows(signIdx)) {
             continue;
         }
+        if (hasCurrentChart_ && houseFilterMode != 0 && !selectedHouses.isEmpty()) {
+            const int house = calcHouseForLongitude(res.moonLon, natalPlacidusCusps_, currentChart_.angles.asc, houseSystem);
+            const bool selected = selectedHouses.contains(QString::number(house));
+            if ((houseFilterMode == 1 && !selected) || (houseFilterMode == 2 && selected)) continue;
+        }
         lunationListDisplayOrder_.push_back(i);
     }
 
     if (lunationListDisplayOrder_.isEmpty()) {
         setupTable(rightTopTable_, {"Info"}, 1);
-        rightTopTable_->setItem(0, 0, makeCell("No lunations match the selected sign filter."));
+        rightTopTable_->setItem(0, 0, makeCell("No lunations match the selected placement filters."));
         setupTable(rightBottomTable_, {"Info"}, 1);
         rightBottomTable_->setItem(0, 0, makeCell("Adjust sign filters or reset to Any."));
         hasLunationSelection_ = false;
@@ -14745,10 +15245,11 @@ void MainWindow::buildLunationDegreeGroups() {
     if (exact) {
         QMap<QString, int> groupIndexMap;
         for (const auto& info : events) {
-            const int arcsec = static_cast<int>(std::llround(info.degree * 3600.0));
+            const int arcsec = static_cast<int>(lunation_degrees::roundedArcsecond(info.degree));
             const int signKey = includeSign ? info.signIndex : -1;
             const int houseKey = includeHouse ? info.house : 0;
-            const QString key = QString("%1|%2|%3").arg(arcsec).arg(signKey).arg(houseKey);
+            const QString typeKey = lunationSeparateTypesCheck_->isChecked() ? lunationResults_[info.index].event : QString();
+            const QString key = QString("%1|%2|%3|%4").arg(arcsec).arg(signKey).arg(houseKey).arg(typeKey);
             if (!groupIndexMap.contains(key)) {
                 LunationDegreeGroup group;
                 group.degree = info.degree;
@@ -14766,7 +15267,8 @@ void MainWindow::buildLunationDegreeGroups() {
         for (const auto& info : events) {
             const int signKey = includeSign ? info.signIndex : -1;
             const int houseKey = includeHouse ? info.house : 0;
-            const QString key = QString("%1|%2").arg(signKey).arg(houseKey);
+            const QString typeKey = lunationSeparateTypesCheck_->isChecked() ? lunationResults_[info.index].event : QString();
+            const QString key = QString("%1|%2|%3").arg(signKey).arg(houseKey).arg(typeKey);
             buckets[key].push_back(info);
         }
         for (auto it = buckets.begin(); it != buckets.end(); ++it) {
@@ -14774,18 +15276,11 @@ void MainWindow::buildLunationDegreeGroups() {
             std::sort(bucket.begin(), bucket.end(), [](const EventInfo& a, const EventInfo& b) {
                 return a.degree < b.degree;
             });
+            std::vector<double> sortedDegrees;
+            for (const auto& item : bucket) sortedDegrees.push_back(item.degree);
             int startIndex = 0;
-            while (startIndex < bucket.size()) {
-                double startDeg = bucket[startIndex].degree;
-                int endIndex = startIndex;
-                while (endIndex + 1 < bucket.size()) {
-                    const double nextDeg = bucket[endIndex + 1].degree;
-                    if (nextDeg - startDeg <= orb) {
-                        endIndex++;
-                        continue;
-                    }
-                    break;
-                }
+            for (const int endExclusive : lunation_degrees::groupEnds(sortedDegrees, orb)) {
+                const int endIndex = endExclusive - 1;
                 LunationDegreeGroup group;
                 double sumDeg = 0.0;
                 for (int i = startIndex; i <= endIndex; ++i) {
@@ -14794,7 +15289,7 @@ void MainWindow::buildLunationDegreeGroups() {
                 }
                 group.degree = sumDeg / static_cast<double>(group.eventIndices.size());
                 const QStringList parts = it.key().split("|");
-                if (parts.size() == 2) {
+                if (parts.size() >= 2) {
                     group.signIndex = parts[0].toInt();
                     group.house = parts[1].toInt();
                 }
@@ -14805,7 +15300,18 @@ void MainWindow::buildLunationDegreeGroups() {
     }
 
     for (int i = 0; i < lunationDegreeGroups_.size(); ++i) {
-        if (lunationDegreeGroups_[i].eventIndices.size() >= 2) {
+        auto& group = lunationDegreeGroups_[i];
+        group.minimum = 30.0;
+        group.maximum = 0.0;
+        double sum = 0.0;
+        for (int index : group.eventIndices) {
+            const double degree = degInSign(lunationResults_[index].moonLon);
+            group.minimum = std::min(group.minimum, degree);
+            group.maximum = std::max(group.maximum, degree);
+            sum += degree;
+        }
+        group.degree = sum / group.eventIndices.size();
+        if (group.eventIndices.size() >= lunationMinimumCountSpin_->value()) {
             lunationDegreeGroupDisplayOrder_.push_back(i);
         }
     }
@@ -14813,10 +15319,18 @@ void MainWindow::buildLunationDegreeGroups() {
               [this](int a, int b) {
         const int countA = lunationDegreeGroups_[a].eventIndices.size();
         const int countB = lunationDegreeGroups_[b].eventIndices.size();
+        const int sort = lunationGroupSortCombo_->currentIndex();
+        if (sort == 1 && lunationDegreeGroups_[a].degree != lunationDegreeGroups_[b].degree)
+            return lunationDegreeGroups_[a].degree < lunationDegreeGroups_[b].degree;
+        const double spreadA = lunationDegreeGroups_[a].maximum - lunationDegreeGroups_[a].minimum;
+        const double spreadB = lunationDegreeGroups_[b].maximum - lunationDegreeGroups_[b].minimum;
+        if (sort == 2 && spreadA != spreadB) return spreadA < spreadB;
         if (countA != countB) {
             return countA > countB;
         }
-        return lunationDegreeGroups_[a].degree < lunationDegreeGroups_[b].degree;
+        if (lunationDegreeGroups_[a].degree != lunationDegreeGroups_[b].degree)
+            return lunationDegreeGroups_[a].degree < lunationDegreeGroups_[b].degree;
+        return a < b;
     });
 }
 
@@ -14827,6 +15341,9 @@ void MainWindow::showLunationAnalysisResults() {
 
     const HouseSystem lunationHouseSystem = lunationHouseSystemForInput(currentInput_);
 
+    QVector<int> previousMembers;
+    if (lunationSelectedGroupIndex_ >= 0 && lunationSelectedGroupIndex_ < lunationDegreeGroups_.size())
+        previousMembers = lunationDegreeGroups_[lunationSelectedGroupIndex_].eventIndices;
     buildLunationDegreeGroups();
 
     if (lunationAnalysisMode_ == LunationAnalysisMode::TargetDegree) {
@@ -14886,10 +15403,20 @@ void MainWindow::showLunationAnalysisResults() {
     }
     lunationBottomEventOrder_.clear();
 
-    setupTable(rightTopTable_, {"Degree", "Count", "Sign", "House", "Types"}, lunationDegreeGroupDisplayOrder_.size());
+    const QSignalBlocker groupSelectionBlocker(rightTopTable_);
+    rightTopDock_->setWindowTitle(QString("Repeated Degrees · %1 groups").arg(lunationDegreeGroupDisplayOrder_.size()));
+    setupTable(rightTopTable_, {"Average Degree", "Count", "Sign", "House", "Types", "Spread", "Years", "Lowest – Highest"}, lunationDegreeGroupDisplayOrder_.size());
     for (int row = 0; row < lunationDegreeGroupDisplayOrder_.size(); ++row) {
         const int groupIndex = lunationDegreeGroupDisplayOrder_[row];
         const auto& group = lunationDegreeGroups_[groupIndex];
+        int firstYear = 9999, lastYear = 0;
+        for (int idx : group.eventIndices) {
+            firstYear = std::min(firstYear, lunationResults_[idx].timeLocal.date().year());
+            lastYear = std::max(lastYear, lunationResults_[idx].timeLocal.date().year());
+        }
+        rightTopTable_->setItem(row, 5, makeCell(formatDegreeDms(group.maximum - group.minimum)));
+        rightTopTable_->setItem(row, 6, makeCell(QString("%1–%2").arg(firstYear).arg(lastYear)));
+        rightTopTable_->setItem(row, 7, makeCell(QString("%1 – %2").arg(formatDegreeDms(group.minimum), formatDegreeDms(group.maximum))));
         const QString degreeLabel = formatDegreeDms(group.degree);
         rightTopTable_->setItem(row, 0, makeCell(degreeLabel));
         rightTopTable_->setItem(row, 1, makeCell(QString::number(group.eventIndices.size()), Qt::AlignCenter));
@@ -14938,10 +15465,25 @@ void MainWindow::showLunationAnalysisResults() {
         rightTopTable_->setItem(row, 4, typeItem);
     }
 
-    showLunationGroupDetails(lunationDegreeGroupDisplayOrder_.front());
-    if (rightTopTable_) {
-        rightTopTable_->selectRow(0);
+    const int matchKey = lunationMatchCombo_->currentIndex();
+    rightTopTable_->setColumnHidden(2, matchKey != 1 && matchKey != 3);
+    rightTopTable_->setColumnHidden(3, !hasCurrentChart_ || (matchKey != 2 && matchKey != 3));
+    rightTopTable_->setProperty("lunationGroupLayout", true);
+    auto* header = rightTopTable_->horizontalHeader();
+    header->moveSection(header->visualIndex(5), 2);
+    header->moveSection(header->visualIndex(6), 3);
+    rightTopTable_->resizeColumnsToContents();
+    rightTopTable_->setToolTip(QString("%1 groups · minimum %2 event records · Moon degree within sign. Average is arithmetic; spread is highest minus lowest.")
+        .arg(lunationDegreeGroupDisplayOrder_.size()).arg(lunationMinimumCountSpin_->value()));
+    int selectedRow = 0;
+    for (int row = 0; row < lunationDegreeGroupDisplayOrder_.size(); ++row) {
+        if (lunationDegreeGroups_[lunationDegreeGroupDisplayOrder_[row]].eventIndices == previousMembers) {
+            selectedRow = row;
+            break;
+        }
     }
+    showLunationGroupDetails(lunationDegreeGroupDisplayOrder_[selectedRow]);
+    rightTopTable_->selectRow(selectedRow);
     updateLunationCopyButtonState();
 }
 
@@ -14964,7 +15506,10 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         if (b < 0 || b >= lunationResults_.size()) return true;
         return lunationResults_[a].timeUtc < lunationResults_[b].timeUtc;
     });
-    setupTable(rightBottomTable_, {"Date", "Time", "Event", "Moon Deg", "Sign", "House"}, indices.size());
+    const QSignalBlocker memberSelectionBlocker(rightBottomTable_);
+    setupTable(rightBottomTable_, {"Date", "Time", "Event", "Moon Degree", "Sign", "House", "Δ Average"}, indices.size());
+    rightBottomDock_->setWindowTitle(QString("%1 events · Average %2 · Spread %3")
+        .arg(indices.size()).arg(formatDegreeDms(group.degree), formatDegreeDms(group.maximum - group.minimum)));
     for (int row = 0; row < indices.size(); ++row) {
         const int idx = indices[row];
         if (idx < 0 || idx >= lunationResults_.size()) {
@@ -14972,7 +15517,7 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
         }
         lunationBottomEventOrder_.push_back(idx);
         const auto& res = lunationResults_[idx];
-        rightBottomTable_->setItem(row, 0, makeCell(res.timeLocal.toString("ddd, MMM d, yyyy")));
+        rightBottomTable_->setItem(row, 0, makeCell(QLocale::c().toString(res.timeLocal, "d MMM yyyy")));
         rightBottomTable_->setItem(row, 1, makeCell(res.timeLocal.toString("hh:mm AP"), Qt::AlignHCenter | Qt::AlignVCenter));
         rightBottomTable_->setItem(row, 2, makeCell(res.event));
         rightBottomTable_->setItem(row, 3, makeCell(formatDegOnly(res.moonLon)));
@@ -14985,7 +15530,11 @@ void MainWindow::showLunationGroupDetails(int groupIndex) {
             }
         }
         rightBottomTable_->setItem(row, 5, makeCell(houseLabel));
+        const double delta = degInSign(res.moonLon) - group.degree;
+        rightBottomTable_->setItem(row, 6, makeCell(QString(delta < 0 ? "−" : "+") + formatDegreeDms(std::abs(delta))));
+        rightBottomTable_->item(row, 0)->setToolTip(res.timeLocal.toString("yyyy-MM-dd HH:mm:ss") + " " + res.tzLabel);
     }
+    rightBottomTable_->resizeColumnsToContents();
     updateLunationCopyButtonState();
 }
 
@@ -15448,7 +15997,7 @@ void MainWindow::updateSolarTechniqueDockTitles() {
         rightBottomDock_->setWindowTitle("SR Technique Details");
         return;
     }
-    if (activeTab_ == AppTab::SolarReturn) {
+    if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         rightTopDock_->setWindowTitle("Solar Return");
         rightBottomDock_->setWindowTitle("Solar-Natal");
     }
@@ -15928,6 +16477,7 @@ void MainWindow::updateAspectScopeTabs() {
         for (int i = 0; i < labels.size(); ++i) {
             if (aspectScopeTabs_->tabText(i) != labels[i]) {
                 aspectScopeTabs_->setTabText(i, labels[i]);
+                aspectScopeTabs_->setTabToolTip(i, QString());
             }
         }
     };
@@ -15955,6 +16505,8 @@ void MainWindow::updateAspectScopeTabs() {
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(solarAspectView_));
     } else if (showLunarTabs) {
         ensureTabs({"Lunar Return", "Lunar-Natal"});
+        aspectScopeTabs_->setTabToolTip(0, "Lunar Return chart and its internal aspects.");
+        aspectScopeTabs_->setTabToolTip(1, "Natal inside, Lunar Return outside. Click an aspect in the grid or wheel to highlight both endpoints.");
         aspectScopeTabs_->setCurrentIndex(static_cast<int>(lunarAspectView_));
     } else if (showRelocationTabs) {
         ensureTabs({"Relocation", "Relocation-Natal"});
@@ -15974,6 +16526,9 @@ void MainWindow::updateChartLegend() {
     } else if (activeTab_ == AppTab::Progression && progressionView_ == ProgressionView::Overlay) {
         showLegend = true;
         label = "Natal (inner) / Progressed (outer)";
+    } else if (activeTab_ == AppTab::LunarReturn && lunarAspectView_ == LunarAspectView::LunarNatal && hasLunarChart_) {
+        showLegend = true;
+        label = "Natal (inner) / Lunar Return (outer)";
     } else if (activeTab_ == AppTab::Relocation && relocationOverlayCheck_ && relocationOverlayCheck_->isChecked()) {
         showLegend = true;
         label = "Natal (inner) / Relocation (outer)";
@@ -16007,6 +16562,8 @@ void MainWindow::markSolarPlacementFinderStale() {
 
 void MainWindow::markSolarPending() {
     solarPending_ = true;
+    if (solarTransitPanel_) solarTransitPanel_->refreshSource();
+    if (solarTransitOverlayActive_) refreshSolarReturnView();
     updateSolarStatusLabels();
     markSolarPlacementFinderStale();
     refreshSolarTechniqueView();
@@ -17028,7 +17585,7 @@ bool MainWindow::applySolarReturnYear(int year, QString* error) {
         clearTajakaData();
     }
     updateSolarStatusLabels();
-    if (activeTab_ == AppTab::SolarReturn) {
+    if (activeTab_ == AppTab::SolarReturn || activeTab_ == AppTab::SolarTransits) {
         refreshSolarReturnView();
         refreshSolarTechniqueView();
         refreshSolarPlacementFinderView();
@@ -17325,9 +17882,11 @@ static QString ordinalHouseLabel(int house) {
 }
 
 void MainWindow::refreshSolarReturnView() {
-    if (activeTab_ != AppTab::SolarReturn) {
+    if (solarTransitPanel_) solarTransitPanel_->refreshSource();
+    if (activeTab_ != AppTab::SolarReturn && activeTab_ != AppTab::SolarTransits) {
         return;
     }
+    clearSolarTransitOverlay();
     if (!hasCurrentChart_ || !hasSolarChart_) {
         showSolarPlaceholder();
         return;
@@ -17518,6 +18077,12 @@ void MainWindow::refreshSolarReturnView() {
             rightBottomTable_->setItem(i, 1, makeCell(QString("%1 %2").arg(b.signName, formatDegOnly(b.longitude))));
             rightBottomTable_->setItem(i, 2, makeCell(ordinalHouseLabel(natalHouse), Qt::AlignCenter));
         }
+    }
+    if (solarTransitPanel_ && activeTab_ == AppTab::SolarTransits) {
+        solarTransitOverlayActive_ = !solarPending_ && solarTransitPanel_->renderSelectedChart(chartWheel_, aspectOrbs_, aspectDisplayMaxOrb_);
+        if (solarTransitOverlayActive_ && solarTransitPanel_->selectedTransitChart() && solarTransitPanel_->selectedSource())
+            populateCrossAspectsOverlay(*solarTransitPanel_->selectedTransitChart(), solarTransitPanel_->selectedSource()->returnChart, "Transit", "SR");
+        else setupTable(aspectsTable_, {}, 0);
     }
 }
 
@@ -18017,7 +18582,18 @@ void MainWindow::refreshLunarReturnView() {
     populateFixedStars(currentLunarChart_);
     populateHouses(currentLunarChart_, currentLunarInput_.houseSystem);
     if (chartWheel_) {
-        chartWheel_->setChart(currentLunarChart_, currentLunarInput_.houseSystem);
+        chartWheel_->clearFocusBody();
+        chartWheel_->clearHighlight();
+        if (lunarAspectView_ == LunarAspectView::LunarNatal) {
+            chartWheel_->setOverlayCharts(currentChart_, currentLunarChart_, currentInput_.houseSystem, aspectOrbs_);
+            chartWheel_->setBaseLabel("Natal");
+            chartWheel_->setOverlayLabel("Lunar Return");
+            chartWheel_->setOverlayAnglesVisible(true);
+            chartWheel_->setOverlayAspectScopes(true, false, false);
+            chartWheel_->setAspectSelectionEnabled(true);
+        } else {
+            chartWheel_->setChart(currentLunarChart_, currentLunarInput_.houseSystem);
+        }
         chartWheel_->setAspectDisplayMaxOrb(aspectDisplayMaxOrb_);
     }
     switch (lunarAspectView_) {
@@ -18032,9 +18608,11 @@ void MainWindow::refreshLunarReturnView() {
 
     const QDateTime lrLocal = currentLunarChart_.localDateTime;
     if (chartWheel_ && lrLocal.isValid()) {
-        chartWheel_->setChartNote(QString("Lunar Return \u00B7 %1")
-                                      .arg(lrLocal.toString("d MMM yyyy  h:mm AP")));
+        chartWheel_->setChartNote(QString("%1 \u00B7 %2")
+            .arg(lunarAspectView_ == LunarAspectView::LunarNatal ? "Natal + Lunar Return" : "Lunar Return",
+                 lrLocal.toString("d MMM yyyy  h:mm AP")));
     }
+    updateChartLegend();
 
     auto bodyDetail = [](const NatalChart& chart, const QString& name) -> QString {
         for (const auto& b : chart.bodies) {
@@ -21278,6 +21856,12 @@ void MainWindow::handleDeleteProfile() {
 }
 
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows) {
+    if (table->property("lunationGroupLayout").toBool()) {
+        // Shared dock: do not leak research-only column order/visibility.
+        table->setColumnCount(0);
+        table->setToolTip(QString());
+        table->setProperty("lunationGroupLayout", false);
+    }
     table->clear();
     table->setColumnCount(headers.size());
     table->setRowCount(rows);
@@ -21694,6 +22278,8 @@ void MainWindow::populateAspectMatrix(const QStringList& rowNames, const QString
     auto makeAspectItem = [&](const QString& aName, const QString& bName) -> QTableWidgetItem* {
         auto* item = new QTableWidgetItem();
         item->setFlags(Qt::ItemIsEnabled);
+        item->setData(AspectRoles::BodyA, aName);
+        item->setData(AspectRoles::BodyB, bName);
         const AspectMatrixCellData c = lookup(aName, bName);
         if (c.hasAspect && (aspectDisplayMaxOrb_ <= 0.0 || c.orb <= aspectDisplayMaxOrb_)) {
             item->setData(AspectRoles::Kind, AspectFilled);

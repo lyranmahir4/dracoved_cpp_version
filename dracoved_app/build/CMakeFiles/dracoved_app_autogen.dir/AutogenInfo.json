@@ -343,6 +343,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/moorthi.h",
+			"MU",
+			"PRMOGMWJPH/moc_moorthi.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/planetary_hours.h",
 			"MU",
 			"PRMOGMWJPH/moc_planetary_hours.cpp",
@@ -382,6 +388,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.h",
 			"MU",
 			"PRMOGMWJPH/moc_tropical_natal.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_nakshatra.h",
+			"MU",
+			"PRMOGMWJPH/moc_vedic_nakshatra.cpp",
 			null
 		],
 		[
@@ -451,6 +463,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/moorthi_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_moorthi_panel.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/planetary_hours_controller.h",
 			"MU",
 			"MXUWEOXILK/moc_planetary_hours_controller.cpp",
@@ -493,6 +511,42 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/search_event_algorithms.h",
+			"MU",
+			"MXUWEOXILK/moc_search_event_algorithms.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_activity.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_activity.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_algorithms.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_algorithms.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_panel.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_table_item.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_table_item.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_types.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_types.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_calc.h",
 			"MU",
 			"MXUWEOXILK/moc_synastry_calc.cpp",
@@ -505,6 +559,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/tara_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_tara_panel.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.h",
 			"MU",
 			"MXUWEOXILK/moc_transit_calc_service.cpp",
@@ -514,6 +574,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_workers.h",
 			"MU",
 			"MXUWEOXILK/moc_transit_workers.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/vedic_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_vedic_panel.cpp",
 			null
 		],
 		[
@@ -626,6 +692,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/moorthi.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/planetary_hours.cpp",
 			"MU",
 			null
@@ -657,6 +728,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/tropical_natal.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_nakshatra.cpp",
 			"MU",
 			null
 		],
@@ -746,7 +822,17 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_solar_transits.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window_zodiacal_releasing.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/moorthi_panel.cpp",
 			"MU",
 			null
 		],
@@ -786,6 +872,26 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/search_advanced_worker.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_activity_panel.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_calculation.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_panel.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/synastry_calc.cpp",
 			"MU",
 			null
@@ -796,7 +902,17 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/tara_panel.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/vedic_panel.cpp",
 			"MU",
 			null
 		],

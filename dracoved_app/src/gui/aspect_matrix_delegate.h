@@ -24,6 +24,8 @@ constexpr int Glyph = Qt::UserRole + 3;     // aspect glyph OR body glyph (diago
 constexpr int Orb = Qt::UserRole + 4;       // double, degrees
 constexpr int Applying = Qt::UserRole + 5;  // -1 unknown, 0 separating, 1 applying
 constexpr int IconPath = Qt::UserRole + 6;  // planetary SVG resource path for diagonal cells
+constexpr int BodyA = Qt::UserRole + 7;     // raw row body name, independent of header display
+constexpr int BodyB = Qt::UserRole + 8;     // raw column body name
 }  // namespace AspectRoles
 
 struct AspectMatrixPalette {

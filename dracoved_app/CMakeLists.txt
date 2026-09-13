@@ -22,6 +22,15 @@ add_executable(dracoved_app
     src/gui/main_window_zodiacal_releasing.cpp
     src/gui/main_window_geodetic_equivalents.cpp
     src/gui/main_window_solar_report.cpp
+    src/gui/main_window_solar_transits.cpp
+    src/gui/solar_transit_types.h
+    src/gui/solar_transit_algorithms.h
+    src/gui/solar_transit_calculation.cpp
+    src/gui/solar_transit_panel.h
+    src/gui/solar_transit_panel.cpp
+    src/gui/solar_transit_table_item.h
+    src/gui/solar_transit_activity.h
+    src/gui/solar_transit_activity_panel.cpp
     src/gui/main_window_natal_report.cpp
     src/gui/main_window_return_finder.cpp
     src/gui/planetary_hours_controller.h
@@ -60,8 +69,18 @@ add_executable(dracoved_app
     src/gui/synastry_controller.cpp
     src/gui/synastry_calc.h
     src/gui/synastry_calc.cpp
+    src/gui/vedic_panel.h
+    src/gui/vedic_panel.cpp
+    src/gui/moorthi_panel.h
+    src/gui/moorthi_panel.cpp
+    src/gui/tara_panel.h
+    src/gui/tara_panel.cpp
+    src/core/moorthi.h
+    src/core/moorthi.cpp
     src/gui/chart_wheel_widget.h
     src/gui/chart_wheel_widget.cpp
+    src/gui/search_advanced_worker.cpp
+    src/gui/search_event_algorithms.h
     src/gui/transit_workers.h
     src/gui/transit_calc_service.h
     src/gui/transit_calc_service.cpp
@@ -90,6 +109,8 @@ add_executable(dracoved_app
     src/core/progression.cpp
     src/core/progressed_lunar_return.h
     src/core/progressed_lunar_return.cpp
+    src/core/vedic_nakshatra.h
+    src/core/vedic_nakshatra.cpp
     src/core/timezone_utils.h
     src/core/timezone_utils.cpp
 )
