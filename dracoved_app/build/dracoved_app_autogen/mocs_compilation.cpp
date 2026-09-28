@@ -9,6 +9,7 @@
 #include "MXUWEOXILK/moc_main_window.cpp"
 #include "MXUWEOXILK/moc_planetary_hours_controller.cpp"
 #include "MXUWEOXILK/moc_preferences_dialog.cpp"
+#include "MXUWEOXILK/moc_progression_events_panel.cpp"
 #include "MXUWEOXILK/moc_return_finder_controller.cpp"
 #include "MXUWEOXILK/moc_return_finder_worker.cpp"
 #include "MXUWEOXILK/moc_row_hover_delegate.cpp"

@@ -2,6 +2,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/build/dracoved_app_autogen/moc_predefs.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDate \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QDateTime \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QElapsedTimer \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QFlags \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QHash \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QList \
@@ -13,6 +14,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSize \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QStringList \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QTemporaryDir \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QTime \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QTimeZone \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QUrl \
@@ -61,8 +63,14 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qdatastream.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qdatetime.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qdebug.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qdir.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qdirlisting.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qelapsedtimer.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qendian.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qexceptionhandling.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qfile.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qfiledevice.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qfileinfo.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qflags.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qfloat16.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qforeach.h \
@@ -135,6 +143,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtcoreglobal.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtdeprecationdefinitions.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtdeprecationmarkers.h \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/qtemporarydir.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtenvironmentvariables.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtextstream.h \
   C:/Qt/6.10.1/mingw_64/include/QtCore/qtformat_impl.h \
@@ -255,6 +264,10 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/exception.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/exception_defines.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/exception_ptr.h \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/fs_dir.h \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/fs_fwd.h \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/fs_ops.h \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/fs_path.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/functexcept.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/functional_hash.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/bits/hash_bytes.h \
@@ -347,6 +360,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/climits \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/clocale \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/cmath \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/codecvt \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/compare \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/concepts \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/cstddef \
@@ -367,6 +381,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/ext/numeric_traits.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/ext/string_conversions.h \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/ext/type_traits.h \
+  C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/filesystem \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/format \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/functional \
   C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/initializer_list \

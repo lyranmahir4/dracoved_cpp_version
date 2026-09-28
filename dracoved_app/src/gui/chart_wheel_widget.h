@@ -178,6 +178,7 @@ private:
         // ringed four glyphs for a two-body aspect.
         QString scopedNameA;
         QString scopedNameB;
+        QString aspectName;
     };
 
     struct PlacedBody {
@@ -258,6 +259,8 @@ private:
     // distinguishable. Empty wherever planetHitNames_ is empty.
     QVector<QString> planetHitScopedNames_;
     QVector<AspectLineInfo> aspectLines_;
+    QRectF aspectSummaryRect_;
+    QString aspectSummaryTooltip_;
     int hoveredAspectIndex_ = -1;
     QString hoveredPlanetScope_;        // scoped name of hovered planet ("" = none); drives hover ring + cursor
     QPointF panOffset_ = {0.0, 0.0};

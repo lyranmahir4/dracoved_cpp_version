@@ -36,7 +36,7 @@ Charts, aspect tables, selected-event details, and copyable reports share the sa
 | Workspace | Capabilities |
 | --- | --- |
 | **Natal** | Birth chart, placements, angles, houses, fixed stars, aspect matrix, and natal report. |
-| **Vedic** | Sidereal D1 nakshatra/pada/lord placements and Moorthi Nirnaya sign-entry search, with metal indicators, filters and copyable output. |
+| **Vedic** | Dense sidereal D1 placements, houses, lords, motion and D9 signs; side-by-side Moorthi Nirnaya and Transit Tara calculators with filters and copyable output. |
 | **Transits** | Current or selected-time charts, natal overlays, event searches, aspect peaks, calendars, conjunctions, Best Days scans, and profections. |
 | **Progression** | Secondary progressions, natal comparisons, and previous/next progressed lunar returns. |
 | **Synastry** | Compare the active chart with a second saved or manually entered chart using Western cross-aspects and reciprocal-contact marking. |

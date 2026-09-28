@@ -4,6 +4,7 @@
 #include "../core/moorthi.h"
 #include <QWidget>
 #include <QTimeZone>
+#include <QSet>
 
 class QDateEdit;
 class QComboBox;
@@ -16,7 +17,9 @@ namespace dracoved {
 class MoorthiPanel final : public QWidget {
 public:
     explicit MoorthiPanel(SwissEph* swe, QWidget* parent = nullptr);
-    void setContext(const NatalInput& input, const NatalChart& siderealChart);
+    void setContext(const NatalInput& input, const NatalChart& chart);
+    void setBirthFacts(const QString& facts) { birthFacts_ = facts; }
+    void setActiveLords(const QStringList& lords, const QString& context, bool only);
 private:
     struct Target { QString name; int id; double offset; };
     struct Result { QString planet; MoorthiEntry entry; };
@@ -43,6 +46,11 @@ private:
     int natalMoonSign_ = -1;
     QString sourceKey_;
     QString resultContext_;
+    QString operationStatus_;
+    QString birthFacts_;
+    QSet<QString> activeLords_;
+    QString activeContext_;
+    bool activeOnly_ = false;
     QVector<Target> targets_;
     QVector<Target> selected_;
     QVector<Result> results_;

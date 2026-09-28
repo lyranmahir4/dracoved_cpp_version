@@ -10,11 +10,13 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QMap>
 #include <QObject>
 #include <QSet>
 #include <QTime>
 #include <QTimeZone>
+#include <QTemporaryDir>
 #include <QVector>
 #include <algorithm>
 #include <atomic>
@@ -3236,6 +3238,12 @@ public:
         int minimumHits = 2;
         bool groupPeriods = false;
         bool includeTransitTransit = false;
+        bool includeSolarReturn = false;
+        NatalInput natalInput;
+        NatalInput solarReturnInput;
+        double natalSunLongitude = 0.0;
+        bool tajakaReturn = false;
+        QString ephemerisDllPath;
         bool weightingEnabled = false;
         QMap<QString, double> aspectWeights;
         QString ephePath;
@@ -3258,9 +3266,10 @@ signals:
 
 private:
     bool planetLongitude(const QDateTime& utc, const QString& name,
-                         double* outLongitude, QString* error);
+                         double* outLongitude, QString* error, int flags = -1);
 
     Config config_;
+    QTemporaryDir solarEphemerisDirectory_;
     SwissEph swe_;
     int calcFlags_ = 0;
     std::atomic<bool> cancelled_{false};
@@ -3301,12 +3310,17 @@ public:
 
     const QVector<MainWindow::DayScanResult>& results() const { return results_; }
     QStringList warnings() const { return warnings_; }
+    bool wasCancelled() const { return cancelled_.load(); }
+    QString failure() const { return failure_; }
+    qint64 elapsedMs() const { return elapsed_.isValid() ? elapsed_.elapsed() : 0; }
 
 public slots:
     void run() {
+        elapsed_.start();
+        auto fail = [this](const QString& message) { failure_ = message; emit error(message); };
         QString err;
         if (!swe_.load(config_.dllSearchPaths, &err)) {
-            emit error(err);
+            fail(err);
             emit finished();
             return;
         }
@@ -3321,69 +3335,134 @@ public slots:
         QString normLabel;
         QString tzErr;
         if (!parseTimezoneInput(config_.tzLabel, &tz, &normLabel, &tzErr)) {
-            emit error(tzErr);
+            fail(tzErr);
             emit finished();
             return;
         }
 
         const int totalDays = config_.startDate.daysTo(config_.endDate) + 1;
         if (totalDays <= 0) {
-            emit error("Invalid date range.");
+            fail("Invalid date range.");
             emit finished();
             return;
         }
         results_.clear();
         results_.reserve(totalDays);
 
-        auto classifyConjunctionTransitNatal = [&](const QString& transitName, bool* supportive) -> bool {
-            if (config_.conjunctionPolicy == MainWindow::ConjunctionPolicy::Neutral) {
-                return false;
-            }
-            if (transitcalc::isBenefic(transitName)) {
-                if (supportive) *supportive = true;
-                return true;
-            }
-            if (transitcalc::isMalefic(transitName)) {
-                if (supportive) *supportive = false;
-                return true;
-            }
-            return false;
-        };
+        // Scan only consumes positions, houses and Lots. The full display grid
+        // and fixed-star list are built later for the day the user opens.
+        TropicalComputeOptions scanOptions;
+        scanOptions.includeAspectGrid = false;
+        scanOptions.includeFixedStars = false;
 
-        auto classifyConjunctionTransitTransit = [&](const QString& aName, const QString& bName, bool* supportive) -> bool {
-            if (config_.conjunctionPolicy == MainWindow::ConjunctionPolicy::Neutral) {
-                return false;
-            }
-            const bool malefic = transitcalc::isMalefic(aName) || transitcalc::isMalefic(bName);
-            const bool benefic = transitcalc::isBenefic(aName) || transitcalc::isBenefic(bName);
-            if (malefic) {
-                if (supportive) *supportive = false;
-                return true;
-            }
-            if (benefic) {
-                if (supportive) *supportive = true;
-                return true;
-            }
-            return false;
-        };
+        double wTN = std::max(0.0, config_.weightTransitNatal);
+        double wTT = std::max(0.0, config_.weightTransitTransit);
+        double wTS = std::max(0.0, config_.weightTransitSolar);
+        double wTP = std::max(0.0, config_.weightTransitProgressed);
+        double weightSum = wTN + wTT + wTS + wTP;
+        if (weightSum <= 0.0) { wTN = 0.25; wTT = 0.5; wTS = 0.25; wTP = 0.0; weightSum = 1.0; }
+        wTN /= weightSum; wTT /= weightSum; wTS /= weightSum; wTP /= weightSum;
+        const bool combined = config_.mode == MainWindow::TransitScanMode::Combined;
+        const bool needTN = config_.mode == MainWindow::TransitScanMode::TransitNatal || (combined && wTN > 0);
+        const bool needTT = config_.mode == MainWindow::TransitScanMode::TransitTransit || (combined && wTT > 0);
+        const bool needTS = config_.mode == MainWindow::TransitScanMode::TransitSolar || (combined && wTS > 0);
+        const bool needTP = config_.mode == MainWindow::TransitScanMode::TransitProgressed || (combined && wTP > 0);
 
-        struct AspectHit {
-            double weight = 0.0;
-            QString label;
+        struct ScanPoint {
+            QString displayName;
+            double longitude;
+            double weight;
+            int nature; // +1 benefic, -1 malefic, 0 unclassified (for conjunctions).
         };
-
-        auto baseWeightFor = [](const QString& label) -> double {
-            if (label == "Trine") return 1.0;
-            if (label == "Sextile") return 0.7;
-            if (label == "Square") return 1.0;
-            if (label == "Opposition") return 1.0;
-            if (label == "Conjunction") return 1.0;
-            return 0.0;
+        auto scanPoints = [&](const NatalChart& chart, bool angles) {
+            QVector<ScanPoint> points;
+            points.reserve(chart.bodies.size() + 4);
+            auto append = [&](const QString& name, double longitude) {
+                points.push_back({lunarNodeDisplayName(name, chart.lunarNodePolicy), longitude,
+                    transitcalc::bodyWeightFor(name),
+                    transitcalc::isMalefic(name) ? -1 : transitcalc::isBenefic(name) ? 1 : 0});
+            };
+            for (const auto& body : chart.bodies) {
+                if (!config_.includeNodes && transitcalc::isNodeName(body.name)) continue;
+                if (body.isLunarNode && body.lunarNodeType != effectivePrimaryNodeType(chart.lunarNodePolicy)) continue;
+                if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) continue;
+                append(body.name, body.longitude);
+            }
+            if (angles) {
+                append("Ascendant", chart.angles.asc); append("Midheaven", chart.angles.mc);
+                append("Descendant", chart.angles.desc); append("IC", chart.angles.ic);
+            }
+            return points;
+        };
+        const auto natalPoints = scanPoints(config_.natalChart, config_.includeAngles);
+        QMap<int, QVector<ScanPoint>> solarPointsCache;
+        struct AspectDef { const char* label; double angle; double orb; double base; int nature; };
+        // Same order, orbs and formula as aspectForDiff; no per-pair strings/maps.
+        const AspectDef aspectDefs[] = {
+            {"conjunction", 0, config_.orbs.conjunction, 1.0, 0},
+            {"sextile", 60, config_.orbs.sextile, 0.7, 1},
+            {"square", 90, config_.orbs.square, 1.0, -1},
+            {"trine", 120, config_.orbs.trine, 1.0, 1},
+            {"opposition", 180, config_.orbs.opposition, 1.0, -1}
+        };
+        struct AspectHit { double weight; QString label; };
+        struct ScanScore {
+            MainWindow::DayScanResult totals;
+            QVector<AspectHit> topHits;
+        };
+        auto scorePoints = [&](const QVector<ScanPoint>& transits, const QVector<ScanPoint>& targets,
+                               const QString& targetLabel, bool sameChart) {
+            ScanScore scored;
+            struct Candidate { double weight; double orb; int transit; int target; int aspect; };
+            QVector<Candidate> best;
+            best.reserve(6);
+            for (int i = 0; i < transits.size(); ++i) {
+                if (cancelled_.load()) break;
+                const auto& t = transits[i];
+                for (int j = sameChart ? i + 1 : 0; j < targets.size(); ++j) {
+                    const auto& n = targets[j];
+                    const double diff = transitcalc::angularDiffAbs(t.longitude, n.longitude);
+                    for (int k = 0; k < 5; ++k) {
+                        const auto& aspect = aspectDefs[k];
+                        const double orb = std::fabs(diff - aspect.angle);
+                        if (orb > aspect.orb) continue;
+                        int nature = aspect.nature;
+                        if (k == 0) {
+                            if (config_.conjunctionPolicy == MainWindow::ConjunctionPolicy::Neutral) break;
+                            nature = sameChart ? ((t.nature < 0 || n.nature < 0) ? -1
+                                : (t.nature > 0 || n.nature > 0) ? 1 : 0) : t.nature;
+                            if (nature == 0) break;
+                        }
+                        const double orbFactor = std::clamp(aspect.orb > 0 ? 1.0 - orb / aspect.orb : 1.0, 0.0, 1.0);
+                        const double weight = aspect.base * orbFactor * (sameChart ? (t.weight + n.weight) * 0.5 : t.weight);
+                        auto& bucket = scored.totals;
+                        if (nature > 0) { bucket.support += weight; ++bucket.supportCount; }
+                        else { bucket.challenge += weight; ++bucket.challengeCount; }
+                        ++bucket.aspectCount;
+                        // Keep five numeric candidates; format only the five survivors.
+                        if (best.size() < 5 || weight > best.back().weight) {
+                            auto pos = std::upper_bound(best.begin(), best.end(), weight,
+                                [](double value, const Candidate& hit) { return value > hit.weight; });
+                            best.insert(pos, Candidate{weight, orb, i, j, k});
+                            if (best.size() > 5) best.removeLast();
+                        }
+                        break;
+                    }
+                }
+            }
+            for (const auto& hit : best) {
+                const QString label = QString("Transit %1 %2 %3 %4 (orb %5)")
+                    .arg(transits[hit.transit].displayName, QString::fromLatin1(aspectDefs[hit.aspect].label),
+                         targetLabel, targets[hit.target].displayName, QString::number(hit.orb, 'f', 2));
+                scored.topHits.push_back({hit.weight, label});
+                scored.totals.topAspects.push_back(label);
+            }
+            return scored;
         };
 
         double natalSunLon = 0.0;
         if (!transitcalc::findBodyLongitude(config_.natalChart, "Sun", &natalSunLon)) {
-            emit error("Unable to locate natal Sun longitude.");
+            fail("Unable to locate natal Sun longitude.");
             emit finished();
             return;
         }
@@ -3538,7 +3617,7 @@ public slots:
             input.aspectOrbs = config_.orbs;
             NatalChart chart;
             QString calcErr;
-            if (!engine_.compute(input, &chart, &calcErr)) {
+            if (!engine_.compute(input, scanOptions, &chart, &calcErr)) {
                 if (outErr) {
                     *outErr = calcErr;
                 }
@@ -3594,208 +3673,8 @@ public slots:
             return bias * 0.3;
         };
 
-        auto scoreTransitToChart = [&](const NatalChart& transitChart, const NatalChart& targetChart, const QString& targetLabel) {
-            MainWindow::DayScanResult bucket;
-            QVector<AspectHit> hits;
-
-            QVector<QString> transitNames;
-            transitNames.reserve(transitChart.bodies.size());
-            for (const auto& body : transitChart.bodies) {
-                if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
-                    continue;
-                }
-                if (body.isLunarNode
-                    && body.lunarNodeType != effectivePrimaryNodeType(transitChart.lunarNodePolicy)) {
-                    continue;
-                }
-                if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
-                    continue;
-                }
-                transitNames.push_back(body.name);
-            }
-
-            QVector<QString> targetNames;
-            targetNames.reserve(targetChart.bodies.size() + 4);
-            for (const auto& body : targetChart.bodies) {
-                if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
-                    continue;
-                }
-                if (body.isLunarNode
-                    && body.lunarNodeType != effectivePrimaryNodeType(targetChart.lunarNodePolicy)) {
-                    continue;
-                }
-                if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
-                    continue;
-                }
-                targetNames.push_back(body.name);
-            }
-            if (config_.includeAngles) {
-                targetNames.push_back("Ascendant");
-                targetNames.push_back("Midheaven");
-                targetNames.push_back("Descendant");
-                targetNames.push_back("IC");
-            }
-
-            QMap<QString, double> transitMap;
-            for (const auto& body : transitChart.bodies) {
-                transitMap.insert(body.name, body.longitude);
-            }
-            QMap<QString, double> targetMap;
-            for (const auto& body : targetChart.bodies) {
-                targetMap.insert(body.name, body.longitude);
-            }
-            targetMap.insert("Ascendant", targetChart.angles.asc);
-            targetMap.insert("Midheaven", targetChart.angles.mc);
-            targetMap.insert("Descendant", targetChart.angles.desc);
-            targetMap.insert("IC", targetChart.angles.ic);
-
-            for (const auto& tName : transitNames) {
-                const double tLon = transitMap.value(tName);
-                for (const auto& nName : targetNames) {
-                    if (!targetMap.contains(nName)) {
-                        continue;
-                    }
-                    const double nLon = targetMap.value(nName);
-                    const double diff = transitcalc::angularDiffAbs(tLon, nLon);
-                    QString label;
-                    double orb = 0.0;
-                    double maxOrb = 0.0;
-                    if (!transitcalc::aspectForDiff(diff, config_.orbs, &label, &orb, &maxOrb)) {
-                        continue;
-                    }
-                    bool supportive = false;
-                    if (label == "Conjunction") {
-                        if (!classifyConjunctionTransitNatal(tName, &supportive)) {
-                            continue;
-                        }
-                    } else if (label == "Trine" || label == "Sextile") {
-                        supportive = true;
-                    } else if (label == "Square" || label == "Opposition") {
-                        supportive = false;
-                    } else {
-                        continue;
-                    }
-                    double base = baseWeightFor(label);
-                    if (base <= 0.0) {
-                        continue;
-                    }
-                    double orbFactor = (maxOrb > 0.0) ? (1.0 - orb / maxOrb) : 1.0;
-                    orbFactor = std::clamp(orbFactor, 0.0, 1.0);
-                    const double weight = base * orbFactor * transitcalc::bodyWeightFor(tName);
-                    if (supportive) {
-                        bucket.support += weight;
-                        bucket.supportCount++;
-                    } else {
-                        bucket.challenge += weight;
-                        bucket.challengeCount++;
-                    }
-                    bucket.aspectCount++;
-                    const QString aspectText = QString("Transit %1 %2 %3 %4 (orb %5)")
-                        .arg(lunarNodeDisplayName(tName, transitChart.lunarNodePolicy))
-                        .arg(label.toLower())
-                        .arg(targetLabel)
-                        .arg(lunarNodeDisplayName(nName, targetChart.lunarNodePolicy))
-                        .arg(QString::number(orb, 'f', 2));
-                    hits.push_back({weight, aspectText});
-                }
-            }
-
-            std::sort(hits.begin(), hits.end(), [](const AspectHit& a, const AspectHit& b) {
-                return a.weight > b.weight;
-            });
-            const int limit = std::min(5, static_cast<int>(hits.size()));
-            for (int i = 0; i < limit; ++i) {
-                bucket.topAspects.push_back(hits[i].label);
-            }
-            return bucket;
-        };
-
-        auto scoreTransitTransit = [&](const NatalChart& transitChart) {
-            MainWindow::DayScanResult bucket;
-            QVector<AspectHit> hits;
-            QVector<QString> names;
-            QMap<QString, double> map;
-            for (const auto& body : transitChart.bodies) {
-                if (!config_.includeNodes && transitcalc::isNodeName(body.name)) {
-                    continue;
-                }
-                if (body.isLunarNode
-                    && body.lunarNodeType != effectivePrimaryNodeType(transitChart.lunarNodePolicy)) {
-                    continue;
-                }
-                if (!config_.includeAsteroidAspects && isAsteroidBody(body.name)) {
-                    continue;
-                }
-                names.push_back(body.name);
-                map.insert(body.name, body.longitude);
-            }
-            if (config_.includeAngles) {
-                names.push_back("Ascendant");
-                names.push_back("Midheaven");
-                names.push_back("Descendant");
-                names.push_back("IC");
-                map.insert("Ascendant", transitChart.angles.asc);
-                map.insert("Midheaven", transitChart.angles.mc);
-                map.insert("Descendant", transitChart.angles.desc);
-                map.insert("IC", transitChart.angles.ic);
-            }
-            for (int i = 0; i < names.size(); ++i) {
-                for (int j = i + 1; j < names.size(); ++j) {
-                    const QString& aName = names[i];
-                    const QString& bName = names[j];
-                    const double diff = transitcalc::angularDiffAbs(map.value(aName), map.value(bName));
-                    QString label;
-                    double orb = 0.0;
-                    double maxOrb = 0.0;
-                    if (!transitcalc::aspectForDiff(diff, config_.orbs, &label, &orb, &maxOrb)) {
-                        continue;
-                    }
-                    bool supportive = false;
-                    if (label == "Conjunction") {
-                        if (!classifyConjunctionTransitTransit(aName, bName, &supportive)) {
-                            continue;
-                        }
-                    } else if (label == "Trine" || label == "Sextile") {
-                        supportive = true;
-                    } else if (label == "Square" || label == "Opposition") {
-                        supportive = false;
-                    } else {
-                        continue;
-                    }
-                    double base = baseWeightFor(label);
-                    if (base <= 0.0) {
-                        continue;
-                    }
-                    double orbFactor = (maxOrb > 0.0) ? (1.0 - orb / maxOrb) : 1.0;
-                    orbFactor = std::clamp(orbFactor, 0.0, 1.0);
-                    const double weight = base * orbFactor * ((transitcalc::bodyWeightFor(aName) + transitcalc::bodyWeightFor(bName)) * 0.5);
-                    if (supportive) {
-                        bucket.support += weight;
-                        bucket.supportCount++;
-                    } else {
-                        bucket.challenge += weight;
-                        bucket.challengeCount++;
-                    }
-                    bucket.aspectCount++;
-                    const QString aspectText = QString("Transit %1 %2 Transit %3 (orb %4)")
-                        .arg(lunarNodeDisplayName(aName, transitChart.lunarNodePolicy))
-                        .arg(label.toLower())
-                        .arg(lunarNodeDisplayName(bName, transitChart.lunarNodePolicy))
-                        .arg(QString::number(orb, 'f', 2));
-                    hits.push_back({weight, aspectText});
-                }
-            }
-
-            std::sort(hits.begin(), hits.end(), [](const AspectHit& a, const AspectHit& b) {
-                return a.weight > b.weight;
-            });
-            const int limit = std::min(5, static_cast<int>(hits.size()));
-            for (int i = 0; i < limit; ++i) {
-                bucket.topAspects.push_back(hits[i].label);
-            }
-            return bucket;
-        };
-
+        QElapsedTimer progressTimer;
+        progressTimer.start();
         for (QDate date = config_.startDate; date <= config_.endDate; date = date.addDays(1)) {
             if (cancelled_.load()) {
                 break;
@@ -3812,8 +3691,8 @@ public slots:
             transitInput.aspectOrbs = config_.orbs;
             NatalChart transitChart;
             QString calcErr;
-            if (!engine_.compute(transitInput, &transitChart, &calcErr)) {
-                emit error(calcErr);
+            if (!engine_.compute(transitInput, scanOptions, &transitChart, &calcErr)) {
+                fail(calcErr);
                 break;
             }
             for (const auto& warning : transitChart.warnings) {
@@ -3822,50 +3701,45 @@ public slots:
                 }
             }
 
-            MainWindow::DayScanResult tn;
-            MainWindow::DayScanResult tt;
-            MainWindow::DayScanResult ts;
-            MainWindow::DayScanResult tp;
+            const auto transitPoints = scanPoints(transitChart, false);
+            ScanScore tnScore, ttScore, tsScore, tpScore;
             const int year = date.year();
             NatalChart solarChart;
             bool hasSolarChart = false;
-            if (config_.mode == MainWindow::TransitScanMode::TransitNatal
-                || config_.mode == MainWindow::TransitScanMode::Combined) {
-                tn = scoreTransitToChart(transitChart, config_.natalChart, "Natal");
+            if (needTN) tnScore = scorePoints(transitPoints, natalPoints, "Natal", false);
+            if (needTT) {
+                const auto points = scanPoints(transitChart, config_.includeAngles);
+                ttScore = scorePoints(points, points, "Transit", true);
             }
-            if (config_.mode == MainWindow::TransitScanMode::TransitTransit
-                || config_.mode == MainWindow::TransitScanMode::Combined) {
-                tt = scoreTransitTransit(transitChart);
-            }
-            if (config_.mode == MainWindow::TransitScanMode::TransitSolar
-                || config_.mode == MainWindow::TransitScanMode::Combined) {
+            if (needTS && !cancelled_.load()) {
                 QString solarErr;
-                if (!getSolarChart(year, &solarChart, &solarErr)) {
-                    emit error(solarErr);
-                    break;
-                }
+                if (!getSolarChart(year, &solarChart, &solarErr)) { fail(solarErr); break; }
                 hasSolarChart = true;
-                ts = scoreTransitToChart(transitChart, solarChart, "Solar");
+                if (!solarPointsCache.contains(year))
+                    solarPointsCache.insert(year, scanPoints(solarChart, config_.includeAngles));
+                tsScore = scorePoints(transitPoints, solarPointsCache[year], "Solar", false);
             }
-            if (config_.mode == MainWindow::TransitScanMode::TransitProgressed
-                || config_.mode == MainWindow::TransitScanMode::Combined) {
+            if (needTP && !cancelled_.load()) {
                 NatalChart progressedChart;
                 QString progErr;
-                const QDateTime targetLocal(date, config_.scanTime, tz);
-                if (!progressionEngine_.compute(config_.natalInput, targetLocal, normLabel, &progressedChart, &progErr)) {
-                    emit error(progErr);
-                    break;
+                if (!progressionEngine_.compute(config_.natalInput, local, normLabel, &progressedChart, &progErr, false)) {
+                    fail(progErr); break;
                 }
-                for (const auto& warning : progressedChart.warnings) {
-                    if (!warnings_.contains(warning)) {
-                        warnings_.push_back(warning);
-                    }
-                }
-                tp = scoreTransitToChart(transitChart, progressedChart, "Progressed");
+                for (const auto& warning : progressedChart.warnings)
+                    if (!warnings_.contains(warning)) warnings_.push_back(warning);
+                const auto points = scanPoints(progressedChart, config_.includeAngles);
+                tpScore = scorePoints(transitPoints, points, "Progressed", false);
             }
+            if (cancelled_.load()) break; // Never publish a partially scored day.
+            const auto& tn = tnScore.totals;
+            const auto& tt = ttScore.totals;
+            const auto& ts = tsScore.totals;
+            const auto& tp = tpScore.totals;
 
             MainWindow::DayScanResult result;
             result.date = date;
+            result.timeLocal = local;
+            result.tzLabel = normLabel;
             if (config_.mode == MainWindow::TransitScanMode::TransitNatal) {
                 result.support = tn.support;
                 result.challenge = tn.challenge;
@@ -3895,41 +3769,19 @@ public slots:
                 result.aspectCount = tp.aspectCount;
                 result.topAspects = tp.topAspects;
             } else {
-                double wTN = std::max(0.0, config_.weightTransitNatal);
-                double wTT = std::max(0.0, config_.weightTransitTransit);
-                double wTS = std::max(0.0, config_.weightTransitSolar);
-                double wTP = std::max(0.0, config_.weightTransitProgressed);
-                double sum = wTN + wTT + wTS + wTP;
-                if (sum <= 0.0) {
-                    wTN = 0.25;
-                    wTT = 0.5;
-                    wTS = 0.25;
-                    wTP = 0.0;
-                    sum = wTN + wTT + wTS + wTP;
-                }
-                wTN /= sum;
-                wTT /= sum;
-                wTS /= sum;
-                wTP /= sum;
                 result.support = tn.support * wTN + tt.support * wTT + ts.support * wTS + tp.support * wTP;
                 result.challenge = tn.challenge * wTN + tt.challenge * wTT + ts.challenge * wTS + tp.challenge * wTP;
                 result.supportCount = tn.supportCount + tt.supportCount + ts.supportCount + tp.supportCount;
                 result.challengeCount = tn.challengeCount + tt.challengeCount + ts.challengeCount + tp.challengeCount;
                 result.aspectCount = tn.aspectCount + tt.aspectCount + ts.aspectCount + tp.aspectCount;
                 QVector<AspectHit> combinedHits;
-                for (const auto& hit : tn.topAspects) {
-                    combinedHits.push_back({wTN, hit});
-                }
-                for (const auto& hit : tt.topAspects) {
-                    combinedHits.push_back({wTT, hit});
-                }
-                for (const auto& hit : ts.topAspects) {
-                    combinedHits.push_back({wTS, hit});
-                }
-                for (const auto& hit : tp.topAspects) {
-                    combinedHits.push_back({wTP, hit});
-                }
-                std::sort(combinedHits.begin(), combinedHits.end(), [](const AspectHit& a, const AspectHit& b) {
+                auto appendHits = [&](const ScanScore& score, double scopeWeight) {
+                    for (const auto& hit : score.topHits)
+                        combinedHits.push_back({hit.weight * scopeWeight, hit.label});
+                };
+                appendHits(tnScore, wTN); appendHits(ttScore, wTT);
+                appendHits(tsScore, wTS); appendHits(tpScore, wTP);
+                std::stable_sort(combinedHits.begin(), combinedHits.end(), [](const AspectHit& a, const AspectHit& b) {
                     return a.weight > b.weight;
                 });
                 const int limit = std::min(5, static_cast<int>(combinedHits.size()));
@@ -3946,7 +3798,7 @@ public slots:
                     if (!hasSolarChart) {
                         QString solarErr;
                         if (!getSolarChart(year, &solarChart, &solarErr)) {
-                            emit error(solarErr);
+                            fail(solarErr);
                             break;
                         }
                     }
@@ -3959,7 +3811,10 @@ public slots:
             results_.push_back(result);
 
             const int done = config_.startDate.daysTo(date) + 1;
-            emit progress(done, totalDays);
+            if (done == totalDays || progressTimer.elapsed() >= 75) {
+                emit progress(done, totalDays);
+                progressTimer.restart();
+            }
         }
 
         emit finished();
@@ -3977,6 +3832,8 @@ private:
     std::atomic<bool> cancelled_{false};
     QVector<MainWindow::DayScanResult> results_;
     QStringList warnings_;
+    QString failure_;
+    QElapsedTimer elapsed_;
     SwissEph swe_;
     int calcFlags_ = 0;
     TropicalNatalEngine engine_;

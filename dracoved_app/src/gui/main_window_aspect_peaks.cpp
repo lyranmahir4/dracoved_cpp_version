@@ -1,7 +1,9 @@
 #include "main_window.h"
 #include "chart_wheel_widget.h"
+#include "aspect_peak_graph.h"
 #include "transit_calc_service.h"
 #include "transit_workers.h"
+#include "return_calculation_service.h"
 
 #include "../core/formatting.h"
 #include "../core/timezone_utils.h"
@@ -26,15 +28,19 @@
 #include <QLineEdit>
 #include <QProgressBar>
 #include <QRadioButton>
+#include <QScrollBar>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QSvgRenderer>
 #include <QStandardItemModel>
 #include <QThread>
 #include <QTableWidget>
 #include <QTimeEdit>
+#include <QToolButton>
 #include <QVBoxLayout>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <cmath>
@@ -235,9 +241,9 @@ void setupPeakTable(QTableWidget* table, const QStringList& headers, int rows) {
     table->setWordWrap(false);
     table->verticalHeader()->setVisible(false);
     if (auto* header = table->horizontalHeader()) {
+        header->setStretchLastSection(false);
         for (int i = 0; i < headers.size(); ++i) {
-            header->setSectionResizeMode(i, i == headers.size() - 1
-                ? QHeaderView::Stretch : QHeaderView::ResizeToContents);
+            header->setSectionResizeMode(i, QHeaderView::ResizeToContents);
         }
     }
 }
@@ -341,6 +347,17 @@ QString localMoment(const QDateTime& utc, const QTimeZone& timezone) {
     return utc.toTimeZone(timezone).toString("d MMM yyyy, h:mm AP");
 }
 
+QString peakScope(const MainWindow::TransitAspectPeakHit& hit) {
+    return hit.transitSolarReturn ? "T-SR" : (hit.transitTransit ? "T-T" : "T-N");
+}
+
+QString peakSolarReference(const MainWindow::TransitAspectPeakResult& result, const QTimeZone& timezone) {
+    return QString("SR %1: %2 to %3 (next return)")
+        .arg(result.solarReturnYear)
+        .arg(result.solarReturnUtc.toTimeZone(timezone).toString("d MMM yyyy HH:mm:ss"),
+             result.nextSolarReturnUtc.toTimeZone(timezone).toString("d MMM yyyy HH:mm:ss"));
+}
+
 } // namespace
 
 TransitAspectPeakWorker::TransitAspectPeakWorker(const Config& config)
@@ -356,7 +373,18 @@ bool TransitAspectPeakWorker::wasCancelled() const {
 
 void TransitAspectPeakWorker::run() {
     QString loadError;
-    if (!swe_.load(config_.dllSearchPaths, &loadError)) {
+    QStringList dllPaths = config_.dllSearchPaths;
+    if (config_.includeSolarReturn) {
+        // Return calculations must not share Swiss Ephemeris state with the GUI.
+        const QString dll = solarEphemerisDirectory_.filePath("aspect_peaks_ephemeris.dll");
+        if (!solarEphemerisDirectory_.isValid() || !QFile::copy(config_.ephemerisDllPath, dll)) {
+            emit error("Unable to prepare the Solar Return calculation ephemeris.");
+            emit finished();
+            return;
+        }
+        dllPaths = {dll};
+    }
+    if (!swe_.load(dllPaths, &loadError)) {
         emit error(loadError);
         emit finished();
         return;
@@ -365,8 +393,9 @@ void TransitAspectPeakWorker::run() {
         swe_.setEphePath(config_.ephePath);
     }
     calcFlags_ = 0;
-    if (config_.zodiacSystem == ZodiacSystem::Sidereal) {
+    if (config_.includeSolarReturn || config_.zodiacSystem == ZodiacSystem::Sidereal)
         swe_.setSidMode(siderealAyanamsaSwissMode(config_.siderealAyanamsa));
+    if (config_.zodiacSystem == ZodiacSystem::Sidereal) {
         calcFlags_ = SEFLG_SIDEREAL;
     }
     if (!config_.startUtc.isValid() || !config_.endUtc.isValid()
@@ -396,6 +425,68 @@ void TransitAspectPeakWorker::run() {
     const double allowedOrb = std::clamp(config_.orb, 0.0, 15.0);
     const int minimumHits = std::max(1, config_.minimumHits);
 
+    struct SolarReference {
+        QDateTime utc;
+        QMap<QString, double> targets;
+    };
+    QMap<int, SolarReference> solarReferences;
+    int solarYear = config_.startUtc.date().year();
+    const auto loadSolarReference = [&](int year, bool needTargets, QString* error) {
+        if (cancelled_.load()) return false;
+        auto& reference = solarReferences[year];
+        if (!reference.utc.isValid()) {
+            const auto solver = config_.tajakaReturn
+                ? returncalc::tajakaSolarReturnTimeUtc : returncalc::solarReturnTimeUtc;
+            if (!solver(swe_, config_.natalInput, year, config_.solarReturnInput.timezone,
+                        config_.natalSunLongitude, &reference.utc, nullptr, error,
+                        [this] { return cancelled_.load(); })) return false;
+        }
+        if (!needTargets || !reference.targets.isEmpty()) return true;
+        NatalInput input = config_.solarReturnInput;
+        // The instant is already resolved; using UTC here also avoids DST folds.
+        input.date = reference.utc.date();
+        input.time = reference.utc.time();
+        input.timezone = "UTC";
+        TropicalComputeOptions options;
+        options.includeArabicLots = false;
+        options.includePartOfFortune = false;
+        options.includeFixedStars = false;
+        options.includeAspectGrid = false;
+        TropicalNatalEngine engine(&swe_, config_.ephePath);
+        NatalChart chart;
+        if (!engine.compute(input, options, &chart, error)) return false;
+        QMap<QString, double> positions{
+            {"Ascendant", chart.angles.asc}, {"Descendant", chart.angles.desc},
+            {"Midheaven", chart.angles.mc}, {"IC", chart.angles.ic}, {"Vertex", chart.angles.vertex}
+        };
+        for (const auto& body : chart.bodies) positions.insert(body.name, body.longitude);
+        for (auto it = config_.natalTargets.cbegin(); it != config_.natalTargets.cend(); ++it) {
+            if (!positions.contains(it.key())) {
+                *error = QString("Solar Return %1 has no target named %2.").arg(year).arg(it.key());
+                return false;
+            }
+            reference.targets.insert(it.key(), positions.value(it.key()));
+        }
+        return true;
+    };
+    const auto resolveSolarYear = [&](const QDateTime& utc, QString* error) {
+        if (!loadSolarReference(solarYear, false, error)) return false;
+        while (utc < solarReferences.value(solarYear).utc) {
+            --solarYear;
+            if (!loadSolarReference(solarYear, false, error)) return false;
+        }
+        for (;;) {
+            if (!loadSolarReference(solarYear + 1, false, error)) return false;
+            if (solarReferences.value(solarYear + 1).utc <= solarReferences.value(solarYear).utc) {
+                *error = "Solar return boundaries are not in chronological order.";
+                return false;
+            }
+            if (utc < solarReferences.value(solarYear + 1).utc) break;
+            ++solarYear;
+        }
+        return loadSolarReference(solarYear, true, error);
+    };
+
     QMap<QDate, MainWindow::TransitAspectPeakResult> bestByDay;
     MainWindow::TransitAspectPeakResult openPeriod;
     bool periodOpen = false;
@@ -421,6 +512,10 @@ void TransitAspectPeakWorker::run() {
         destination->peakHitCount = source.peakHitCount;
         destination->transitNatalHitCount = source.transitNatalHitCount;
         destination->transitTransitHitCount = source.transitTransitHitCount;
+        destination->transitSolarReturnHitCount = source.transitSolarReturnHitCount;
+        destination->solarReturnYear = source.solarReturnYear;
+        destination->solarReturnUtc = source.solarReturnUtc;
+        destination->nextSolarReturnUtc = source.nextSolarReturnUtc;
         destination->positiveWeight = source.positiveWeight;
         destination->negativeWeight = source.negativeWeight;
         destination->netWeight = source.netWeight;
@@ -451,6 +546,13 @@ void TransitAspectPeakWorker::run() {
         QMap<QString, double> transitLongitudes;
         bool calculationFailed = false;
         QString calculationError;
+        if (config_.includeSolarReturn && !resolveSolarYear(sampleUtc, &calculationError)) {
+            if (cancelled_.load()) break;
+            emit error(QString("Solar Return: %1").arg(calculationError));
+            results_.clear();
+            emit finished();
+            return;
+        }
         for (const auto& bodyName : config_.transitBodies) {
             double longitude = 0.0;
             if (!planetLongitude(sampleUtc, bodyName, &longitude, &calculationError)) {
@@ -471,6 +573,11 @@ void TransitAspectPeakWorker::run() {
         sample.endUtc = sampleUtc;
         sample.peakUtc = sampleUtc;
         sample.sampleCount = 1;
+        if (config_.includeSolarReturn) {
+            sample.solarReturnYear = solarYear;
+            sample.solarReturnUtc = solarReferences.value(solarYear).utc;
+            sample.nextSolarReturnUtc = solarReferences.value(solarYear + 1).utc;
+        }
         QSet<QString> activeTransitBodies;
         QSet<QString> activeNatalTargets;
         const auto applyAspectWeight = [&](MainWindow::TransitAspectPeakHit* hit) {
@@ -486,38 +593,61 @@ void TransitAspectPeakWorker::run() {
             sample.netWeight += hit->weight;
         };
 
-        for (auto transitIt = transitLongitudes.constBegin(); transitIt != transitLongitudes.constEnd(); ++transitIt) {
-            for (auto natalIt = config_.natalTargets.constBegin(); natalIt != config_.natalTargets.constEnd(); ++natalIt) {
-                const double separation = transitcalc::angularDiffAbs(transitIt.value(), natalIt.value());
-                QString bestAspect;
-                double bestOrb = std::numeric_limits<double>::max();
-                for (const auto& aspectLabel : config_.aspectLabels) {
-                    const double aspectOrb = std::fabs(
-                        separation - transitcalc::aspectAngleForLabel(aspectLabel));
-                    if (aspectOrb <= allowedOrb + 1e-9 && aspectOrb < bestOrb) {
-                        bestOrb = aspectOrb;
-                        bestAspect = aspectLabel;
+        const auto addReferenceHits = [&](const QMap<QString, double>& moving,
+                                          const QMap<QString, double>& targets, bool solar) {
+            for (auto transitIt = moving.constBegin(); transitIt != moving.constEnd(); ++transitIt) {
+                for (auto natalIt = targets.constBegin(); natalIt != targets.constEnd(); ++natalIt) {
+                    const double separation = transitcalc::angularDiffAbs(transitIt.value(), natalIt.value());
+                    QString bestAspect;
+                    double bestOrb = std::numeric_limits<double>::max();
+                    for (const auto& aspectLabel : config_.aspectLabels) {
+                        const double aspectOrb = std::fabs(
+                            separation - transitcalc::aspectAngleForLabel(aspectLabel));
+                        if (aspectOrb <= allowedOrb + 1e-9 && aspectOrb < bestOrb) {
+                            bestOrb = aspectOrb;
+                            bestAspect = aspectLabel;
+                        }
+                    }
+                    if (bestAspect.isEmpty()) {
+                        continue;
+                    }
+                    MainWindow::TransitAspectPeakHit hit;
+                    hit.transitBody = transitIt.key();
+                    hit.aspect = bestAspect;
+                    hit.natalTarget = natalIt.key();
+                    hit.transitLongitude = transitIt.value();
+                    hit.natalLongitude = natalIt.value();
+                    hit.orb = bestOrb;
+                    hit.transitSolarReturn = solar;
+                    applyAspectWeight(&hit);
+                    sample.peakHits.push_back(hit);
+                    if (solar) sample.transitSolarReturnHitCount++;
+                    else sample.transitNatalHitCount++;
+                    activeTransitBodies.insert(hit.transitBody);
+                    activeNatalTargets.insert(hit.natalTarget);
+                    sample.tightness += allowedOrb > 1e-9
+                        ? std::max(0.0, 1.0 - bestOrb / allowedOrb)
+                        : (bestOrb <= 1e-9 ? 1.0 : 0.0);
+                }
+            }
+        };
+        addReferenceHits(transitLongitudes, config_.natalTargets, false);
+        if (config_.includeSolarReturn) {
+            QMap<QString, double> solarTransits = transitLongitudes;
+            const int solarFlags = config_.solarReturnInput.zodiacSystem == ZodiacSystem::Sidereal
+                ? SEFLG_SIDEREAL : 0;
+            // Tajaka can use sidereal targets while the natal search is tropical.
+            if (solarFlags != calcFlags_) {
+                for (auto it = solarTransits.begin(); it != solarTransits.end(); ++it) {
+                    if (!planetLongitude(sampleUtc, it.key(), &it.value(), &calculationError, solarFlags)) {
+                        emit error(calculationError);
+                        results_.clear();
+                        emit finished();
+                        return;
                     }
                 }
-                if (bestAspect.isEmpty()) {
-                    continue;
-                }
-                MainWindow::TransitAspectPeakHit hit;
-                hit.transitBody = transitIt.key();
-                hit.aspect = bestAspect;
-                hit.natalTarget = natalIt.key();
-                hit.transitLongitude = transitIt.value();
-                hit.natalLongitude = natalIt.value();
-                hit.orb = bestOrb;
-                applyAspectWeight(&hit);
-                sample.peakHits.push_back(hit);
-                sample.transitNatalHitCount++;
-                activeTransitBodies.insert(hit.transitBody);
-                activeNatalTargets.insert(hit.natalTarget);
-                sample.tightness += allowedOrb > 1e-9
-                    ? std::max(0.0, 1.0 - bestOrb / allowedOrb)
-                    : (bestOrb <= 1e-9 ? 1.0 : 0.0);
             }
+            addReferenceHits(solarTransits, solarReferences.value(solarYear).targets, true);
         }
         if (config_.includeTransitTransit) {
             const QStringList transitNames = transitLongitudes.keys();
@@ -570,6 +700,7 @@ void TransitAspectPeakWorker::run() {
             if (a.transitTransit != b.transitTransit) {
                 return !a.transitTransit;
             }
+            if (a.transitSolarReturn != b.transitSolarReturn) return !a.transitSolarReturn;
             if (a.transitBody != b.transitBody) {
                 return a.transitBody < b.transitBody;
             }
@@ -585,7 +716,8 @@ void TransitAspectPeakWorker::run() {
         if (config_.groupPeriods) {
             if (qualifies) {
                 const bool continues = periodOpen && previousQualifiedUtc.isValid()
-                    && previousQualifiedUtc.secsTo(sampleUtc) <= stepSeconds + 1;
+                    && previousQualifiedUtc.secsTo(sampleUtc) <= stepSeconds + 1
+                    && openPeriod.solarReturnYear == sample.solarReturnYear;
                 if (!continues) {
                     finishPeriod();
                     openPeriod = sample;
@@ -629,7 +761,7 @@ void TransitAspectPeakWorker::cancel() {
 }
 
 bool TransitAspectPeakWorker::planetLongitude(const QDateTime& utc, const QString& name,
-                                              double* outLongitude, QString* error) {
+                                              double* outLongitude, QString* error, int flags) {
     const int bodyId = transitcalc::bodyIdForName(
         name, effectivePrimaryNodeType(config_.lunarNodePolicy));
     if (bodyId < 0) {
@@ -646,7 +778,7 @@ bool TransitAspectPeakWorker::planetLongitude(const QDateTime& utc, const QStrin
         date.year(), date.month(), date.day(), hour, SE_GREG_CAL);
     double longitude = 0.0;
     QString calcError;
-    if (!swe_.calcUt(jd, bodyId, calcFlags_, &longitude, &calcError)) {
+    if (!swe_.calcUt(jd, bodyId, flags < 0 ? calcFlags_ : flags, &longitude, &calcError)) {
         if (error) {
             *error = calcError;
         }
@@ -669,7 +801,7 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
     layout->setSpacing(7);
 
     auto* intro = new QLabel(
-        "Find the days or continuous periods with the most simultaneous transit-to-natal major aspects, optionally including transit-to-transit hits.", panel);
+        "Find peak days or periods of transit-to-natal aspects, optionally including transit-to-transit and annual Solar Return hits.", panel);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -722,7 +854,9 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
 
     selection->addWidget(new QLabel("Transit bodies", selectionGroup), 0, 0);
     selection->addWidget(makeCheckComboRow(aspectPeakTransitBodiesCombo_, selectionGroup, "Select transit bodies"), 0, 1);
-    selection->addWidget(new QLabel("Natal targets", selectionGroup), 1, 0);
+    auto* targetsLabel = new QLabel("Chart targets", selectionGroup);
+    targetsLabel->setToolTip("Target bodies and angles in the natal chart and, when enabled, each active Solar Return chart.");
+    selection->addWidget(targetsLabel, 1, 0);
     selection->addWidget(makeCheckComboRow(aspectPeakNatalTargetsCombo_, selectionGroup, "Select natal targets"), 1, 1);
     selection->addWidget(new QLabel("Aspects", selectionGroup), 2, 0);
     selection->addWidget(makeCheckComboRow(aspectPeakAspectsCombo_, selectionGroup, "Select aspects"), 2, 1);
@@ -752,6 +886,13 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
     aspectPeakIncludeTransitTransitCheck_->setChecked(false);
     aspectPeakIncludeTransitTransitCheck_->setToolTip(
         "Add aspects between unique pairs of the selected transit bodies to the same raw peak hit count.");
+    aspectPeakIncludeSolarReturnCheck_ = new QCheckBox("Include transit-Solar Return hits", settingsGroup);
+    aspectPeakIncludeSolarReturnCheck_->setToolTip(
+        "Use the Solar Return tab's method and location. Switch annual targets at each return moment; "
+        "use the same chart targets, aspects, orb, and weights. Counts include T-N and T-SR separately.");
+    aspectPeakSolarContextLabel_ = new QLabel(settingsGroup);
+    aspectPeakSolarContextLabel_->setWordWrap(true);
+    aspectPeakSolarContextLabel_->hide();
     aspectPeakMinHitsSpin_ = new QSpinBox(settingsGroup);
     aspectPeakMinHitsSpin_->setRange(1, 500);
     aspectPeakMinHitsSpin_->setValue(2);
@@ -765,10 +906,12 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
     settings->addWidget(new QLabel("Sampling resolution", settingsGroup), 2, 0);
     settings->addWidget(aspectPeakResolutionCombo_, 2, 1);
     settings->addWidget(aspectPeakIncludeTransitTransitCheck_, 3, 0, 1, 2);
-    settings->addWidget(new QLabel("Minimum simultaneous hits", settingsGroup), 4, 0);
-    settings->addWidget(aspectPeakMinHitsSpin_, 4, 1);
-    settings->addWidget(new QLabel("Show top", settingsGroup), 5, 0);
-    settings->addWidget(aspectPeakTopCountSpin_, 5, 1);
+    settings->addWidget(aspectPeakIncludeSolarReturnCheck_, 4, 0, 1, 2);
+    settings->addWidget(aspectPeakSolarContextLabel_, 5, 0, 1, 2);
+    settings->addWidget(new QLabel("Minimum simultaneous hits", settingsGroup), 6, 0);
+    settings->addWidget(aspectPeakMinHitsSpin_, 6, 1);
+    settings->addWidget(new QLabel("Show top", settingsGroup), 7, 0);
+    settings->addWidget(aspectPeakTopCountSpin_, 7, 1);
     settings->setColumnStretch(1, 1);
     layout->addWidget(settingsGroup);
 
@@ -863,6 +1006,10 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
     connect(aspectPeakResolutionCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, invalidateResults);
     connect(aspectPeakModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, invalidateResults);
     connect(aspectPeakIncludeTransitTransitCheck_, &QCheckBox::toggled, this, invalidateResults);
+    connect(aspectPeakIncludeSolarReturnCheck_, &QCheckBox::toggled, this, [this, invalidateResults]() {
+        invalidateResults();
+        refreshTransitAspectPeakTab();
+    });
     connect(aspectPeakWeightingGroup_, &QGroupBox::toggled, this,
             [this, invalidateResults](bool enabled) {
         if (aspectPeakWeightingOptions_) aspectPeakWeightingOptions_->setVisible(enabled);
@@ -889,6 +1036,30 @@ QWidget* MainWindow::createTransitAspectPeakPanel(QWidget* parent) {
         });
     }
     return panel;
+}
+
+bool MainWindow::resolveAspectPeakSolarInput(NatalInput* input, QString* context, QString* error) const {
+    QString timezone, location;
+    double latitude = 0.0, longitude = 0.0;
+    if (!resolveSolarReturnContext(&timezone, &location, &latitude, &longitude, error)) return false;
+    *input = currentInput_;
+    input->timezone = timezone;
+    input->latitude = latitude;
+    input->longitude = longitude;
+    input->lunarNodePolicy = currentChart_.lunarNodePolicy;
+    input->useDefaultLunarNodePolicy = false;
+    const bool tajaka = solarChartMethod() == SolarChartMethod::Tajaka;
+    if (tajaka) {
+        input->zodiacSystem = ZodiacSystem::Sidereal;
+        input->houseSystem = HouseSystem::WholeSign;
+    }
+    *context = QString("%1 · %2 · %3, %4 · %5 · %6")
+        .arg(tajaka ? "Tajaka (tropical return timing)" : "Standard return",
+             location.isEmpty() ? "Return location" : location)
+        .arg(latitude, 0, 'f', 4).arg(longitude, 0, 'f', 4)
+        .arg(timezone, input->zodiacSystem == ZodiacSystem::Sidereal
+            ? "Sidereal / " + siderealAyanamsaToString(input->siderealAyanamsa) : QString("Tropical"));
+    return true;
 }
 
 void MainWindow::handleTransitAspectPeakStart() {
@@ -958,6 +1129,20 @@ void MainWindow::handleTransitAspectPeakStart() {
     config.groupPeriods = aspectPeakModeCombo_->currentData().toBool();
     config.includeTransitTransit = aspectPeakIncludeTransitTransitCheck_
         && aspectPeakIncludeTransitTransitCheck_->isChecked();
+    config.includeSolarReturn = aspectPeakIncludeSolarReturnCheck_
+        && aspectPeakIncludeSolarReturnCheck_->isChecked();
+    QString solarContext;
+    if (config.includeSolarReturn) {
+        QString error;
+        if (!resolveAspectPeakSolarInput(&config.solarReturnInput, &solarContext, &error)
+            || !solarReturnTargetSunLongitude(&config.natalSunLongitude, &error)) {
+            setStatusMessage(error);
+            return;
+        }
+        config.natalInput = currentInput_;
+        config.tajakaReturn = solarChartMethod() == SolarChartMethod::Tajaka;
+        config.ephemerisDllPath = swe_.loadedPath();
+    }
     config.weightingEnabled = aspectPeakWeightingGroup_ && aspectPeakWeightingGroup_->isChecked();
     config.aspectWeights = {
         {"Conjunction", aspectPeakConjunctionWeightSpin_->value()},
@@ -981,6 +1166,8 @@ void MainWindow::handleTransitAspectPeakStart() {
     aspectPeakLastMinHits_ = config.minimumHits;
     aspectPeakLastGroupedPeriods_ = config.groupPeriods;
     aspectPeakLastIncludeTransitTransit_ = config.includeTransitTransit;
+    aspectPeakLastIncludeSolarReturn_ = config.includeSolarReturn;
+    aspectPeakLastSolarContext_ = solarContext;
     aspectPeakLastWeightingEnabled_ = config.weightingEnabled;
     aspectPeakLastAspectWeights_ = config.aspectWeights;
     aspectPeakLastWeightRanking_ = aspectPeakWeightRankingCombo_
@@ -990,11 +1177,13 @@ void MainWindow::handleTransitAspectPeakStart() {
     transitAspectPeakDisplayOrder_.clear();
     hasTransitAspectPeakSelection_ = false;
     transitAspectPeakRunning_ = true;
+    aspectPeakLastScanPartial_ = false;
     aspectPeakRunButton_->setEnabled(false);
     aspectPeakCancelButton_->setEnabled(true);
     if (aspectPeakRangeGroup_) aspectPeakRangeGroup_->setEnabled(false);
     if (aspectPeakSelectionGroup_) aspectPeakSelectionGroup_->setEnabled(false);
     if (aspectPeakSettingsGroup_) aspectPeakSettingsGroup_->setEnabled(false);
+    if (aspectPeakWeightingGroup_) aspectPeakWeightingGroup_->setEnabled(false);
     aspectPeakProgressBar_->setRange(0, 100);
     aspectPeakProgressBar_->setValue(0);
     aspectPeakStatusLabel_->setText("Scanning...");
@@ -1046,11 +1235,13 @@ void MainWindow::handleTransitAspectPeakFinished() {
         aspectPeakWorker_ = nullptr;
     }
     transitAspectPeakRunning_ = false;
+    aspectPeakLastScanPartial_ = cancelled;
     if (aspectPeakRunButton_) aspectPeakRunButton_->setEnabled(true);
     if (aspectPeakCancelButton_) aspectPeakCancelButton_->setEnabled(false);
     if (aspectPeakRangeGroup_) aspectPeakRangeGroup_->setEnabled(true);
     if (aspectPeakSelectionGroup_) aspectPeakSelectionGroup_->setEnabled(true);
     if (aspectPeakSettingsGroup_) aspectPeakSettingsGroup_->setEnabled(true);
+    if (aspectPeakWeightingGroup_) aspectPeakWeightingGroup_->setEnabled(true);
     if (aspectPeakProgressBar_ && !cancelled && runError.isEmpty()) {
         aspectPeakProgressBar_->setValue(aspectPeakProgressBar_->maximum());
     }
@@ -1067,8 +1258,82 @@ void MainWindow::handleTransitAspectPeakFinished() {
     refreshTransitAspectPeakTab();
 }
 
+void MainWindow::updateAspectPeakTableDensity() {
+    const bool compact = activeTab_ == AppTab::Transits
+        && transitSubTab_ == TransitSubTab::AspectPeaks;
+    // These docks are shared by other tabs. Restore their original density on exit.
+    for (auto* table : {rightTopTable_, rightBottomTable_}) {
+        if (!table) continue;
+        auto* horizontal = table->horizontalHeader();
+        auto* vertical = table->verticalHeader();
+        const QVariantMap saved = table->property("aspectPeakDensity").toMap();
+        if (compact && saved.isEmpty()) {
+            table->setProperty("aspectPeakDensity", QVariantMap{
+                {"style", table->styleSheet()},
+                {"columnMinimum", horizontal->minimumSectionSize()},
+                {"rowMinimum", vertical->minimumSectionSize()},
+                {"rowHeight", vertical->defaultSectionSize()},
+                {"rowMode", int(vertical->sectionResizeMode(0))},
+                {"scrollMode", int(table->horizontalScrollMode())}
+            });
+            table->setStyleSheet(table->styleSheet()
+                + " QTableWidget::item { padding: 1px 3px; }"
+                  " QHeaderView::section { padding: 2px 3px; }");
+            horizontal->setMinimumSectionSize(24);
+            vertical->setMinimumSectionSize(20);
+            vertical->setSectionResizeMode(QHeaderView::Fixed);
+            vertical->setDefaultSectionSize(std::max(22, table->fontMetrics().height() + 4));
+            table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+            table->horizontalScrollBar()->setValue(0);
+        } else if (!compact && !saved.isEmpty()) {
+            table->setStyleSheet(saved.value("style").toString());
+            horizontal->setMinimumSectionSize(saved.value("columnMinimum").toInt());
+            vertical->setMinimumSectionSize(saved.value("rowMinimum").toInt());
+            vertical->setSectionResizeMode(QHeaderView::ResizeMode(saved.value("rowMode").toInt()));
+            vertical->setDefaultSectionSize(saved.value("rowHeight").toInt());
+            table->setHorizontalScrollMode(QAbstractItemView::ScrollMode(saved.value("scrollMode").toInt()));
+            table->setProperty("aspectPeakDensity", QVariant());
+        }
+    }
+}
+
+void MainWindow::updateAspectPeakGraphVisibility() {
+    if (!aspectPeakGraph_ || !aspectPeakViewCombo_ || !centerStack_) return;
+    const bool inPeaks = activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::AspectPeaks;
+    const bool wasGraph = centerStack_->currentWidget() == aspectPeakGraph_;
+    const bool graph = inPeaks && aspectPeakViewCombo_->currentIndex() == 1;
+    aspectPeakViewCombo_->setVisible(inPeaks);
+    if (!inPeaks && !wasGraph) return;
+    centerStack_->setCurrentWidget(graph ? static_cast<QWidget*>(aspectPeakGraph_) : chartViewPanel_);
+    if (chartTitleLabel_) chartTitleLabel_->setText(graph ? "Aspect Peaks timeline" : "Chart Wheel");
+    for (auto* button : {zoomOutButton_, zoomResetButton_, zoomInButton_, chartSettingsButton_})
+        if (button) button->setVisible(!graph);
+    if (transitAspectGridToggleButton_)
+        transitAspectGridToggleButton_->setVisible(!graph && activeTab_ == AppTab::Transits);
+    updateChartLegend();
+    if (graph && chartLegendLabel_) chartLegendLabel_->hide();
+}
+
 void MainWindow::updateTransitAspectPeakResultsTable() {
     if (!rightTopTable_) return;
+    const QSignalBlocker blocker(rightTopTable_);
+    if (!hasTransitAspectPeakSelection_ || selectedAspectPeakIndex_ >= transitAspectPeakResults_.size())
+        selectedAspectPeakIndex_ = -1;
+    if (aspectPeakGraph_) {
+        QVector<AspectPeakGraphPoint> points;
+        points.reserve(transitAspectPeakResults_.size());
+        for (int i = 0; i < transitAspectPeakResults_.size(); ++i) {
+            const auto& result = transitAspectPeakResults_[i];
+            points.push_back({i, result.peakUtc, result.startUtc, result.endUtc,
+                result.netWeight, result.positiveWeight, result.negativeWeight,
+                result.peakHitCount, result.transitNatalHitCount, result.transitTransitHitCount,
+                result.transitSolarReturnHitCount, result.solarReturnYear});
+        }
+        aspectPeakGraph_->setResults(std::move(points), aspectPeakLastRangeStartUtc_, aspectPeakLastRangeEndUtc_,
+            aspectPeakLastTz_, aspectPeakLastWeightingEnabled_, aspectPeakLastGroupedPeriods_,
+            aspectPeakLastResolutionMinutes_, aspectPeakLastScanPartial_);
+        aspectPeakGraph_->setSelectedResult(selectedAspectPeakIndex_);
+    }
     transitAspectPeakDisplayOrder_.clear();
     for (int i = 0; i < transitAspectPeakResults_.size(); ++i) transitAspectPeakDisplayOrder_.push_back(i);
     std::stable_sort(transitAspectPeakDisplayOrder_.begin(), transitAspectPeakDisplayOrder_.end(),
@@ -1093,19 +1358,28 @@ void MainWindow::updateTransitAspectPeakResultsTable() {
         ? std::min(aspectPeakTopCountSpin_->value(), static_cast<int>(transitAspectPeakDisplayOrder_.size()))
         : transitAspectPeakDisplayOrder_.size();
     transitAspectPeakDisplayOrder_.resize(limit);
+    const bool extraSelection = selectedAspectPeakIndex_ >= 0
+        && !transitAspectPeakDisplayOrder_.contains(selectedAspectPeakIndex_);
+    if (extraSelection) transitAspectPeakDisplayOrder_.push_back(selectedAspectPeakIndex_);
 
     QStringList headers = aspectPeakLastGroupedPeriods_
-        ? QStringList{"Period", "Peak Moment", "Hits"}
-        : QStringList{"Date", "Peak Time", "Hits"};
+        ? QStringList{"Period", "Peak", "Hits"}
+        : QStringList{"Date", "Time", "Hits"};
     if (aspectPeakLastWeightingEnabled_) {
-        headers << "Positive" << "Negative" << "Net";
+        headers << "Pos" << "Neg" << "Net";
     }
-    if (aspectPeakLastIncludeTransitTransit_) {
-        headers << "T-N" << "T-T";
+    if (aspectPeakLastIncludeTransitTransit_ || aspectPeakLastIncludeSolarReturn_) headers << "T-N";
+    if (aspectPeakLastIncludeTransitTransit_) headers << "T-T";
+    if (aspectPeakLastIncludeSolarReturn_) headers << "T-SR" << "SR";
+    headers << "Orb" << "Bodies";
+    setupPeakTable(rightTopTable_, headers, transitAspectPeakDisplayOrder_.size());
+    rightTopTable_->horizontalHeaderItem(1)->setToolTip("Peak time in the search timezone");
+    if (aspectPeakLastWeightingEnabled_) {
+        rightTopTable_->horizontalHeaderItem(3)->setToolTip("Sum of positive aspect weights");
+        rightTopTable_->horizontalHeaderItem(4)->setToolTip("Sum of negative aspect weights");
     }
-    headers << "Bodies" << "Tightest Orb";
-    setupPeakTable(rightTopTable_, headers, limit);
-    for (int row = 0; row < limit; ++row) {
+    rightTopTable_->horizontalHeaderItem(headers.size() - 2)->setToolTip("Tightest aspect orb at the peak");
+    for (int row = 0; row < transitAspectPeakDisplayOrder_.size(); ++row) {
         const int index = transitAspectPeakDisplayOrder_[row];
         const auto& result = transitAspectPeakResults_[index];
         const QDateTime start = result.startUtc.toTimeZone(aspectPeakLastTz_);
@@ -1121,16 +1395,21 @@ void MainWindow::updateTransitAspectPeakResultsTable() {
         }
         auto* firstItem = new PeakSortItem(first, static_cast<double>(result.startUtc.toMSecsSinceEpoch()));
         firstItem->setData(Qt::UserRole, index);
+        firstItem->setToolTip(first);
+        if (extraSelection && index == selectedAspectPeakIndex_)
+            firstItem->setToolTip(first + "\nSelected graph peak (outside the current Show top limit).");
         rightTopTable_->setItem(row, 0, firstItem);
         rightTopTable_->setItem(row, 1, new PeakSortItem(
             peak.toString(aspectPeakLastGroupedPeriods_ ? "d MMM yyyy, h:mm AP" : "h:mm AP"),
             static_cast<double>(result.peakUtc.toMSecsSinceEpoch())));
         auto* totalItem = new PeakSortItem(
             QString::number(result.peakHitCount), result.peakHitCount, Qt::AlignCenter);
-        totalItem->setToolTip(aspectPeakLastIncludeTransitTransit_
-            ? QString("%1 transit-natal + %2 transit-transit")
-                  .arg(result.transitNatalHitCount).arg(result.transitTransitHitCount)
-            : QString("%1 transit-natal hits").arg(result.transitNatalHitCount));
+        QString counts = QString("%1 transit-natal").arg(result.transitNatalHitCount);
+        if (aspectPeakLastIncludeTransitTransit_)
+            counts += QString(" + %1 transit-transit").arg(result.transitTransitHitCount);
+        if (aspectPeakLastIncludeSolarReturn_)
+            counts += QString(" + %1 transit-Solar Return").arg(result.transitSolarReturnHitCount);
+        totalItem->setToolTip(counts);
         rightTopTable_->setItem(row, 2, totalItem);
 
         int column = 3;
@@ -1145,27 +1424,71 @@ void MainWindow::updateTransitAspectPeakResultsTable() {
             netItem->setToolTip("Positive total minus negative total");
             rightTopTable_->setItem(row, column++, netItem);
         }
-        if (aspectPeakLastIncludeTransitTransit_) {
+        if (aspectPeakLastIncludeTransitTransit_ || aspectPeakLastIncludeSolarReturn_) {
             auto* transitNatalItem = new PeakSortItem(
                 QString::number(result.transitNatalHitCount), result.transitNatalHitCount, Qt::AlignCenter);
             transitNatalItem->setToolTip("Transit-to-natal hits");
             rightTopTable_->setItem(row, column++, transitNatalItem);
+        }
+        if (aspectPeakLastIncludeTransitTransit_) {
             auto* transitTransitItem = new PeakSortItem(
                 QString::number(result.transitTransitHitCount), result.transitTransitHitCount, Qt::AlignCenter);
             transitTransitItem->setToolTip("Transit-to-transit hits");
             rightTopTable_->setItem(row, column++, transitTransitItem);
         }
-        rightTopTable_->setItem(row, column++, peakCell(result.transitBodies.join(", ")));
+        if (aspectPeakLastIncludeSolarReturn_) {
+            auto* solarHits = new PeakSortItem(QString::number(result.transitSolarReturnHitCount),
+                                             result.transitSolarReturnHitCount, Qt::AlignCenter);
+            solarHits->setToolTip("Transit-to-Solar Return hits");
+            rightTopTable_->setItem(row, column++, solarHits);
+            auto* solarYear = new PeakSortItem(QString::number(result.solarReturnYear),
+                                             result.solarReturnYear, Qt::AlignCenter);
+            solarYear->setToolTip(peakSolarReference(result, aspectPeakLastTz_) + "\n" + aspectPeakLastSolarContext_);
+            rightTopTable_->setItem(row, column++, solarYear);
+        }
         const QString tightest = result.peakHits.isEmpty() ? "-" : formatPeakOrb(result.peakHits.front().orb);
-        rightTopTable_->setItem(row, column, new PeakSortItem(
+        rightTopTable_->setItem(row, column++, new PeakSortItem(
             tightest, result.peakHits.isEmpty() ? 999.0 : result.peakHits.front().orb,
             Qt::AlignRight | Qt::AlignVCenter));
+        auto* bodiesItem = peakCell(result.transitBodies.join(", "));
+        bodiesItem->setToolTip(bodiesItem->text());
+        rightTopTable_->setItem(row, column, bodiesItem);
+    }
+    // A long list of bodies must not determine the width of the whole table.
+    const int bodiesColumn = headers.size() - 1;
+    rightTopTable_->horizontalHeader()->setSectionResizeMode(bodiesColumn, QHeaderView::Interactive);
+    rightTopTable_->setColumnWidth(bodiesColumn, rightTopTable_->fontMetrics().horizontalAdvance("Jupiter, Saturn, Mars") + 8);
+    if (aspectPeakLastGroupedPeriods_) {
+        rightTopTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+        rightTopTable_->setColumnWidth(0, rightTopTable_->fontMetrics().horizontalAdvance("17 Sep 2026, 03:18-09:18") + 8);
     }
     rightTopTable_->setSortingEnabled(true);
+    for (int row = 0; row < rightTopTable_->rowCount(); ++row) {
+        auto* item = rightTopTable_->item(row, 0);
+        if (item && item->data(Qt::UserRole).toInt() == selectedAspectPeakIndex_) {
+            rightTopTable_->setCurrentCell(row, 0);
+            rightTopTable_->selectRow(row);
+            rightTopTable_->scrollToItem(item);
+            break;
+        }
+    }
 }
 
 void MainWindow::refreshTransitAspectPeakTab() {
     if (activeTab_ != AppTab::Transits || transitSubTab_ != TransitSubTab::AspectPeaks) return;
+    if (aspectPeakSolarContextLabel_) {
+        const bool enabled = aspectPeakIncludeSolarReturnCheck_ && aspectPeakIncludeSolarReturnCheck_->isChecked();
+        aspectPeakSolarContextLabel_->setVisible(enabled);
+        if (enabled) {
+            NatalInput input;
+            QString context, error;
+            if (transitAspectPeakRunning_) context = aspectPeakLastSolarContext_;
+            else if (!resolveAspectPeakSolarInput(&input, &context, &error)) context = error;
+            aspectPeakSolarContextLabel_->setText(context);
+            aspectPeakSolarContextLabel_->setToolTip("Solar Return settings for the next scan; one location for the whole range. "
+                "The SR column identifies each result's actual reference chart.");
+        }
+    }
     if (aspectPeakTimezoneEdit_ && aspectPeakTimezoneEdit_->text().trimmed().isEmpty() && hasCurrentChart_) {
         aspectPeakTimezoneEdit_->setText(currentInput_.timezone);
     }
@@ -1185,13 +1508,20 @@ void MainWindow::handleTransitAspectPeakResultActivated(int row, int column) {
     auto* item = rightTopTable_->item(row, 0);
     if (!item) return;
     const int index = item->data(Qt::UserRole).toInt();
+    selectTransitAspectPeakResult(index);
+}
+
+void MainWindow::selectTransitAspectPeakResult(int index) {
     if (index < 0 || index >= transitAspectPeakResults_.size()) return;
+    if (hasTransitAspectPeakSelection_ && selectedAspectPeakIndex_ == index) return;
     const auto& result = transitAspectPeakResults_[index];
     const QDateTime local = result.peakUtc.toTimeZone(aspectPeakLastTz_);
     NatalChart chart;
     QString error;
     if (!computeTransitChartAt(local, aspectPeakLastTzLabel_, &chart, &error)) {
         hasTransitAspectPeakSelection_ = false;
+        selectedAspectPeakIndex_ = -1;
+        if (aspectPeakGraph_) aspectPeakGraph_->setSelectedResult(-1);
         updateLunationCopyButtonState();
         setStatusMessage(error);
         return;
@@ -1199,6 +1529,7 @@ void MainWindow::handleTransitAspectPeakResultActivated(int row, int column) {
     currentTransitChart_ = chart;
     hasTransitChart_ = true;
     hasTransitAspectPeakSelection_ = true;
+    selectedAspectPeakIndex_ = index;
     lastTransitAspectPeakSelection_ = result;
     transitPending_ = false;
     lastTransitCalculated_ = QDateTime::currentDateTime();
@@ -1218,39 +1549,52 @@ void MainWindow::handleTransitAspectPeakResultActivated(int row, int column) {
         chartWheel_->clearHighlight();
     }
     showTransitAspectPeakDetails(index);
+    // Keep the selected point inspectable even when it is outside the ranked top N.
+    if (!transitAspectPeakDisplayOrder_.contains(index)
+        || transitAspectPeakDisplayOrder_.size() > aspectPeakTopCountSpin_->value()) {
+        updateTransitAspectPeakResultsTable();
+    } else {
+        const QSignalBlocker blocker(rightTopTable_);
+        for (int row = 0; row < rightTopTable_->rowCount(); ++row) {
+            auto* item = rightTopTable_->item(row, 0);
+            if (item && item->data(Qt::UserRole).toInt() == index) {
+                rightTopTable_->setCurrentCell(row, 0);
+                rightTopTable_->selectRow(row);
+                rightTopTable_->scrollToItem(item);
+                break;
+            }
+        }
+    }
+    if (aspectPeakGraph_) aspectPeakGraph_->setSelectedResult(index);
+    updateAspectPeakGraphVisibility();
     updateLunationCopyButtonState();
-    setStatusMessage(QString("Loaded aspect peak: %1 (%2 hits).")
-        .arg(localMoment(result.peakUtc, aspectPeakLastTz_)).arg(result.peakHitCount));
+    QString status = QString("Loaded aspect peak: %1 (%2 hits).")
+        .arg(localMoment(result.peakUtc, aspectPeakLastTz_)).arg(result.peakHitCount);
+    if (result.solarReturnYear) status += " " + peakSolarReference(result, aspectPeakLastTz_);
+    setStatusMessage(status);
 }
 
 void MainWindow::showTransitAspectPeakDetails(int index) {
     if (!rightBottomTable_ || index < 0 || index >= transitAspectPeakResults_.size()) return;
     const auto& result = transitAspectPeakResults_[index];
-    QStringList headers{"Scope", "Subject", "Position", "Aspect"};
-    if (aspectPeakLastWeightingEnabled_) headers << "Weight";
-    headers << "Target" << "Position" << "Orb";
+    QStringList headers{"Scope", "Transit", "Pos", "Aspect"};
+    if (aspectPeakLastWeightingEnabled_) headers << "Wt";
+    headers << "Target" << "Pos" << "Orb";
     setupPeakTable(rightBottomTable_, headers, result.peakHits.size());
     rightBottomTable_->setIconSize(QSize(15, 15));
-    if (auto* header = rightBottomTable_->horizontalHeader()) {
-        header->setStretchLastSection(false);
-        int column = 0;
-        header->setSectionResizeMode(column++, QHeaderView::ResizeToContents);
-        header->setSectionResizeMode(column++, QHeaderView::Stretch);
-        header->setSectionResizeMode(column++, QHeaderView::ResizeToContents);
-        header->setSectionResizeMode(column++, QHeaderView::ResizeToContents);
-        if (aspectPeakLastWeightingEnabled_)
-            header->setSectionResizeMode(column++, QHeaderView::ResizeToContents);
-        header->setSectionResizeMode(column++, QHeaderView::Stretch);
-        header->setSectionResizeMode(column++, QHeaderView::ResizeToContents);
-        header->setSectionResizeMode(column, QHeaderView::ResizeToContents);
-    }
+    rightBottomTable_->horizontalHeaderItem(2)->setToolTip("Transiting body's position");
+    rightBottomTable_->horizontalHeaderItem(headers.size() - 2)->setToolTip("Target's position");
+    if (aspectPeakLastWeightingEnabled_)
+        rightBottomTable_->horizontalHeaderItem(4)->setToolTip("Aspect weight");
 
     const QColor iconColor = rightBottomTable_->palette().text().color();
     for (int row = 0; row < result.peakHits.size(); ++row) {
         const auto& hit = result.peakHits[row];
         int column = 0;
-        auto* scopeItem = peakCell(hit.transitTransit ? "T-T" : "T-N", Qt::AlignCenter);
-        scopeItem->setToolTip(hit.transitTransit ? "Transit to transit" : "Transit to natal");
+        auto* scopeItem = peakCell(peakScope(hit), Qt::AlignCenter);
+        scopeItem->setToolTip(hit.transitSolarReturn
+            ? peakSolarReference(result, aspectPeakLastTz_) + "\n" + aspectPeakLastSolarContext_
+            : (hit.transitTransit ? "Transit to transit" : "Transit to natal"));
         rightBottomTable_->setItem(row, column++, scopeItem);
         rightBottomTable_->setItem(row, column++, peakBodyCell(hit.transitBody, iconColor));
         rightBottomTable_->setItem(row, column++, peakPositionCell(hit.transitLongitude, iconColor));
@@ -1291,6 +1635,12 @@ QString MainWindow::buildTransitAspectPeakClipboardText() const {
     lines << QString("- Minimum hits: %1").arg(aspectPeakLastMinHits_);
     lines << QString("- Transit-transit hits: %1").arg(
         aspectPeakLastIncludeTransitTransit_ ? "Included" : "Not included");
+    lines << QString("- Transit-Solar Return hits: %1").arg(
+        aspectPeakLastIncludeSolarReturn_ ? "Included (automatic annual switching)" : "Not included");
+    if (aspectPeakLastIncludeSolarReturn_) {
+        lines << "- Solar Return settings: " + aspectPeakLastSolarContext_;
+        lines << "- Solar Return targets: " + aspectPeakLastNatalTargets_.join(", ");
+    }
     if (aspectPeakLastWeightingEnabled_) {
         lines << "- Aspect weighting: Enabled";
         lines << QString("- Aspect weights: Conjunction %1; Sextile %2; Square %3; Trine %4; Opposition %5")
@@ -1317,6 +1667,10 @@ QString MainWindow::buildTransitAspectPeakClipboardText() const {
     if (aspectPeakLastIncludeTransitTransit_) {
         lines << QString("- Transit-to-transit hits: %1").arg(result.transitTransitHitCount);
     }
+    if (aspectPeakLastIncludeSolarReturn_) {
+        lines << QString("- Transit-to-Solar Return hits: %1").arg(result.transitSolarReturnHitCount);
+        lines << "- Reference: " + peakSolarReference(result, aspectPeakLastTz_) + " (" + aspectPeakLastTzLabel_ + ")";
+    }
     if (aspectPeakLastWeightingEnabled_) {
         lines << QString("- Positive total: %1").arg(formatPeakWeight(result.positiveWeight));
         lines << QString("- Negative total: %1").arg(formatPeakWeight(-result.negativeWeight));
@@ -1328,7 +1682,7 @@ QString MainWindow::buildTransitAspectPeakClipboardText() const {
         lines << "| --- | --- | --- | ---: | --- | ---: |";
         for (const auto& hit : result.peakHits) {
             lines << QString("| %1 | %2 | %3 | %4 | %5 | %6 |")
-                .arg(hit.transitTransit ? "T-T" : "T-N", hit.transitBody, hit.aspect,
+                .arg(peakScope(hit), hit.transitBody, hit.aspect,
                      formatPeakWeight(hit.weight), hit.natalTarget, formatPeakOrb(hit.orb));
         }
     } else {
@@ -1336,7 +1690,7 @@ QString MainWindow::buildTransitAspectPeakClipboardText() const {
         lines << "| --- | --- | --- | --- | ---: |";
         for (const auto& hit : result.peakHits) {
             lines << QString("| %1 | %2 | %3 | %4 | %5 |")
-                .arg(hit.transitTransit ? "T-T" : "T-N", hit.transitBody,
+                .arg(peakScope(hit), hit.transitBody,
                      hit.aspect, hit.natalTarget, formatPeakOrb(hit.orb));
         }
     }

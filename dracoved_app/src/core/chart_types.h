@@ -178,6 +178,11 @@ inline QString siderealAyanamsaToString(SiderealAyanamsa ayanamsa) {
     }
 }
 
+inline QString zodiacDescription(ZodiacSystem system, SiderealAyanamsa ayanamsa) {
+    return system == ZodiacSystem::Tropical ? QString("Tropical")
+        : "Sidereal " + siderealAyanamsaToString(ayanamsa);
+}
+
 inline SiderealAyanamsa siderealAyanamsaFromString(const QString& text) {
     const QString normalized = text.trimmed();
     if (normalized.compare("Raman", Qt::CaseInsensitive) == 0) {

@@ -18,6 +18,20 @@ add_executable(dracoved_app
     src/gui/main_window.h
     src/gui/main_window.cpp
     src/gui/main_window_aspect_peaks.cpp
+    src/gui/aspect_peak_graph.h
+    src/gui/aspect_peak_graph.cpp
+    src/core/ashtakavarga.h
+    src/core/ashtakavarga.cpp
+    src/gui/ashtakavarga_panel.h
+    src/gui/ashtakavarga_panel.cpp
+    src/core/vedic_benchmark.h
+    src/core/vedic_benchmark.cpp
+    src/core/vedic_gochar.h
+    src/core/vedic_gochar.cpp
+    src/core/vedic_planet_nature.h
+    src/core/vedic_planet_nature.cpp
+    src/gui/vedic_benchmark_panel.h
+    src/gui/vedic_benchmark_panel.cpp
     src/gui/main_window_planetary_hours.cpp
     src/gui/main_window_zodiacal_releasing.cpp
     src/gui/main_window_geodetic_equivalents.cpp
@@ -71,10 +85,17 @@ add_executable(dracoved_app
     src/gui/synastry_calc.cpp
     src/gui/vedic_panel.h
     src/gui/vedic_panel.cpp
+    src/gui/compact_controls.h
     src/gui/moorthi_panel.h
     src/gui/moorthi_panel.cpp
+    src/gui/moorthi_graph_panel.h
+    src/gui/moorthi_graph_panel.cpp
     src/gui/tara_panel.h
     src/gui/tara_panel.cpp
+    src/gui/dasha_panel.h
+    src/gui/dasha_panel.cpp
+    src/core/vimshottari.h
+    src/core/vimshottari.cpp
     src/core/moorthi.h
     src/core/moorthi.cpp
     src/gui/chart_wheel_widget.h
@@ -107,6 +128,10 @@ add_executable(dracoved_app
     src/core/tajaka.cpp
     src/core/progression.h
     src/core/progression.cpp
+    src/core/progression_events.h
+    src/core/progression_events.cpp
+    src/gui/progression_events_panel.h
+    src/gui/progression_events_panel.cpp
     src/core/progressed_lunar_return.h
     src/core/progressed_lunar_return.cpp
     src/core/vedic_nakshatra.h

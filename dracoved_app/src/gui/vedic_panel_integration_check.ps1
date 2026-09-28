@@ -16,8 +16,16 @@ try {
     $defines = (($ninja | Select-String '^  DEFINES = ' | Select-Object -First 1).Line -replace '^  DEFINES = ', '') -split ' '
     $sources = @(Get-ChildItem dracoved_app/src/gui -Filter 'main_window*.cpp' | ForEach-Object { $_.FullName }) + @(
         'dracoved_app/src/gui/vedic_panel.cpp',
+        'dracoved_app/src/gui/ashtakavarga_panel.cpp',
+        'dracoved_app/src/gui/vedic_benchmark_panel.cpp',
+        'dracoved_app/src/core/vedic_benchmark.cpp',
+        'dracoved_app/src/core/vedic_planet_nature.cpp',
+        'dracoved_app/src/core/ashtakavarga.cpp',
         'dracoved_app/src/gui/moorthi_panel.cpp',
+        'dracoved_app/src/gui/moorthi_graph_panel.cpp',
         'dracoved_app/src/gui/tara_panel.cpp',
+        'dracoved_app/src/gui/dasha_panel.cpp',
+        'dracoved_app/src/core/vimshottari.cpp',
         'dracoved_app/src/core/vedic_nakshatra.cpp',
         'dracoved_app/src/core/moorthi.cpp',
         'dracoved_app/src/gui/vedic_panel_integration_tests.cpp',

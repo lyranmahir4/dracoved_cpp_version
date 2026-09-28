@@ -2,12 +2,15 @@
 // routing. It intentionally lives outside the production CMake target.
 #include "main_window.h"
 #include "vedic_panel.h"
+#include "dasha_panel.h"
+#include "moorthi_graph_panel.h"
 
 #include "../core/chart_types.h"
 #include "../core/tropical_natal.h"
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QDate>
 #include <QDateEdit>
@@ -24,7 +27,11 @@
 #include <QStackedWidget>
 #include <QSettings>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTableWidget>
+#include <QToolButton>
+#include <QTimeEdit>
+#include <QSplitter>
 #include <QThread>
 
 #include <algorithm>
@@ -140,8 +147,8 @@ struct VedicPanelIntegrationChecks {
     static void assertReferenceTable(VedicPanel& panel) {
         QTableWidget* table = panel.table();
         require(table->rowCount() == 10, "Mean-node Vedic table has ten rows");
-        require(table->columnCount() == 6, "Vedic table has six columns");
-        const QStringList headers = {"Body", "Sign", "Degree in sign", "Nakshatra", "Pada", "Nakshatra lord"};
+        require(table->columnCount() == VedicPanel::ColumnCount, "Dense Vedic columns are present");
+        const QStringList headers = VedicPanel::columnHeaders();
         for (int column = 0; column < headers.size(); ++column) {
             require(table->horizontalHeaderItem(column)->text() == headers.at(column),
                     "Vedic table header mismatch");
@@ -173,9 +180,9 @@ struct VedicPanelIntegrationChecks {
             const int row = rowFor(table, item.body);
             require(row >= 0, "Reference body is missing");
             require(table->item(row, 1)->text() == item.sign
-                    && table->item(row, 3)->text() == item.nakshatra
-                    && table->item(row, 4)->text() == QString::number(item.pada)
-                    && table->item(row, 5)->text() == item.lord,
+                    && table->item(row, VedicPanel::ColNakshatra)->text() == item.nakshatra
+                    && table->item(row, VedicPanel::ColPada)->text() == QString("%1/4").arg(item.pada)
+                    && table->item(row, VedicPanel::ColStarLord)->text() == item.lord,
                     "Reference Vedic placement mismatch");
             require(table->item(row, 2)->text() != "N/A", "Reference degree is available");
             for (int column = 0; column < table->columnCount(); ++column) {
@@ -241,6 +248,35 @@ struct VedicPanelIntegrationChecks {
                 "Vedic tab selects the Vedic panel in the center stack");
         require(window.vedicPanel_->table()->rowCount() == 10, "Vedic panel is populated through MainWindow");
         assertReferenceTable(*window.vedicPanel_);
+        auto* placements = window.vedicPanel_->table();
+        const int mars = rowFor(placements, "Mars");
+        const int moon = rowFor(placements, "Moon");
+        const QStringList expectedLords = {"Mercury", "Jupiter", "Moon", "Mercury", "Jupiter", "Saturn", "Saturn", "Mars", "Sun", "Saturn"};
+        for (int row = 0; row < placements->rowCount(); ++row) {
+            if (placements->item(row, VedicPanel::ColSignLord)->text() != expectedLords[row])
+                throw std::runtime_error(("Incorrect sign lord for " + placements->item(row, 0)->text()
+                    + ": " + placements->item(row, VedicPanel::ColSignLord)->text()).toStdString());
+        }
+        require(placements->item(mars, VedicPanel::ColHouse)->text() == "4"
+                && placements->item(mars, VedicPanel::ColSignLord)->text() == "Mercury"
+                && placements->item(mars, VedicPanel::ColNavamsa)->text() == "Leo",
+                "Reference whole-sign house, sign lord and D9 sign");
+        require(placements->item(moon, VedicPanel::ColDignity)->text() == "Ruler"
+                && placements->item(mars, VedicPanel::ColFromSun)->data(Qt::UserRole).toDouble() > 80
+                && placements->item(mars, VedicPanel::ColFromSun)->data(Qt::UserRole).toDouble() < 90,
+                "Reference dignity and solar distance");
+        require(placements->item(mars, VedicPanel::ColMotion)->text().startsWith("D ")
+                && placements->item(mars, VedicPanel::ColDegree)->toolTip().contains("Virgo"),
+                "Motion and precise position tooltip");
+        auto* tara = window.vedicPanel_->findChild<QWidget*>("taraPanel");
+        require(tara && tara->isVisible(), "Tara is visible alongside Moorthi");
+        tara->findChild<QDateEdit*>("taraDate")->setDate(QDate(2026, 1, 1));
+        tara->findChild<QTimeEdit*>("taraTime")->setTime(QTime(6, 0));
+        tara->findChild<QPushButton*>("taraCalculate")->click();
+        require(tara->findChild<QTableWidget*>("taraTable")->rowCount() == 9, "Integrated Tara calculates");
+        tara->findChild<QPushButton*>("taraCopy")->click();
+        require(QApplication::clipboard()->text().contains("Lahiri:")
+                && QApplication::clipboard()->text().contains("UTC:"), "Transit copy includes shared birth facts");
 
         auto* moorthi = window.vedicPanel_->findChild<QWidget*>("moorthiPanel");
         require(moorthi != nullptr, "Moorthi calculator is integrated");
@@ -258,28 +294,39 @@ struct VedicPanelIntegrationChecks {
         const QString screenshot = QCoreApplication::applicationDirPath() + "/vedic_d1.png";
         require(window.grab().save(screenshot), "Vedic integration screenshot saves");
         window.resize(1200, 850); settle();
+        for (int row = 0; row < placements->rowCount(); ++row)
+            require(placements->item(row, VedicPanel::ColSignLord)->text() == expectedLords[row],
+                    "Sign lords remain correct after transit calculations and resizing");
+        require(placements->columnWidth(VedicPanel::ColNakshatra) >= placements->fontMetrics().horizontalAdvance("Purva Bhadrapada") + 4,
+                "Compact layout preserves readable nakshatra column width");
         require(window.grab().save(QCoreApplication::applicationDirPath() + "/vedic_compact.png"), "Compact workspace screenshot");
         window.resize(1800, 1050); settle();
 
         QTableWidget* table = window.vedicPanel_->table();
+        table->sortItems(VedicPanel::ColLongitude, Qt::AscendingOrder);
+        assertAscendingNumberRole(table, VedicPanel::ColLongitude);
+        window.vedicPanel_->findChild<QToolButton*>("vedicNaturalOrder")->click();
+        require(table->item(0, 0)->text() == "Ascendant" && table->item(3, 0)->text() == "Mars"
+                && tara->findChild<QTableWidget*>("taraTable")->rowCount() == 9,
+                "Natural order restores canonical rows without clearing Tara");
         table->sortItems(1, Qt::AscendingOrder);
         assertAscendingNumberRole(table, 1);
         assertCanonicalOrder(table, 1, {"Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
                                         "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"});
-        table->sortItems(3, Qt::AscendingOrder);
-        assertAscendingNumberRole(table, 3);
-        assertCanonicalOrder(table, 3, {"Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira",
+        table->sortItems(VedicPanel::ColNakshatra, Qt::AscendingOrder);
+        assertAscendingNumberRole(table, VedicPanel::ColNakshatra);
+        assertCanonicalOrder(table, VedicPanel::ColNakshatra, {"Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira",
                                         "Ardra", "Punarvasu", "Pushya", "Ashlesha", "Magha",
                                         "Purva Phalguni", "Uttara Phalguni", "Hasta", "Chitra", "Swati",
                                         "Vishakha", "Anuradha", "Jyeshtha", "Mula", "Purva Ashadha",
                                         "Uttara Ashadha", "Shravana", "Dhanishtha", "Shatabhisha",
                                         "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"});
-        table->sortItems(5, Qt::AscendingOrder);
-        assertAscendingText(table, 5);
+        table->sortItems(VedicPanel::ColStarLord, Qt::AscendingOrder);
+        assertAscendingText(table, VedicPanel::ColStarLord);
         table->sortItems(2, Qt::AscendingOrder);
         assertAscendingNumberRole(table, 2);
-        table->sortItems(4, Qt::AscendingOrder);
-        assertAscendingNumberRole(table, 4);
+        table->sortItems(VedicPanel::ColPada, Qt::AscendingOrder);
+        assertAscendingNumberRole(table, VedicPanel::ColPada);
 
         table->sortItems(2, Qt::DescendingOrder);
         const int selectedBefore = rowFor(table, "Jupiter");
@@ -306,10 +353,83 @@ struct VedicPanelIntegrationChecks {
         require(copy != nullptr, "Vedic copy button is present");
         copy->click();
         const QStringList copiedLines = QApplication::clipboard()->text().split('\n');
-        const int copiedHeader = copiedLines.indexOf("Body\tSign\tDegree in sign\tNakshatra\tPada\tNakshatra lord");
+        const int copiedHeader = copiedLines.indexOf(VedicPanel::columnHeaders().join('\t'));
         require(copiedHeader >= 0 && copiedHeader + 1 < copiedLines.size()
                 && copiedLines.at(copiedHeader + 1).section('\t', 0, 0) == copiedBody,
                 "Copy follows displayed table order and includes context");
+
+        auto* dasha = static_cast<DashaPanel*>(window.vedicPanel_->findChild<QWidget*>("dashaPanel"));
+        auto* views = window.vedicPanel_->findChild<QTabWidget*>("vedicViews");
+        require(dasha && views && views->count() == 4
+                && views->tabText(2) == "Vedic transit graph" && views->tabText(3) == "Ashtakavarga",
+                "Dashas, Vedic transit graph and Ashtakavarga preserve the research workspace");
+        const auto inspectMoment = QDateTime(QDate(2026, 9, 13), QTime(16, 0, 0, 123), QTimeZone("Asia/Dhaka"));
+        dasha->setInspectionTime(inspectMoment.toMSecsSinceEpoch());
+        views->setCurrentIndex(1); settle();
+        auto* lookup = dasha->findChild<QTimer*>(); QElapsedTimer lookupWait; lookupWait.start();
+        while (lookup->isActive() && lookupWait.elapsed() < 60000) QApplication::processEvents();
+        require(!lookup->isActive() && dasha->findChild<QTableWidget*>("dashaActive")->rowCount() == 5,
+                "Five active levels and ingress lookups complete in MainWindow");
+        require(tara->findChild<QDateEdit*>("taraDate")->date() == inspectMoment.date()
+                && tara->findChild<QTimeEdit*>("taraTime")->time() == inspectMoment.time(), "Shared inspection instant retains milliseconds");
+        auto* activeTransits = dasha->findChild<QTableWidget*>("dashaTransits");
+        require(activeTransits->rowCount() == dasha->activeLords().size(), "Unique active transit lords under one node model");
+        require(window.grab().save(QCoreApplication::applicationDirPath() + "/vedic_dashas.png"), "Integrated Dashas preview");
+        window.resize(1200, 850); settle();
+        require(window.grab().save(QCoreApplication::applicationDirPath() + "/vedic_dashas_compact.png"), "Compact integrated Dashas preview");
+        window.resize(1800, 1050); settle();
+        const QString selectedTransit = activeTransits->item(0, 0)->text(); activeTransits->selectRow(0);
+        dasha->findChild<QPushButton*>("dashaOpenTransit")->click();
+        auto* taraPlanet = tara->findChild<QComboBox*>("taraPlanet");
+        auto* taraTable = tara->findChild<QTableWidget*>("taraTable");
+        require(views->currentIndex() == 0 && taraPlanet->currentText() == selectedTransit && taraTable->rowCount() == 9,
+                "Open Tara selects the active planet and calculates the same instant");
+        taraPlanet->setCurrentIndex(0);
+        // The earlier ayanamsa change correctly invalidated the Lahiri search.
+        // Generate fresh results under Raman before checking filter restoration.
+        moorthi->findChild<QPushButton*>("moorthiRun")->click(); searchWait.restart();
+        while (searchTimer->isActive() && searchWait.elapsed() < 60000) QApplication::processEvents();
+        require(!searchTimer->isActive() && moorthi->findChild<QTableWidget*>("moorthiTable")->rowCount() == 12,
+                "Fresh search after ayanamsa change supplies filter baseline");
+        auto* activeOnly = window.vedicPanel_->findChild<QCheckBox*>("vedicActiveOnly"); activeOnly->setChecked(true);
+        int visibleActive = 0;
+        for (int row = 0; row < taraTable->rowCount(); ++row) if (!taraTable->isRowHidden(row)) {
+            require(dasha->activeLords().contains(taraTable->item(row, 0)->text().section(" (", 0, 0)), "Tara active filter matches base lord names");
+            ++visibleActive;
+        }
+        require(visibleActive == dasha->activeLords().size(), "Active-lord filter includes each active planet");
+        auto* moorthiTable = moorthi->findChild<QTableWidget*>("moorthiTable");
+        require(moorthiTable->rowCount() == 12, "Explicit Sun selection takes priority over the shared dasha filter");
+        tara->findChild<QPushButton*>("taraCopy")->click();
+        require(QApplication::clipboard()->text().contains("Active lords only") && QApplication::clipboard()->text().contains("365.25-day year"), "Filtered copy includes dasha context");
+        auto* graph = static_cast<MoorthiGraphPanel*>(window.vedicPanel_->findChild<QWidget*>("moorthiGraphPanel"));
+        require(graph != nullptr, "Graph is wired into the loaded Vedic chart");
+        views->setCurrentIndex(2); settle();
+        require(!activeOnly->isVisible() && !copy->isVisible(), "Graph hides controls belonging to other views");
+        graph->findChild<QDateEdit*>("moorthiGraphFrom")->setDate(QDate(2016, 1, 1));
+        graph->findChild<QDateEdit*>("moorthiGraphThrough")->setDate(QDate(2032, 12, 31));
+        const QStringList graphPlanets = {"Jupiter", "Saturn", "Rahu (Mean)", "Ketu (Mean)"};
+        for (auto* choice : graph->findChildren<QCheckBox*>("moorthiGraphChoice"))
+            choice->setChecked(graphPlanets.contains(choice->text()));
+        graph->findChild<QPushButton*>("moorthiGraphCalculate")->click();
+        auto* graphTimer = graph->findChild<QTimer*>("moorthiGraphTimer");
+        QElapsedTimer graphWait; graphWait.start();
+        while (graphTimer->isActive() && graphWait.elapsed() < 90000) QApplication::processEvents();
+        require(!graphTimer->isActive() && graph->series().size() == 4
+                && graph->findChild<QLabel*>("moorthiGraphStatus")->text().startsWith("Complete"),
+                "Graph calculates all selected planets regardless of inspection-time active filter");
+        require(window.grab().save(QCoreApplication::applicationDirPath() + "/vedic_moorthi_graph.png"), "Integrated graph preview");
+        window.resize(1100, 800); settle();
+        require(window.grab().save(QCoreApplication::applicationDirPath() + "/vedic_moorthi_graph_compact.png"), "Compact integrated graph preview");
+        window.resize(1800, 1050); views->setCurrentIndex(0); settle();
+        require(activeOnly->isVisible() && activeOnly->isChecked() && moorthiTable->rowCount() == 12,
+                "Returning from graph preserves existing filter and table");
+        activeOnly->setChecked(false);
+        require(moorthiTable->rowCount() == 12 && taraTable->rowCount() == 9, "Turning off active filter restores existing results without rerunning");
+        tara->findChild<QDateEdit*>("taraDate")->setDate(QDate(2027, 2, 1)); tara->findChild<QTimeEdit*>("taraTime")->setTime(QTime(8, 0));
+        tara->findChild<QPushButton*>("taraCalculate")->click();
+        require(dasha->inspectionMs() == QDateTime(QDate(2027, 2, 1), QTime(8, 0), QTimeZone("Asia/Dhaka")).toMSecsSinceEpoch()
+                && taraTable->rowCount() == 9, "Calculating Tara updates the shared dasha instant without clearing fresh Tara results");
 
         VedicPanel persistedPanel(&window.engine_, &window.swe_);
         persistedPanel.setNatalContext(input, window.currentChart_, "Dhaka");

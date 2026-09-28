@@ -926,6 +926,16 @@ void ChartWheelWidget::mouseMoveEvent(QMouseEvent* event) {
         update();
         return;
     }
+    if (aspectSummaryRect_.contains(event->position())) {
+        if (hoveredAspectIndex_ != -1 || !hoveredPlanetScope_.isEmpty()) {
+            hoveredAspectIndex_ = -1;
+            hoveredPlanetScope_.clear();
+            update();
+        }
+        setCursor(Qt::ArrowCursor);
+        QToolTip::showText(event->globalPosition().toPoint(), aspectSummaryTooltip_, this);
+        return;
+    }
     for (int i = 0; i < planetHitAreas_.size(); ++i) {
         if (planetHitAreas_[i].contains(event->position())) {
             if (hoveredAspectIndex_ != -1) {
@@ -964,6 +974,11 @@ void ChartWheelWidget::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void ChartWheelWidget::mousePressEvent(QMouseEvent* event) {
+    if (aspectSummaryRect_.contains(event->position())
+        && (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)) {
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::LeftButton) {
         leftPressActive_ = true;
         pressPos_ = event->position();
@@ -1460,6 +1475,8 @@ QVector<ChartWheelWidget::PlacedBody> ChartWheelWidget::computePlanetPlacements(
 
 void ChartWheelWidget::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
+    aspectSummaryRect_ = {};
+    aspectSummaryTooltip_.clear();
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.fillRect(rect(), theme_.background);
@@ -1941,6 +1958,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
 
     // Aspect lines.
     aspectLines_.clear();
+    QMap<QString, int> displayedAspectCounts;
     if (showAspects_) {
         QVector<QRectF> aspectSymbolRects;
         aspectSymbolRects.reserve(64);
@@ -2083,6 +2101,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                 rawB,
                 nameA,
                 nameB,
+                label,
             });
         };
 
@@ -2298,6 +2317,9 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             if (focusActive && !involvesFocus) {
                 continue;
             }
+            // Count the same filtered pairs we draw, including conjunctions
+            // whose endpoints overlap. Hover emphasis does not change totals.
+            ++displayedAspectCounts[info.aspectName];
             if (focusActive && involvesFocus) {
                 opacity = std::min(1.0, opacity + 0.30);
                 width += 0.6;
@@ -3062,7 +3084,71 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
         painter.restore();
     }
 
-    // --- Focus indicator (top-right) when a body is pinned via click ---
+    // Aspect counts stay anchored inside every wheel, independent of zoom/pan.
+    {
+        int total = 0;
+        for (int count : displayedAspectCounts) total += count;
+        const int positive = displayedAspectCounts.value("Sextile") + displayedAspectCounts.value("Trine");
+        const int negative = displayedAspectCounts.value("Square") + displayedAspectCounts.value("Opposition");
+        const int neutral = total - positive - negative;
+        const int net = positive - negative;
+        const QString title = !showAspects_ ? "Aspects hidden"
+            : focusActiveNow() ? "Focused aspects" : "Aspect counts";
+        const QStringList labels = {"Total", "Positive", "Negative", "Neutral", "Net"};
+        const QStringList values = {QString::number(total), QString::number(positive),
+            QString::number(negative), QString::number(neutral),
+            (net > 0 ? QString("+") : QString()) + QString::number(net)};
+        const QColor green("#2E8B57"), red("#C4473A");
+        const QVector<QColor> colors = {theme_.body, green, red, aspectTypeColor("Conjunction"),
+            net > 0 ? green : net < 0 ? red : theme_.body};
+        const QFont summaryFont = wheelFont(WheelText::Caption, fontScale_);
+        QFont headingFont = summaryFont;
+        headingFont.setBold(true);
+        const QFontMetrics fm(summaryFont), headingMetrics(headingFont);
+        const double rowH = fm.height() + 3.0;
+        const double panelW = std::max(headingMetrics.horizontalAdvance(title) + 18.0,
+            fm.horizontalAdvance("Negative") + fm.horizontalAdvance(QString::number(total)) + 38.0);
+        const double panelH = rowH * 6 + 14.0;
+        aspectSummaryRect_ = QRectF(width() - panelW - 10.0, 10.0, panelW, panelH);
+        painter.save();
+        painter.setPen(QPen(theme_.ringOuter, 1.0));
+        painter.setBrush(theme_.background);
+        painter.drawRoundedRect(aspectSummaryRect_, 5, 5);
+        const double x = aspectSummaryRect_.left() + 8.0;
+        double y = aspectSummaryRect_.top() + 5.0;
+        painter.setFont(headingFont);
+        painter.setPen(theme_.body);
+        painter.drawText(QRectF(x, y, panelW - 16.0, rowH), Qt::AlignVCenter | Qt::AlignLeft, title);
+        y += rowH + 4.0;
+        for (int i = 0; i < labels.size(); ++i) {
+            if (i == 4) {
+                painter.setPen(QPen(theme_.ringOuter, 1.0));
+                painter.drawLine(QPointF(x, y), QPointF(x + panelW - 16.0, y));
+            }
+            painter.setFont(summaryFont);
+            painter.setPen(theme_.body);
+            painter.drawText(QRectF(x, y, panelW - 16.0, rowH), Qt::AlignVCenter | Qt::AlignLeft, labels[i]);
+            painter.setFont(headingFont);
+            painter.setPen(showAspects_ ? colors[i] : theme_.body);
+            painter.drawText(QRectF(x, y, panelW - 16.0, rowH), Qt::AlignVCenter | Qt::AlignRight,
+                showAspects_ ? values[i] : QString::fromUtf8("—"));
+            y += rowH;
+        }
+        painter.restore();
+        aspectSummaryTooltip_ = showAspects_
+            ? QString("Counts of displayed aspect pairs (not weighted scores).\n"
+                      "Positive: sextiles (%1) + trines (%2).\n"
+                      "Negative: squares (%3) + oppositions (%4).\n"
+                      "Neutral: conjunctions and any unclassified aspects (%5).\n"
+                      "Net = positive count minus negative count.\n"
+                      "Follows current orb, visible bodies, enabled scopes and body focus.\n"
+                      "Zoom, pan and hover do not change counts.")
+                  .arg(displayedAspectCounts.value("Sextile")).arg(displayedAspectCounts.value("Trine"))
+                  .arg(displayedAspectCounts.value("Square")).arg(displayedAspectCounts.value("Opposition")).arg(neutral)
+            : QString("Aspect lines are hidden. Enable aspects to see their counts.");
+    }
+
+    // --- Focus indicator below the aspect counts when a body is pinned ---
     if (hasChart_ && hasFocus_ && !focusBody_.isEmpty()) {
         bool focusActive = false;
         for (const auto& info : aspectLines_) {
@@ -3081,7 +3167,7 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             const double w = fm.horizontalAdvance(text) + 18.0;
             const double h = fm.height() + 8.0;
             const double x = width() - w - 12.0;
-            const double y = 10.0;
+            const double y = aspectSummaryRect_.bottom() + 6.0;
             painter.save();
             QColor bg = highlightColor_;
             bg.setAlpha(40);

@@ -6,6 +6,7 @@
 #include <QVariant>
 #include <QTimeZone>
 #include <QHash>
+#include <QSet>
 
 #include <functional>
 
@@ -54,6 +55,8 @@ namespace dracoved {
 
 struct ChartWheelTheme;
 class ChartWheelWidget;
+class AspectPeakGraph;
+class ProgressionEventsPanel;
 class ChartSetupDialog;
 class SearchWorker;
 class AstroMapWidget;
@@ -118,6 +121,8 @@ public:
     };
     struct DayScanResult {
         QDate date;
+        QDateTime timeLocal;
+        QString tzLabel;
         double support = 0.0;
         double challenge = 0.0;
         double net = 0.0;
@@ -136,6 +141,7 @@ public:
         double orb = 0.0;
         bool transitTransit = false;
         double weight = 0.0;
+        bool transitSolarReturn = false;
     };
     struct TransitAspectPeakResult {
         QDateTime startUtc;
@@ -153,6 +159,10 @@ public:
         QStringList transitBodies;
         QStringList natalTargets;
         QVector<TransitAspectPeakHit> peakHits;
+        int transitSolarReturnHitCount = 0;
+        int solarReturnYear = 0;
+        QDateTime solarReturnUtc;
+        QDateTime nextSolarReturnUtc;
     };
     enum class TransitScanMode {
         TransitNatal,
@@ -613,6 +623,7 @@ private:
     void updateAspectScopeTabs();
     void updateChartLegend();
     void refreshSolarTechniqueView();
+    void updateSolarTechniqueMonthVisibility();
     SolarTechniqueBodyFilter solarTechniqueBodyFilter() const;
     SolarTechniqueBodyPreset solarTechniqueBodyPresetFromFilter(const SolarTechniqueBodyFilter& filter) const;
     void applySolarTechniqueBodyPreset(SolarTechniqueBodyPreset preset, bool refreshView = true);
@@ -636,6 +647,7 @@ private:
     void handleProgressedLunarReturn(int direction);
     void handleProgressionViewChanged();
     void refreshProgressionView();
+    void refreshProgressionEventResults();
     void showProgressionPlaceholder();
     void markProgressionPending();
     void updateProgressionStatusLabels();
@@ -644,8 +656,12 @@ private:
     QString progressionTimezoneLabel() const;
     bool computeProgressionChart(const QDateTime& localTime, const QString& tzLabel, NatalChart* out, QString* error);
     void updateTransitSearchVisibility();
+    void updateAspectPeakTableDensity();
     void refreshTransitScanTab();
     void refreshTransitAspectPeakTab();
+    void updateAspectPeakGraphVisibility();
+    void selectTransitAspectPeakResult(int index);
+    bool resolveAspectPeakSolarInput(NatalInput* input, QString* context, QString* error) const;
     void refreshTransitProfectionTab();
     void syncTransitProfectionAgeFromTransitDate();
     void updateTransitScanResultsTable();
@@ -1031,6 +1047,10 @@ private:
     QComboBox* aspectPeakResolutionCombo_ = nullptr;
     QComboBox* aspectPeakModeCombo_ = nullptr;
     QCheckBox* aspectPeakIncludeTransitTransitCheck_ = nullptr;
+    QComboBox* aspectPeakViewCombo_ = nullptr;
+    AspectPeakGraph* aspectPeakGraph_ = nullptr;
+    QCheckBox* aspectPeakIncludeSolarReturnCheck_ = nullptr;
+    QLabel* aspectPeakSolarContextLabel_ = nullptr;
     QDoubleSpinBox* aspectPeakConjunctionWeightSpin_ = nullptr;
     QDoubleSpinBox* aspectPeakSextileWeightSpin_ = nullptr;
     QDoubleSpinBox* aspectPeakSquareWeightSpin_ = nullptr;
@@ -1068,6 +1088,7 @@ private:
     QToolButton* aspectOrbPreset3Button_ = nullptr;
     QDoubleSpinBox* aspectOrbCustomSpin_ = nullptr;
     QWidget* progressionControls_ = nullptr;
+    ProgressionEventsPanel* progressionEventsPanel_ = nullptr;
     QRadioButton* progressionViewNatalRadio_ = nullptr;
     QRadioButton* progressionViewProgressedRadio_ = nullptr;
     QRadioButton* progressionViewOverlayRadio_ = nullptr;
@@ -1197,6 +1218,10 @@ private:
     QComboBox* solarTechniqueRankOrderCombo_ = nullptr;
     QSpinBox* solarTechniqueTopSpin_ = nullptr;
     bool solarTechniqueUpdatingBodyControls_ = false;
+    QSet<QDate> solarTechniqueCollapsedMonths_;
+    QDate solarTechniqueTableDate_;
+    int solarTechniqueSortColumn_ = 0;
+    Qt::SortOrder solarTechniqueSortOrder_ = Qt::AscendingOrder;
     QSpinBox* solarFinderStartYearSpin_ = nullptr;
     QSpinBox* solarFinderEndYearSpin_ = nullptr;
     QComboBox* solarFinderPlanetCombo_ = nullptr;
@@ -1382,6 +1407,8 @@ private:
     QVector<TransitAspectPeakResult> transitAspectPeakResults_;
     QVector<int> transitAspectPeakDisplayOrder_;
     bool hasTransitAspectPeakSelection_ = false;
+    int selectedAspectPeakIndex_ = -1;
+    bool aspectPeakLastScanPartial_ = false;
     TransitAspectPeakResult lastTransitAspectPeakSelection_;
     bool transitAspectPeakRunning_ = false;
     QThread* aspectPeakThread_ = nullptr;
@@ -1398,6 +1425,8 @@ private:
     int aspectPeakLastMinHits_ = 2;
     bool aspectPeakLastGroupedPeriods_ = false;
     bool aspectPeakLastIncludeTransitTransit_ = false;
+    bool aspectPeakLastIncludeSolarReturn_ = false;
+    QString aspectPeakLastSolarContext_;
     bool aspectPeakLastWeightingEnabled_ = false;
     QMap<QString, double> aspectPeakLastAspectWeights_;
     QString aspectPeakLastWeightRanking_ = "hits";

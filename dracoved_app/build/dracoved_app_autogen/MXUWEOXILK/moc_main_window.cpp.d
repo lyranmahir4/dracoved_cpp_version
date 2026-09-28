@@ -6,6 +6,7 @@ C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/bui
   C:/Qt/6.10.1/mingw_64/include/QtCore/QList \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QMetaType \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QObject \
+  C:/Qt/6.10.1/mingw_64/include/QtCore/QSet \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSharedDataPointer \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QSize \
   C:/Qt/6.10.1/mingw_64/include/QtCore/QString \

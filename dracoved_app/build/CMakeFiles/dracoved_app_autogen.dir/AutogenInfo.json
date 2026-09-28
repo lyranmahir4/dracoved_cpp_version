@@ -313,6 +313,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/ashtakavarga.h",
+			"MU",
+			"PRMOGMWJPH/moc_ashtakavarga.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/chart_types.h",
 			"MU",
 			"PRMOGMWJPH/moc_chart_types.cpp",
@@ -367,6 +373,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression_events.h",
+			"MU",
+			"PRMOGMWJPH/moc_progression_events.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.h",
 			"MU",
 			"PRMOGMWJPH/moc_swiss_eph.cpp",
@@ -391,15 +403,45 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_benchmark.h",
+			"MU",
+			"PRMOGMWJPH/moc_vedic_benchmark.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_gochar.h",
+			"MU",
+			"PRMOGMWJPH/moc_vedic_gochar.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_nakshatra.h",
 			"MU",
 			"PRMOGMWJPH/moc_vedic_nakshatra.cpp",
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_planet_nature.h",
+			"MU",
+			"PRMOGMWJPH/moc_vedic_planet_nature.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vimshottari.h",
+			"MU",
+			"PRMOGMWJPH/moc_vimshottari.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/zodiacal_releasing.h",
 			"MU",
 			"PRMOGMWJPH/moc_zodiacal_releasing.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/ashtakavarga_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_ashtakavarga_panel.cpp",
 			null
 		],
 		[
@@ -412,6 +454,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_aspect_orbs_dialog.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_peak_graph.h",
+			"MU",
+			"MXUWEOXILK/moc_aspect_peak_graph.cpp",
 			null
 		],
 		[
@@ -451,6 +499,18 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/compact_controls.h",
+			"MU",
+			"MXUWEOXILK/moc_compact_controls.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/dasha_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_dasha_panel.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/geodetic_equivalents_controller.h",
 			"MU",
 			"MXUWEOXILK/moc_geodetic_equivalents_controller.cpp",
@@ -460,6 +520,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/main_window.h",
 			"MU",
 			"MXUWEOXILK/moc_main_window.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/moorthi_graph_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_moorthi_graph_panel.cpp",
 			null
 		],
 		[
@@ -478,6 +544,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/preferences_dialog.h",
 			"MU",
 			"MXUWEOXILK/moc_preferences_dialog.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/progression_events_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_progression_events_panel.cpp",
 			null
 		],
 		[
@@ -577,6 +649,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/vedic_benchmark_panel.h",
+			"MU",
+			"MXUWEOXILK/moc_vedic_benchmark_panel.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/vedic_panel.h",
 			"MU",
 			"MXUWEOXILK/moc_vedic_panel.cpp",
@@ -672,6 +750,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/ashtakavarga.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/fixed_stars.cpp",
 			"MU",
 			null
@@ -712,6 +795,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/progression_events.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/swiss_eph.cpp",
 			"MU",
 			null
@@ -732,12 +820,37 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_benchmark.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_gochar.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_nakshatra.cpp",
 			"MU",
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vedic_planet_nature.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/vimshottari.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/core/zodiacal_releasing.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/ashtakavarga_panel.cpp",
 			"MU",
 			null
 		],
@@ -748,6 +861,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_orbs_dialog.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/aspect_peak_graph.cpp",
 			"MU",
 			null
 		],
@@ -778,6 +896,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/collapsible_section.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/dasha_panel.cpp",
 			"MU",
 			null
 		],
@@ -832,6 +955,11 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/moorthi_graph_panel.cpp",
+			"MU",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/moorthi_panel.cpp",
 			"MU",
 			null
@@ -843,6 +971,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/preferences_dialog.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/progression_events_panel.cpp",
 			"MU",
 			null
 		],
@@ -908,6 +1041,11 @@
 		],
 		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/transit_calc_service.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/vedic_benchmark_panel.cpp",
 			"MU",
 			null
 		],

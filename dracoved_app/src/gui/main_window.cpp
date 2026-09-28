@@ -5,6 +5,8 @@
 #include "chart_manager_dialog.h"
 #include "chart_profile_store.h"
 #include "chart_wheel_widget.h"
+#include "aspect_peak_graph.h"
+#include "progression_events_panel.h"
 #include "collapsible_section.h"
 #include "row_hover_delegate.h"
 #include "planetary_hours_controller.h"
@@ -1038,6 +1040,13 @@ void MainWindow::setupDockLayout() {
     chartHeaderLayout->addWidget(chartTitleLabel_);
     chartHeaderLayout->addWidget(chartLegendLabel_);
     chartHeaderLayout->addStretch();
+    aspectPeakViewCombo_ = new QComboBox(chartHeader);
+    aspectPeakViewCombo_->addItems({"Wheel", "Graph"});
+    aspectPeakViewCombo_->setToolTip("Aspect Peaks view. Graph uses every generated result, independent of Show top.");
+    aspectPeakViewCombo_->hide();
+    chartHeaderLayout->addWidget(aspectPeakViewCombo_);
+    connect(aspectPeakViewCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this] { updateAspectPeakGraphVisibility(); });
     chartHeaderLayout->addWidget(transitAspectGridToggleButton_);
     chartHeaderLayout->addWidget(zoomOutButton_);
     chartHeaderLayout->addWidget(zoomResetButton_);
@@ -1049,6 +1058,9 @@ void MainWindow::setupDockLayout() {
 
     chartLayout->addWidget(chartHeader);
     centerStack_ = new QStackedWidget(chartPanel);
+    aspectPeakGraph_ = new AspectPeakGraph(centerStack_);
+    centerStack_->addWidget(aspectPeakGraph_);
+    aspectPeakGraph_->pointSelected = [this](int index) { selectTransitAspectPeakResult(index); };
     chartViewPanel_ = new QWidget(centerStack_);
     auto* chartViewLayout = new QGridLayout(chartViewPanel_);
     chartViewLayout->setContentsMargins(0, 0, 0, 0);
@@ -1825,6 +1837,7 @@ void MainWindow::setupDockLayout() {
     progressionTargetLayout->setVerticalSpacing(6);
     progressionTargetLayout->setColumnStretch(1, 1);
     progressionDateEdit_ = new QDateEdit(progressionTargetGroup);
+    progressionDateEdit_->setDateRange(QDate(1, 1, 1), QDate(9999, 12, 31));
     progressionDateEdit_->setCalendarPopup(true);
     progressionDateEdit_->setDisplayFormat("yyyy-MM-dd");
     progressionTimeEdit_ = new QTimeEdit(progressionTargetGroup);
@@ -1892,6 +1905,30 @@ void MainWindow::setupDockLayout() {
     progressionLayout->addStretch();
     progressionControls_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     progressionControls_->setVisible(false);
+
+    progressionEventsPanel_ = new ProgressionEventsPanel(tabs_);
+    tabs_->addTab(progressionEventsPanel_, "Events");
+    tabs_->setTabVisible(tabs_->indexOf(progressionEventsPanel_), false);
+    connect(progressionEventsPanel_, &ProgressionEventsPanel::resultsChanged,
+            this, &MainWindow::refreshProgressionEventResults);
+    connect(progressionEventsPanel_, &ProgressionEventsPanel::eventActivated, this,
+            [this](const QDateTime& local, const QString& timezone) {
+        {
+            const QSignalBlocker dateBlock(progressionDateEdit_);
+            const QSignalBlocker timeBlock(progressionTimeEdit_);
+            const QSignalBlocker zoneBlock(progressionTimezoneEdit_);
+            progressionDateEdit_->setDate(local.date());
+            progressionTimeEdit_->setTime(local.time());
+            progressionTimezoneEdit_->setText(timezone);
+        }
+        if (progressionView_ == ProgressionView::NatalOnly) {
+            const QSignalBlocker natalBlock(progressionViewNatalRadio_);
+            const QSignalBlocker progressedBlock(progressionViewProgressedRadio_);
+            progressionViewProgressedRadio_->setChecked(true);
+            progressionView_ = ProgressionView::ProgressedOnly;
+        }
+        handleProgressionCalculate();
+    });
 
     solarControls_ = new QWidget(dataPanel);
     auto* solarLayout = new QVBoxLayout(solarControls_);
@@ -2925,8 +2962,13 @@ void MainWindow::setupDockLayout() {
     scanSortCombo_ = new QComboBox(scanResultsGroup);
     scanSortCombo_->addItem("Best first");
     scanSortCombo_->addItem("Worst first");
+    scanSortCombo_->addItem("Date order");
+    scanSortCombo_->addItem("Most support");
+    scanSortCombo_->addItem("Most challenge");
     scanTopCountSpin_ = new QSpinBox(scanResultsGroup);
-    scanTopCountSpin_->setRange(10, 1000);
+    scanTopCountSpin_->setRange(0, 1000000);
+    scanTopCountSpin_->setSpecialValueText("All days");
+    scanTopCountSpin_->setToolTip("Maximum results to show in the selected sort order. Zero shows all scanned days.");
     scanTopCountSpin_->setValue(100);
     scanResultsLayout->addWidget(new QLabel("Sort", scanResultsGroup), 0, 0);
     scanResultsLayout->addWidget(scanSortCombo_, 0, 1);
@@ -5382,6 +5424,10 @@ void MainWindow::setupConnections() {
     }
     if (tabs_) {
         connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
+            if (activeTab_ == AppTab::Progression) {
+                progressionControls_->setVisible(tabs_->currentWidget() != progressionEventsPanel_);
+                refreshProgressionView();
+            }
             if (tabs_->currentWidget() == reportPanel_) {
                 refreshNatalReport();
             }
@@ -5417,6 +5463,10 @@ void MainWindow::setupConnections() {
     });
     connect(rightTopTable_, &QTableWidget::currentCellChanged, this,
         [this](int row, int column, int, int) {
+            if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::AspectPeaks) {
+                handleTransitAspectPeakResultActivated(row, column);
+                return;
+            }
             if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Search
                 && row >= 0 && row < transitSearchResults_.size()) {
                 const auto& result = transitSearchResults_[row];
@@ -5920,10 +5970,10 @@ void MainWindow::setupConnections() {
         connect(scanCancelButton_, &QPushButton::clicked, this, &MainWindow::handleTransitScanCancel);
     }
     if (scanSortCombo_) {
-        connect(scanSortCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateTransitScanResultsTable);
+        connect(scanSortCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::refreshTransitScanTab);
     }
     if (scanTopCountSpin_) {
-        connect(scanTopCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::updateTransitScanResultsTable);
+        connect(scanTopCountSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::refreshTransitScanTab);
     }
     if (profectionUseTransitAgeButton_) {
         connect(profectionUseTransitAgeButton_, &QPushButton::clicked, this, [this]() {
@@ -6160,6 +6210,11 @@ void MainWindow::setupConnections() {
     if (rightTopTable_) {
         connect(rightTopTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
             Q_UNUSED(column);
+            if (activeTab_ == AppTab::Progression && progressionEventsPanel_
+                && tabs_->currentWidget() == progressionEventsPanel_) {
+                progressionEventsPanel_->activateRow(row);
+                return;
+            }
             if (activeTab_ == AppTab::SolarReturn && isSolarPlacementFinderTabActive()) {
                 handleSolarPlacementFinderResultActivated(row, column);
                 return;
@@ -6177,12 +6232,21 @@ void MainWindow::setupConnections() {
                     return;
                 }
                 if (auto* dateItem = rightTopTable_->item(row, 0)) {
-                    const QVariant dateValue = dateItem->data(Qt::UserRole);
-                    if (dateValue.canConvert<QDate>()) {
-                        solarTechniqueDateEdit_->setDate(dateValue.toDate());
+                    const QDate month = dateItem->data(Qt::UserRole + 1).toDate();
+                    if (month.isValid()) {
+                        if (solarTechniqueCollapsedMonths_.contains(month)) {
+                            solarTechniqueCollapsedMonths_.remove(month);
+                        } else {
+                            solarTechniqueCollapsedMonths_.insert(month);
+                        }
+                        updateSolarTechniqueMonthVisibility();
+                    } else {
+                        const QDate date = dateItem->data(Qt::UserRole).toDate();
+                        if (date.isValid()) {
+                            solarTechniqueDateEdit_->setDate(date);
+                        }
                     }
                 }
-                refreshSolarTechniqueView();
                 return;
             }
             if (activeTab_ != AppTab::Transits) {
@@ -6202,6 +6266,98 @@ void MainWindow::setupConnections() {
                 refreshTransitProfectionTab();
             } else if (transitSubTab_ == TransitSubTab::Lunations) {
                 handleLunationResultActivated(row, column);
+            }
+        });
+        connect(rightTopTable_, &QTableWidget::currentCellChanged, this, [this](int row, int, int, int) {
+            if (activeTab_ != AppTab::SolarReturn || !isSolarTechniqueTabActive()
+                || !rightTopTable_->property("solarTechniqueMonthLayout").toBool()) {
+                return;
+            }
+            auto* item = rightTopTable_->item(row, 0);
+            const QDate date = item ? item->data(Qt::UserRole).toDate() : QDate();
+            if (!date.isValid()) {
+                return;
+            }
+            // Defer rebuilding the table until keyboard/mouse selection has finished.
+            QTimer::singleShot(0, this, [this, date]() {
+                if (activeTab_ != AppTab::SolarReturn || !isSolarTechniqueTabActive()
+                    || !rightTopTable_->property("solarTechniqueMonthLayout").toBool()
+                    || !solarTechniqueDateEdit_ || solarTechniqueDateEdit_->date() == date) {
+                    return;
+                }
+                auto* current = rightTopTable_->item(rightTopTable_->currentRow(), 0);
+                if (current && current->data(Qt::UserRole).toDate() == date) {
+                    solarTechniqueDateEdit_->setDate(date);
+                }
+            });
+        });
+        connect(rightTopTable_->horizontalHeader(), &QHeaderView::sectionClicked, this, [this](int column) {
+            if (activeTab_ != AppTab::SolarReturn || !isSolarTechniqueTabActive()
+                || !rightTopTable_->property("solarTechniqueMonthLayout").toBool()) {
+                return;
+            }
+            solarTechniqueSortOrder_ = column == solarTechniqueSortColumn_
+                ? (solarTechniqueSortOrder_ == Qt::AscendingOrder ? Qt::DescendingOrder : Qt::AscendingOrder)
+                : (column >= 1 && column <= 4 ? Qt::DescendingOrder : Qt::AscendingOrder);
+            solarTechniqueSortColumn_ = column;
+            refreshSolarTechniqueView();
+        });
+        connect(rightTopTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+            if (activeTab_ != AppTab::SolarReturn || !isSolarTechniqueTabActive()
+                || !rightTopTable_->property("solarTechniqueMonthLayout").toBool()) {
+                return;
+            }
+            QMenu menu(this);
+            QAction* expand = menu.addAction("Expand all months");
+            QAction* collapse = menu.addAction("Collapse all months");
+            QAction* selected = menu.addAction("Show selected day");
+            menu.addSeparator();
+            auto* clicked = rightTopTable_->itemAt(pos);
+            QAction* copy = menu.addAction("Copy row");
+            copy->setEnabled(clicked != nullptr);
+            // Capture text before opening the menu; changing selection may refresh the table.
+            QStringList rowText;
+            if (clicked) {
+                for (int col = 0; col < rightTopTable_->columnCount(); ++col) {
+                    auto* cell = rightTopTable_->item(clicked->row(), col);
+                    rowText << (cell ? cell->text() : QString());
+                }
+                const QDate date = rightTopTable_->item(clicked->row(), 0)->data(Qt::UserRole).toDate();
+                if (date.isValid()) {
+                    rowText[0] = date.toString("ddd, d MMM yyyy");
+                }
+            }
+            QAction* action = menu.exec(rightTopTable_->viewport()->mapToGlobal(pos));
+            if (!action) {
+                return;
+            }
+            if (action == copy) {
+                QApplication::clipboard()->setText(rowText.join('\t'));
+                return;
+            }
+            if (action == expand) {
+                solarTechniqueCollapsedMonths_.clear();
+            } else if (action == collapse) {
+                for (int row = 0; row < rightTopTable_->rowCount(); ++row) {
+                    auto* item = rightTopTable_->item(row, 0);
+                    const QDate month = item ? item->data(Qt::UserRole + 1).toDate() : QDate();
+                    if (month.isValid()) {
+                        solarTechniqueCollapsedMonths_.insert(month);
+                    }
+                }
+            } else if (action == selected) {
+                solarTechniqueCollapsedMonths_.remove(QDate(solarTechniqueTableDate_.year(), solarTechniqueTableDate_.month(), 1));
+            }
+            updateSolarTechniqueMonthVisibility();
+            if (action == selected) {
+                for (int row = 0; row < rightTopTable_->rowCount(); ++row) {
+                    auto* item = rightTopTable_->item(row, 0);
+                    if (item && item->data(Qt::UserRole).toDate() == solarTechniqueTableDate_) {
+                        rightTopTable_->setCurrentCell(row, 0);
+                        rightTopTable_->scrollToItem(item);
+                        break;
+                    }
+                }
             }
         });
     }
@@ -8943,6 +9099,9 @@ bool MainWindow::computeChart(const NatalInput& input, const QString& location) 
     if (vedicPanel_) {
         vedicPanel_->setNatalContext(currentInput_, currentChart_, currentLocation_);
     }
+    if (progressionEventsPanel_) {
+        progressionEventsPanel_->setNatalContext(currentInput_, currentChart_, ephePath_, swe_.loadedPath());
+    }
     transitAspectPeakResults_.clear();
     transitAspectPeakDisplayOrder_.clear();
     hasTransitAspectPeakSelection_ = false;
@@ -9317,6 +9476,7 @@ void MainWindow::handleMainTabChanged(int index) {
             activeTab_ = static_cast<AppTab>(value);
         }
     }
+    updateAspectPeakTableDensity();
     const bool enteringVedic = activeTab_ == AppTab::Vedic && !vedicWorkspaceActive_;
     const bool leavingVedic = activeTab_ != AppTab::Vedic && vedicWorkspaceActive_;
     if (enteringVedic) {
@@ -9364,7 +9524,8 @@ void MainWindow::handleMainTabChanged(int index) {
         }
     }
     if (progressionControls_) {
-        progressionControls_->setVisible(activeTab_ == AppTab::Progression);
+        progressionControls_->setVisible(activeTab_ == AppTab::Progression
+            && (!tabs_ || tabs_->currentWidget() != progressionEventsPanel_));
     }
     if (solarControls_) {
         solarControls_->setVisible(activeTab_ == AppTab::SolarReturn);
@@ -9376,6 +9537,12 @@ void MainWindow::handleMainTabChanged(int index) {
         relocationControls_->setVisible(activeTab_ == AppTab::Relocation);
     }
     if (tabs_) {
+        if (progressionEventsPanel_) {
+            const int eventsIndex = tabs_->indexOf(progressionEventsPanel_);
+            const bool showEvents = activeTab_ == AppTab::Progression;
+            if (!showEvents && tabs_->currentWidget() == progressionEventsPanel_) tabs_->setCurrentIndex(0);
+            tabs_->setTabVisible(eventsIndex, showEvents);
+        }
         const bool showSolarTools = (activeTab_ == AppTab::SolarReturn);
         auto updateSolarToolTabVisibility = [this, showSolarTools](QWidget* panel) {
             if (!tabs_ || !panel) {
@@ -9428,7 +9595,7 @@ void MainWindow::handleMainTabChanged(int index) {
                 : (zodiacalReleasingActive ? "Zodiacal Releasing Controls"
                     : (geodeticEquivalentsActive ? "Geodetic Equivalents Controls"
                         : (synastryActive ? "Synastry Setup"
-                            : (vedicActive ? "Vedic Birth Chart"
+                            : (vedicActive ? "Vedic research"
                                 : (activeTab_ == AppTab::Transits ? "Transit Setup" : "Chart Data")))))));
     }
     if (dataDock_ && solarTransitWorkspaceActive_ != (activeTab_ == AppTab::SolarTransits)) {
@@ -9466,7 +9633,7 @@ void MainWindow::handleMainTabChanged(int index) {
                 : (planetaryHoursActive ? "Planetary Hours"
                     : (zodiacalReleasingActive ? "Zodiacal Releasing Timeline"
                         : (geodeticEquivalentsActive ? "Geodetic Equivalents Map"
-                            : (vedicActive ? "Vedic Birth Chart · D1"
+                            : (vedicActive ? "Vedic research"
                                 : "Chart Wheel"))))));
     }
     const bool showChartControls = !astroActive && !returnFinderActive
@@ -10619,7 +10786,8 @@ void MainWindow::handleTransitScanResultActivated(int row, int column) {
         return;
     }
 
-    QString tzLabel = currentInput_.timezone.trimmed();
+    const auto& result = transitScanResults_[resultIndex];
+    QString tzLabel = result.tzLabel.isEmpty() ? currentInput_.timezone.trimmed() : result.tzLabel;
     if (tzLabel.isEmpty()) {
         tzLabel = "UTC";
     }
@@ -10632,7 +10800,8 @@ void MainWindow::handleTransitScanResultActivated(int row, int column) {
     }
 
     const QTime scanTime = scanTimeEdit_ ? scanTimeEdit_->time() : QTime(12, 0, 0);
-    const QDateTime localTime(transitScanResults_[resultIndex].date, scanTime, tz);
+    const QDateTime localTime = result.timeLocal.isValid()
+        ? result.timeLocal : QDateTime(result.date, scanTime, tz);
     if (!localTime.isValid()) {
         setStatusMessage("Invalid scan result time.");
         return;
@@ -10677,6 +10846,9 @@ void MainWindow::handleTransitScanResultActivated(int row, int column) {
 void MainWindow::handleTransitScanFinished() {
     transitScanRunning_ = false;
     QStringList warnings;
+    bool cancelled = false;
+    QString failure;
+    qint64 elapsedMs = 0;
     if (scanRunButton_) {
         scanRunButton_->setEnabled(true);
     }
@@ -10688,18 +10860,21 @@ void MainWindow::handleTransitScanFinished() {
         if (worker) {
             transitScanResults_ = worker->results();
             warnings = worker->warnings();
+            cancelled = worker->wasCancelled();
+            failure = worker->failure();
+            elapsedMs = worker->elapsedMs();
         }
         scanWorker_ = nullptr;
     }
     if (scanProgressBar_) {
-        scanProgressBar_->setValue(scanProgressBar_->maximum());
+        scanProgressBar_->setValue(cancelled || !failure.isEmpty()
+            ? transitScanResults_.size() : scanProgressBar_->maximum());
     }
     if (scanStatusLabel_) {
-        if (warnings.isEmpty()) {
-            scanStatusLabel_->setText(QString("Done (%1 days)").arg(transitScanResults_.size()));
-        } else {
-            scanStatusLabel_->setText(QString("Done with warnings (%1 days)").arg(transitScanResults_.size()));
-        }
+        const QString state = !failure.isEmpty() ? "Failed" : cancelled ? "Stopped" : "Done";
+        scanStatusLabel_->setText(QString("%1 · %2 days · %3s").arg(state)
+            .arg(transitScanResults_.size()).arg(elapsedMs / 1000.0, 0, 'f', 1));
+        scanStatusLabel_->setToolTip(failure.isEmpty() ? warnings.join('\n') : failure);
     }
     if (!warnings.isEmpty() && statusBar()) {
         statusBar()->showMessage(QString("Computed with warnings: %1").arg(warnings.join("; ")), 15000);
@@ -10708,7 +10883,6 @@ void MainWindow::handleTransitScanFinished() {
         scanThread_->quit();
         scanThread_ = nullptr;
     }
-    updateTransitScanResultsTable();
     if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::Scan) {
         refreshTransitScanTab();
     }
@@ -11225,13 +11399,12 @@ QString MainWindow::buildTransitScanDetailsClipboardText() const {
     const NatalChart& chart = currentTransitChart_;
     const QString tzLabel = lastTransitScanSelectionTzLabel_.isEmpty() ? QString("UTC") : lastTransitScanSelectionTzLabel_;
     const QString localLabel = lastTransitScanSelectionLocal_.isValid()
-        ? lastTransitScanSelectionLocal_.toString("yyyy-MM-dd HH:mm:ss")
+        ? lastTransitScanSelectionLocal_.toString("d MMM yyyy, h:mm:ss AP")
         : QString("-");
-    const QString aspectsText = result.topAspects.isEmpty() ? "No strong aspects" : result.topAspects.join(" | ");
 
     QStringList lines;
     lines << "Transit Scan Day Placements";
-    lines << QString("Date: %1").arg(result.date.toString("yyyy-MM-dd"));
+    lines << QString("Date: %1").arg(result.date.toString("ddd, d MMM yyyy"));
     lines << QString("Local Time: %1").arg(localLabel);
     lines << QString("Timezone: %1").arg(tzLabel);
     lines << QString("Net Score: %1").arg(QString::number(result.net, 'f', 2));
@@ -11239,7 +11412,9 @@ QString MainWindow::buildTransitScanDetailsClipboardText() const {
     lines << QString("Challenge Score: %1").arg(QString::number(result.challenge, 'f', 2));
     lines << QString("Solar Return Bias: %1").arg(QString::number(result.solarBias, 'f', 2));
     lines << QString("Aspect Count: %1").arg(result.aspectCount);
-    lines << QString("Top Aspects: %1").arg(aspectsText);
+    lines << "Top Aspects:";
+    if (result.topAspects.isEmpty()) lines << "- No scored aspects";
+    for (const auto& aspect : result.topAspects) lines << "- " + aspect;
     lines << "";
     appendBodyPlacementsMarkdown(&lines, chart);
     appendFixedStarsMarkdown(&lines, chart);
@@ -11900,6 +12075,8 @@ void MainWindow::applyTransitSearchResult(const TransitSearchResult& result) {
 }
 
 void MainWindow::updateTransitSearchVisibility() {
+    updateAspectPeakTableDensity();
+    updateAspectPeakGraphVisibility();
     if (activeTab_ != AppTab::Transits) {
         if (transitAspectsDock_) {
             transitAspectsDock_->setVisible(false);
@@ -13630,9 +13807,9 @@ void MainWindow::refreshTransitScanTab() {
 }
 
 void MainWindow::updateTransitScanResultsTable() {
-    if (!rightTopTable_) {
-        return;
-    }
+    if (!rightTopTable_ || activeTab_ != AppTab::Transits || transitSubTab_ != TransitSubTab::Scan) return;
+    const QSignalBlocker blocker(rightTopTable_);
+    rightTopTable_->setSortingEnabled(false); // Rows map to transitScanDisplayOrder_.
     if (transitScanResults_.isEmpty()) {
         hasTransitScanSelection_ = false;
         setupTable(rightTopTable_, {"Info"}, 1);
@@ -13642,41 +13819,54 @@ void MainWindow::updateTransitScanResultsTable() {
     }
     QVector<int> indices;
     indices.reserve(transitScanResults_.size());
-    for (int i = 0; i < transitScanResults_.size(); ++i) {
-        indices.push_back(i);
-    }
-    const bool bestFirst = !scanSortCombo_ || scanSortCombo_->currentIndex() == 0;
-    std::sort(indices.begin(), indices.end(), [this, bestFirst](int a, int b) {
-        const double na = transitScanResults_[a].net;
-        const double nb = transitScanResults_[b].net;
-        if (bestFirst) {
-            return na > nb;
-        }
-        return na < nb;
+    for (int i = 0; i < transitScanResults_.size(); ++i) indices.push_back(i);
+    const int sortMode = scanSortCombo_ ? scanSortCombo_->currentIndex() : 0;
+    std::sort(indices.begin(), indices.end(), [this, sortMode](int a, int b) {
+        const auto& left = transitScanResults_[a];
+        const auto& right = transitScanResults_[b];
+        if (sortMode == 2) return left.date < right.date;
+        const double av = sortMode == 3 ? left.support : sortMode == 4 ? left.challenge : left.net;
+        const double bv = sortMode == 3 ? right.support : sortMode == 4 ? right.challenge : right.net;
+        if (av == bv) return left.date < right.date;
+        return sortMode == 1 ? av < bv : av > bv;
     });
     int topCount = scanTopCountSpin_ ? scanTopCountSpin_->value() : 100;
-    if (topCount > indices.size()) {
-        topCount = indices.size();
-    }
-    transitScanDisplayOrder_.clear();
-    transitScanDisplayOrder_.reserve(topCount);
+    if (topCount == 0 || topCount > indices.size()) topCount = indices.size();
+    indices.resize(topCount);
+    transitScanDisplayOrder_ = indices;
     rightTopTable_->setUpdatesEnabled(false);
     setupTable(rightTopTable_, {"Date", "Net", "Support", "Challenge", "Aspects"}, topCount);
+    auto* header = rightTopTable_->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setMinimumSectionSize(42);
+    header->setSectionResizeMode(QHeaderView::ResizeToContents);
+    header->setSortIndicatorShown(false);
+    rightTopTable_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    rightTopTable_->verticalHeader()->setDefaultSectionSize(std::max(22, rightTopTable_->fontMetrics().height() + 6));
+    rightTopTable_->setAlternatingRowColors(true);
+    setTableHeaderTooltips(rightTopTable_, {"Date at the daily time used for this scan",
+        "Support minus challenge, plus any Solar Return bias", "Sum of supportive aspect weights",
+        "Magnitude of challenging aspect weights",
+        "Scored aspect pairs, including Arabic Lots. Neutral conjunctions are excluded."});
     for (int row = 0; row < topCount; ++row) {
-        const int idx = indices[row];
-        transitScanDisplayOrder_.push_back(idx);
-        const auto& result = transitScanResults_[idx];
-        rightTopTable_->setItem(row, 0, makeCell(result.date.toString("yyyy-MM-dd")));
-        auto* netItem = makeCell(QString::number(result.net, 'f', 2), Qt::AlignRight | Qt::AlignVCenter);
-        if (result.net > 0.01) {
-            netItem->setForeground(QColor("#69c36d"));
-        } else if (result.net < -0.01) {
-            netItem->setForeground(QColor("#e05555"));
-        }
-        rightTopTable_->setItem(row, 1, netItem);
-        rightTopTable_->setItem(row, 2, makeCell(QString::number(result.support, 'f', 2), Qt::AlignRight | Qt::AlignVCenter));
-        rightTopTable_->setItem(row, 3, makeCell(QString::number(result.challenge, 'f', 2), Qt::AlignRight | Qt::AlignVCenter));
-        rightTopTable_->setItem(row, 4, makeCell(QString::number(result.aspectCount), Qt::AlignCenter));
+        const auto& result = transitScanResults_[indices[row]];
+        auto* dateItem = makeCell(result.date.toString("d MMM yyyy"));
+        dateItem->setToolTip(result.timeLocal.isValid()
+            ? result.timeLocal.toString("dddd, d MMMM yyyy · h:mm:ss AP") + " · " + result.tzLabel
+            : result.date.toString("dddd, d MMMM yyyy"));
+        rightTopTable_->setItem(row, 0, dateItem);
+        auto scoreCell = [&](double value, const QColor& color, bool signedValue) {
+            auto* item = makeCell((signedValue && value > 0 ? QString("+") : QString())
+                + QString::number(value, 'f', 2), Qt::AlignRight | Qt::AlignVCenter);
+            if (value != 0) item->setForeground(color);
+            return item;
+        };
+        rightTopTable_->setItem(row, 1, scoreCell(result.net, result.net > 0 ? QColor("#2E8B57") : QColor("#C4473A"), true));
+        rightTopTable_->setItem(row, 2, scoreCell(result.support, QColor("#2E8B57"), false));
+        rightTopTable_->setItem(row, 3, scoreCell(result.challenge, QColor("#C4473A"), false));
+        auto* countItem = makeCell(QString::number(result.aspectCount), Qt::AlignRight | Qt::AlignVCenter);
+        countItem->setToolTip(QString("%1 supportive · %2 challenging").arg(result.supportCount).arg(result.challengeCount));
+        rightTopTable_->setItem(row, 4, countItem);
     }
     rightTopTable_->setUpdatesEnabled(true);
 }
@@ -13696,12 +13886,11 @@ void MainWindow::showTransitScanDetails(int index) {
     }
 
     const QVector<BodyPosition> orderedBodies = orderedBodiesForDetails(currentTransitChart_);
-    const QString aspectsText = result.topAspects.isEmpty() ? "No strong aspects" : result.topAspects.join(" | ");
     const QString localTimeText = lastTransitScanSelectionLocal_.isValid()
-        ? lastTransitScanSelectionLocal_.toString("yyyy-MM-dd HH:mm:ss")
+        ? lastTransitScanSelectionLocal_.toString("h:mm:ss AP")
         : QString("-");
     const QString tzLabel = lastTransitScanSelectionTzLabel_.isEmpty() ? QString("UTC") : lastTransitScanSelectionTzLabel_;
-    const int summaryRows = 9;
+    const int summaryRows = 8 + std::max(1, int(result.topAspects.size()));
     setupDetailTable(rightBottomTable_, {"Item", "Value"}, summaryRows + 1 + orderedBodies.size());
     if (auto* header = rightBottomTable_->horizontalHeader()) {
         header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -13710,7 +13899,7 @@ void MainWindow::showTransitScanDetails(int index) {
 
     int row = 0;
     rightBottomTable_->setItem(row, 0, makeCell("Date"));
-    rightBottomTable_->setItem(row++, 1, makeCell(result.date.toString("yyyy-MM-dd")));
+    rightBottomTable_->setItem(row++, 1, makeCell(result.date.toString("ddd, d MMM yyyy")));
     rightBottomTable_->setItem(row, 0, makeCell("Local Time"));
     rightBottomTable_->setItem(row++, 1, makeCell(localTimeText));
     rightBottomTable_->setItem(row, 0, makeCell("Timezone"));
@@ -13725,10 +13914,13 @@ void MainWindow::showTransitScanDetails(int index) {
     rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.solarBias, 'f', 2)));
     rightBottomTable_->setItem(row, 0, makeCell("Aspect Count"));
     rightBottomTable_->setItem(row++, 1, makeCell(QString::number(result.aspectCount)));
-    rightBottomTable_->setItem(row, 0, makeCell("Top Aspects"));
-    auto* aspectsCell = makeCell(aspectsText);
-    aspectsCell->setToolTip(aspectsText);
-    rightBottomTable_->setItem(row++, 1, aspectsCell);
+    const QStringList aspects = result.topAspects.isEmpty() ? QStringList{"No scored aspects"} : result.topAspects;
+    for (int i = 0; i < aspects.size(); ++i) {
+        rightBottomTable_->setItem(row, 0, makeCell(QString("Top aspect %1").arg(i + 1)));
+        auto* item = makeCell(aspects[i]);
+        item->setToolTip(aspects[i]);
+        rightBottomTable_->setItem(row++, 1, item);
+    }
 
     rightBottomTable_->setItem(row, 0, makeCell("Placements"));
     rightBottomTable_->setItem(row++, 1, makeCell(QString("%1 bodies").arg(orderedBodies.size())));
@@ -16197,12 +16389,25 @@ void MainWindow::showProgressionPlaceholder() {
     }
 }
 
+void MainWindow::refreshProgressionEventResults() {
+    if (activeTab_ != AppTab::Progression || !progressionEventsPanel_
+        || !rightTopTable_ || !rightBottomTable_
+        || tabs_->currentWidget() != progressionEventsPanel_) return;
+    // Reset shared result-table layouts before handing them to the event finder.
+    setupTable(rightTopTable_, {}, 0);
+    setupTable(rightBottomTable_, {}, 0);
+    progressionEventsPanel_->showResults(rightTopTable_, rightBottomTable_);
+    rightTopDock_->setWindowTitle("Progression Events");
+    rightBottomDock_->setWindowTitle("Progression Event Details");
+}
+
 void MainWindow::refreshProgressionView() {
     if (activeTab_ != AppTab::Progression) {
         return;
     }
     if (!hasCurrentChart_) {
         showProgressionPlaceholder();
+        refreshProgressionEventResults();
         return;
     }
 
@@ -16233,6 +16438,7 @@ void MainWindow::refreshProgressionView() {
     } else {
         if (!hasProgressionChart_) {
             showProgressionPlaceholder();
+            refreshProgressionEventResults();
             return;
         }
         populateSummary(currentProgressionChart_, currentProgressionInput_, currentLocation_);
@@ -16371,6 +16577,7 @@ void MainWindow::refreshProgressionView() {
     }
     updateProgressionStatusLabels();
     updateChartLegend();
+    refreshProgressionEventResults();
 }
 
 void MainWindow::markProgressionPending() {
@@ -16516,6 +16723,11 @@ void MainWindow::updateAspectScopeTabs() {
 
 void MainWindow::updateChartLegend() {
     if (!chartLegendLabel_) {
+        return;
+    }
+    if (activeTab_ == AppTab::Transits && transitSubTab_ == TransitSubTab::AspectPeaks
+        && aspectPeakViewCombo_ && aspectPeakViewCombo_->currentIndex() == 1) {
+        chartLegendLabel_->hide();
         return;
     }
     bool showLegend = false;
@@ -19943,6 +20155,28 @@ void MainWindow::refreshRelocationView() {
     updateChartLegend();
 }
 
+void MainWindow::updateSolarTechniqueMonthVisibility() {
+    if (!rightTopTable_ || !rightTopTable_->property("solarTechniqueMonthLayout").toBool()) {
+        return;
+    }
+    const QSignalBlocker blocker(rightTopTable_);
+    bool collapsed = false;
+    for (int row = 0; row < rightTopTable_->rowCount(); ++row) {
+        auto* item = rightTopTable_->item(row, 0);
+        if (!item) {
+            continue;
+        }
+        const QDate month = item->data(Qt::UserRole + 1).toDate();
+        if (month.isValid()) {
+            collapsed = solarTechniqueCollapsedMonths_.contains(month);
+            item->setText(QString(collapsed ? "▸ %1" : "▾ %1").arg(month.toString("MMM yyyy")));
+            rightTopTable_->setRowHidden(row, false);
+        } else {
+            rightTopTable_->setRowHidden(row, collapsed);
+        }
+    }
+}
+
 void MainWindow::refreshSolarTechniqueView() {
     if (!isSolarTechniqueTabActive()) {
         return;
@@ -20285,9 +20519,6 @@ void MainWindow::refreshSolarTechniqueView() {
     const auto signedCountLabel = [](int value) {
         return value > 0 ? QString("+%1").arg(value) : QString::number(value);
     };
-    const auto shortDateLabel = [](const QDate& date) {
-        return date.isValid() ? date.toString("ddd, MMM d") : QString("-");
-    };
     const auto longDateLabel = [](const QDate& date) {
         return date.isValid() ? date.toString("ddd, MMM d, yyyy") : QString("-");
     };
@@ -20312,97 +20543,167 @@ void MainWindow::refreshSolarTechniqueView() {
     const QColor monthBreakColor("#efe5d2");
 
     if (rightTopTable_) {
-        const int rows = days.size();
-        setupTable(rightTopTable_, {"Date", "Day #", "Degree", "Net", "+", "-", "0", "Strongest Hit"}, rows);
-        rightTopTable_->setWordWrap(false);
+        const QSignalBlocker blocker(rightTopTable_);
+        const bool hadLayout = rightTopTable_->property("solarTechniqueMonthLayout").toBool();
+        const int scroll = rightTopTable_->verticalScrollBar()->value();
+        const QDate selectedDate = days[dayIndex].date;
+        const bool dateChanged = !hadLayout || selectedDate != solarTechniqueTableDate_;
+        solarTechniqueTableDate_ = selectedDate;
+        if (dateChanged) {
+            solarTechniqueCollapsedMonths_.remove(QDate(selectedDate.year(), selectedDate.month(), 1));
+        }
+        // Native table sorting would move month headers away from their days.
+        rightTopTable_->setSortingEnabled(false);
+        setupTable(rightTopTable_, {"Date", "Net", "+", "−", "0", "Degree", "Closest hit"}, days.size() + months.size());
+        rightTopTable_->setProperty("solarTechniqueMonthLayout", true);
+        rightTopTable_->setContextMenuPolicy(Qt::CustomContextMenu);
+        rightTopTable_->setToolTip("Click a month to expand/collapse. Click headings to sort days within each month. Right-click for more options.");
         rightTopTable_->setTextElideMode(Qt::ElideRight);
-        rightTopTable_->verticalHeader()->setDefaultSectionSize(28);
+        rightTopTable_->verticalHeader()->setDefaultSectionSize(std::max(22, rightTopTable_->fontMetrics().height() + 6));
         if (auto* header = rightTopTable_->horizontalHeader()) {
-            header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(6, QHeaderView::ResizeToContents);
-            header->setSectionResizeMode(7, QHeaderView::Stretch);
+            header->setMinimumSectionSize(24);
+            for (int col = 0; col < 6; ++col) {
+                header->setSectionResizeMode(col, QHeaderView::ResizeToContents);
+            }
+            header->setSectionResizeMode(6, QHeaderView::Stretch);
+            header->setSectionsClickable(true);
+            header->setSortIndicator(solarTechniqueSortColumn_, solarTechniqueSortOrder_);
+            header->setSortIndicatorShown(true);
         }
-        for (int i = 0; i < rows; ++i) {
-            const auto& day = days[i];
-            const bool monthBreak = (i == 0)
-                || day.date.month() != days[i - 1].date.month()
-                || day.date.year() != days[i - 1].date.year();
-
-            auto* dateItem = makeCell(shortDateLabel(day.date));
-            dateItem->setData(Qt::UserRole, day.date);
-            dateItem->setToolTip(longDateLabel(day.date));
-
-            auto* dayNumberItem = makeCell(QString::number(day.dayNumber), Qt::AlignCenter);
-            auto* degreeItem = makeCell(day.dailyLabel, Qt::AlignCenter);
-
-            auto* netItem = makeCell(signedCountLabel(day.netScore), Qt::AlignCenter);
-            QFont scoreFont = netItem->font();
-            scoreFont.setBold(true);
-            netItem->setFont(scoreFont);
-            netItem->setForeground(toneColor(day.netScore));
-            if (day.netScore > 0) {
-                netItem->setBackground(QColor("#dcefe9"));
-            } else if (day.netScore < 0) {
-                netItem->setBackground(QColor("#f6dfda"));
-            } else {
-                netItem->setBackground(QColor("#ece7de"));
-            }
-
-            auto* supportItem = makeCell(QString::number(day.supportCount), Qt::AlignCenter);
-            supportItem->setForeground(day.supportCount > 0 ? goodColor : neutralColor);
-            supportItem->setToolTip(day.support.isEmpty() ? "No supportive hits." : day.support.join("\n"));
-
-            auto* challengeItem = makeCell(QString::number(day.challengeCount), Qt::AlignCenter);
-            challengeItem->setForeground(day.challengeCount > 0 ? badColor : neutralColor);
-            challengeItem->setToolTip(day.challenge.isEmpty() ? "No challenging hits." : day.challenge.join("\n"));
-
-            auto* neutralItem = makeCell(QString::number(day.neutralCount), Qt::AlignCenter);
-            neutralItem->setForeground(day.neutralCount > 0 ? neutralColor : QColor("#a19684"));
-            neutralItem->setToolTip(day.neutral.isEmpty() ? "No neutral hits." : day.neutral.join("\n"));
-
-            auto* strongestItem = makeCell(day.strongestPreview.isEmpty() ? "No exact hits" : day.strongestPreview);
-            strongestItem->setForeground(day.strongestPreview.isEmpty() ? QColor("#a19684") : toneColor(day.strongestTone));
-            QStringList strongestTooltip;
-            strongestTooltip << longDateLabel(day.date)
-                             << QString("Degree: %1").arg(day.dailyLabel)
-                             << QString("Net %1 | +%2 / -%3 / 0 %4")
-                                    .arg(signedCountLabel(day.netScore))
-                                    .arg(day.supportCount)
-                                    .arg(day.challengeCount)
-                                    .arg(day.neutralCount);
-            if (!day.strongestHit.isEmpty()) {
-                strongestTooltip << "" << QString("Strongest: %1").arg(day.strongestHit);
-            }
-            strongestItem->setToolTip(strongestTooltip.join("\n"));
-
-            QVector<QTableWidgetItem*> rowItems = {
-                dateItem, dayNumberItem, degreeItem, netItem,
-                supportItem, challengeItem, neutralItem, strongestItem
-            };
-            if (monthBreak) {
-                QFont dateFont = dateItem->font();
-                dateFont.setBold(true);
-                dateItem->setFont(dateFont);
-                for (auto* item : rowItems) {
-                    if (item) {
-                        item->setBackground(monthBreakColor);
-                    }
+        const QStringList headerTips = {"Calendar date · click to sort within months",
+            "Support minus challenge; month rows show sums", "Supportive hits: sextile / trine",
+            "Challenging hits: square / opposition", "Neutral hits: conjunction",
+            "Directed SR Ascendant; hover for full precision and technique day", "Hit with the smallest orb"};
+        for (int col = 0; col < headerTips.size(); ++col) {
+            rightTopTable_->horizontalHeaderItem(col)->setToolTip(headerTips[col]);
+        }
+        int row = 0;
+        int selectedRow = -1;
+        for (const auto& month : months) {
+            QVector<int> indices;
+            for (int i = 0; i < days.size(); ++i) {
+                if (days[i].date.year() == month.monthStart.year() && days[i].date.month() == month.monthStart.month()) {
+                    indices.push_back(i);
                 }
-                netItem->setBackground(day.netScore > 0 ? QColor("#dcefe9")
-                    : (day.netScore < 0 ? QColor("#f6dfda") : QColor("#ece7de")));
             }
+            const QString monthTip = QString("%1 – %2\n%3 days: %4 positive / %5 negative / %6 neutral\nMonthly sums: net %7 | +%8 / −%9 / 0 %10\nClick to expand/collapse.")
+                .arg(days[indices.first()].date.toString("d MMM yyyy"), days[indices.last()].date.toString("d MMM yyyy"))
+                .arg(indices.size()).arg(month.positiveDays).arg(month.negativeDays).arg(month.neutralDays)
+                .arg(signedCountLabel(month.totalNet)).arg(month.totalSupport).arg(month.totalChallenge).arg(month.totalNeutral);
+            const QStringList summary = {QString(), signedCountLabel(month.totalNet), QString::number(month.totalSupport),
+                QString::number(month.totalChallenge), QString::number(month.totalNeutral), QString(), QString("%1 days").arg(indices.size())};
+            for (int col = 0; col < summary.size(); ++col) {
+                auto* item = makeCell(summary[col], col >= 1 && col <= 4 ? Qt::AlignCenter : Qt::AlignLeft | Qt::AlignVCenter);
+                QFont font = item->font();
+                font.setBold(true);
+                item->setFont(font);
+                item->setBackground(monthBreakColor);
+                item->setToolTip(monthTip);
+                if (col == 0) {
+                    item->setData(Qt::UserRole + 1, month.monthStart);
+                } else if (col == 1) {
+                    item->setForeground(toneColor(month.totalNet));
+                } else if (col == 2) {
+                    item->setForeground(goodColor);
+                } else if (col == 3) {
+                    item->setForeground(badColor);
+                }
+                rightTopTable_->setItem(row, col, item);
+            }
+            ++row;
+            std::stable_sort(indices.begin(), indices.end(), [&](int a, int b) {
+                const auto& left = days[a];
+                const auto& right = days[b];
+                int order = 0;
+                const auto compare = [](auto x, auto y) { return x < y ? -1 : (y < x ? 1 : 0); };
+                switch (solarTechniqueSortColumn_) {
+                case 1: order = compare(left.netScore, right.netScore); break;
+                case 2: order = compare(left.supportCount, right.supportCount); break;
+                case 3: order = compare(left.challengeCount, right.challengeCount); break;
+                case 4: order = compare(left.neutralCount, right.neutralCount); break;
+                case 5: order = compare(left.dailyLon, right.dailyLon); break;
+                case 6: order = QString::compare(left.strongestPreview, right.strongestPreview, Qt::CaseInsensitive); break;
+                default: order = compare(left.date, right.date); break;
+                }
+                return order == 0 ? left.date < right.date
+                    : (solarTechniqueSortOrder_ == Qt::AscendingOrder ? order < 0 : order > 0);
+            });
+            for (int index : indices) {
+                const auto& day = days[index];
+                auto* dateItem = makeCell(day.date.toString("ddd d MMM"));
+                dateItem->setData(Qt::UserRole, day.date);
+                const QString dateTip = QString("%1\nTechnique day %2 / %3\nDegree: %4")
+                    .arg(longDateLabel(day.date)).arg(day.dayNumber).arg(totalDays).arg(day.dailyLabel);
+                dateItem->setToolTip(dateTip);
+                const int arcMinutes = static_cast<int>(std::lround(normalizeDegrees(day.dailyLon) * 60.0)) % 21600;
+                auto* degreeItem = makeCell(QString("%1°%2′ %3")
+                    .arg((arcMinutes % 1800) / 60).arg(arcMinutes % 60, 2, 10, QChar('0'))
+                    .arg(signName(arcMinutes / 1800).left(3)), Qt::AlignCenter);
+                degreeItem->setToolTip(dateTip);
 
-            for (int col = 0; col < rowItems.size(); ++col) {
-                rightTopTable_->setItem(i, col, rowItems[col]);
+                auto* netItem = makeCell(signedCountLabel(day.netScore), Qt::AlignCenter);
+                QFont scoreFont = netItem->font();
+                scoreFont.setBold(true);
+                netItem->setFont(scoreFont);
+                netItem->setForeground(toneColor(day.netScore));
+                if (day.netScore > 0) {
+                    netItem->setBackground(QColor("#dcefe9"));
+                } else if (day.netScore < 0) {
+                    netItem->setBackground(QColor("#f6dfda"));
+                } else {
+                    netItem->setBackground(QColor("#ece7de"));
+                }
+
+                auto* supportItem = makeCell(QString::number(day.supportCount), Qt::AlignCenter);
+                supportItem->setForeground(day.supportCount > 0 ? goodColor : neutralColor);
+                supportItem->setToolTip(day.support.isEmpty() ? "No supportive hits." : day.support.join("\n"));
+
+                auto* challengeItem = makeCell(QString::number(day.challengeCount), Qt::AlignCenter);
+                challengeItem->setForeground(day.challengeCount > 0 ? badColor : neutralColor);
+                challengeItem->setToolTip(day.challenge.isEmpty() ? "No challenging hits." : day.challenge.join("\n"));
+
+                auto* neutralItem = makeCell(QString::number(day.neutralCount), Qt::AlignCenter);
+                neutralItem->setForeground(day.neutralCount > 0 ? neutralColor : QColor("#a19684"));
+                neutralItem->setToolTip(day.neutral.isEmpty() ? "No neutral hits." : day.neutral.join("\n"));
+
+                auto* strongestItem = makeCell(day.strongestPreview.isEmpty() ? "—" : day.strongestPreview);
+                strongestItem->setForeground(day.strongestPreview.isEmpty() ? QColor("#a19684") : toneColor(day.strongestTone));
+                QStringList strongestTooltip;
+                strongestTooltip << longDateLabel(day.date)
+                                 << QString("Degree: %1").arg(day.dailyLabel)
+                                 << QString("Net %1 | +%2 / -%3 / 0 %4")
+                                        .arg(signedCountLabel(day.netScore))
+                                        .arg(day.supportCount)
+                                        .arg(day.challengeCount)
+                                        .arg(day.neutralCount);
+                if (!day.strongestHit.isEmpty()) {
+                    strongestTooltip << "" << QString("Closest: %1").arg(day.strongestHit);
+                } else {
+                    strongestTooltip << "No hits within the selected orb.";
+                }
+                strongestItem->setToolTip(strongestTooltip.join("\n"));
+
+                QVector<QTableWidgetItem*> rowItems = {
+                    dateItem, netItem, supportItem, challengeItem, neutralItem, degreeItem, strongestItem
+                };
+                for (int col = 0; col < rowItems.size(); ++col) {
+                    rightTopTable_->setItem(row, col, rowItems[col]);
+                }
+                if (day.date == selectedDate) {
+                    selectedRow = row;
+                }
+                ++row;
             }
         }
-        if (dayIndex >= 0 && dayIndex < rows) {
-            rightTopTable_->selectRow(dayIndex);
+        updateSolarTechniqueMonthVisibility();
+        if (selectedRow >= 0 && !rightTopTable_->isRowHidden(selectedRow)) {
+            rightTopTable_->setCurrentCell(selectedRow, 0);
+        }
+        if (hadLayout) {
+            rightTopTable_->verticalScrollBar()->setValue(scroll);
+        }
+        if (dateChanged && selectedRow >= 0) {
+            rightTopTable_->scrollToItem(rightTopTable_->item(selectedRow, 0));
         }
     }
 
@@ -21856,6 +22157,16 @@ void MainWindow::handleDeleteProfile() {
 }
 
 static void setupTable(QTableWidget* table, const QStringList& headers, int rows) {
+    if (table->property("solarTechniqueMonthLayout").toBool()) {
+        // The results dock is shared: collapsed months and headers belong only to Technique.
+        table->setRowCount(0);
+        table->setColumnCount(0);
+        table->setContextMenuPolicy(Qt::DefaultContextMenu);
+        table->setToolTip(QString());
+        table->horizontalHeader()->setSortIndicatorShown(false);
+        table->horizontalHeader()->setMinimumSectionSize(-1);
+        table->setProperty("solarTechniqueMonthLayout", false);
+    }
     if (table->property("lunationGroupLayout").toBool()) {
         // Shared dock: do not leak research-only column order/visibility.
         table->setColumnCount(0);

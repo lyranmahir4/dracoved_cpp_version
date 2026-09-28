@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QDateEdit>
 #include <QFontDatabase>
+#include <QLabel>
 #include <QTimeEdit>
 #include <QPushButton>
 #include <QTableWidget>
@@ -58,6 +59,27 @@ int main(int argc, char** argv) {
         const QString report = QApplication::clipboard()->text();
         require(report.contains("UTC: 2026-01-01T00:00:00Z") && report.contains("1 · Janma")
             && !report.contains("\nSun\t"), "Copy context and visible rows only");
+        auto* status = panel.findChild<QLabel*>("taraStatus");
+        panel.setActiveLords({"Ketu"}, "17 Feb 2034 · MD Ketu", true);
+        planet->setCurrentIndex(planet->findText("Rahu (True)")); table->sortItems(5, Qt::DescendingOrder);
+        shown = 0;
+        for (int row = 0; row < table->rowCount(); ++row) if (!table->isRowHidden(row)) {
+            ++shown; require(table->item(row, 0)->text() == "Rahu (True)", "Explicit Tara target overrides unrelated active lords");
+        }
+        require(shown == 1 && status->text().contains("1 of 11 planets shown")
+            && status->text().contains("Selected planet takes priority"), "Selected Tara planet stays visible and explains filter priority");
+        copy->click(); require(app.clipboard()->text().contains("selected planet takes priority")
+            && !app.clipboard()->text().contains("Active lords only ·"), "Tara copy describes effective filters");
+        planet->setCurrentIndex(0); shown = 0;
+        for (int row = 0; row < table->rowCount(); ++row) if (!table->isRowHidden(row)) {
+            ++shown; require(table->item(row, 0)->text().startsWith("Ketu ("), "Active filter covers both node models");
+        }
+        require(shown == 2 && status->text().contains("2 of 11 planets shown"), "All planets still applies active-lord filtering");
+        panel.setActiveLords({}, "No active chain", true);
+        require(!copy->isEnabled() && status->text().contains("0 of 11 planets shown")
+            && status->text().contains("hidden by the filters"), "Filtered-empty Tara status is explicit");
+        panel.setActiveLords({}, {}, false);
+        require(copy->isEnabled() && status->text().contains("11 of 11 planets shown"), "Turning off active filtering restores the same calculation");
         double after{}, expected{};
         require(swe.calcUt(jd, SE_MOON, SEFLG_SIDEREAL, &after, &error), "Restored Moon");
         swe.setSidMode(siderealAyanamsaSwissMode(input.siderealAyanamsa));
