@@ -1,4 +1,4 @@
-DracoVed build started: Mon 09/28/2026  5:45:25.55
+DracoVed build started: Mon 09/28/2026 12:47:48.84
 
 Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\check_build_files.ps1" -BuildExe "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe" -DistExe "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe" -LogFile "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\build_step.log"
 Exit code: 0
@@ -24,7 +24,7 @@ Exit code: 0
 Command: xcopy /E /I /Y "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\ephe" "C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\ephe"
 Exit code: 0
 Build EXE: C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\build\dracoved_app.exe
-Build timestamp: 09/28/2026 05:47 AM
+Build timestamp: 09/28/2026 12:48 PM
 Dist EXE: C:\Users\Mahir\Downloads\DracoVed\DracoVed\DracoVed_cpp_version\dracoved_app\dist\dracoved_app.exe
-Dist timestamp: 09/28/2026 05:47 AM
-DracoVed build completed successfully: Mon 09/28/2026  5:47:47.14
+Dist timestamp: 09/28/2026 12:48 PM
+DracoVed build completed successfully: Mon 09/28/2026 12:48:47.65

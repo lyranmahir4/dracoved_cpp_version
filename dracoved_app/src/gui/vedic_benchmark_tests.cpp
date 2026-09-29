@@ -143,7 +143,27 @@ int main(int argc,char** argv) {
         for(int row=0;row<details->rowCount();++row) if(details->item(row,0)->text()=="Moon")
             require(details->item(row,3)->text()=="Not applicable" && details->item(row,4)->text()=="—" && details->item(row,10)->text()=="—","Moon detail cells never imply a metal or zero contribution");
         benchmark->findChild<QPushButton*>("vedicBenchmarkCopy")->click();
-        require(app.clipboard()->text().contains("Weights: Moorthi")&&app.clipboard()->text().contains("Entry UTC"),"Copy records scoring rules and source entries");
+        {
+            // Compact copy: summary, years and merged periods, no per-sample dump.
+            const QString summary=app.clipboard()->text(); const QStringList lines=summary.split('\n');
+            require(summary.contains("Weights: Moorthi")&&summary.contains("SUMMARY")&&summary.contains("YEAR\tMean")
+                &&summary.contains("PERIODS")&&!summary.contains("Entry UTC"),"Copy results gives the compact summary");
+            int header=-1; for(int i=0;i<lines.size();++i) if(lines[i].startsWith("From\t")) header=i;
+            require(header>0,"Period table header");
+            const QStringList columns=lines[header].split('\t'); const int moonColumn=columns.indexOf("Moon");
+            int periods=0; double days=0;
+            for(int i=header+1;i<lines.size();++i) {
+                const QStringList cells=lines[i].split('\t'); ++periods; days+=cells.value(2).toDouble();
+                if(moonColumn>=0) for(const QString& metal:{"Swarna","Rajata","Tamra","Loha"})
+                    require(!cells.value(moonColumn).contains(metal),"Compact Moon cells never show a metal");
+            }
+            require(periods>0 && periods<=benchmark->samples().size(),"Merged periods never exceed samples");
+            // Lossless merge: in daily mode every sampled day is covered exactly once.
+            if(columns.value(1)=="To (incl.)") require(qRound(days)==benchmark->samples().size(),"Merged periods cover every sampled day");
+            require(lines.size()<benchmark->samples().size()*4,"Compact copy is shorter than the per-sample export");
+        }
+        benchmark->copyFullDetail();
+        require(app.clipboard()->text().contains("weights: Moorthi",Qt::CaseInsensitive)&&app.clipboard()->text().contains("Entry UTC"),"Full detail keeps scoring rules and source entries");
         require(app.clipboard()->text().contains("Not applicable\tN/A\tN/A\tN/A"),"Copied Moon has no fabricated metal provenance");
         app.processEvents(); app.processEvents();
         panel.grab().save(QCoreApplication::applicationDirPath()+"/vedic_benchmark.png");

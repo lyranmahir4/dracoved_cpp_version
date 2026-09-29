@@ -85,6 +85,8 @@ add_executable(dracoved_app
     src/gui/synastry_calc.cpp
     src/gui/vedic_panel.h
     src/gui/vedic_panel.cpp
+    src/gui/south_indian_chart.h
+    src/gui/south_indian_chart.cpp
     src/gui/compact_controls.h
     src/gui/moorthi_panel.h
     src/gui/moorthi_panel.cpp

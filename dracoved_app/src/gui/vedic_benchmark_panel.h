@@ -57,6 +57,10 @@ public:
     bool isRunning() const;
     bool hasSource() const { return !series_.isEmpty(); }
     const QVector<VedicBenchmarkSample>& samples() const { return samples_; }
+    // Copy results (left-click): compact summary, per-year overview and merged
+    // periods. copyFullDetail (right-click menu): every sample, every column.
+    void copySummary();
+    void copyFullDetail();
     std::function<void(bool)> onBusyChanged;
     std::function<void(qint64)> onMomentSelected;
     std::function<void()> onPlanetScopeChanged;
@@ -66,7 +70,6 @@ private:
     void rescore();
     void select(int index);
     void editRules();
-    void copy();
     void clearSamples();
     QString ruleDescription() const;
     double displayedScore(int index) const;

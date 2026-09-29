@@ -32,12 +32,15 @@
     "latitude": 23.764386,
     "location": "Dhaka Bangladesh",
     "longitude": 90.389014,
+    "lunar_node_mode": "True",
+    "lunar_node_primary": "True",
+    "lunar_node_uses_app_default": true,
     "name": "Mahir 1998",
     "profile_name": "Mahir 1998",
-    "saved_at_utc": "2026-06-28T14:54:50Z",
+    "saved_at_utc": "2026-09-28T09:16:46Z",
     "sidereal_ayanamsa": "Lahiri",
-    "time": "16:01:23",
+    "time": "16:09:23",
     "timezone": "Asia/Dhaka",
-    "version": 3,
+    "version": 4,
     "zodiac_system": "Tropical"
 }

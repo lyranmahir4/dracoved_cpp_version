@@ -23,6 +23,7 @@ class MoorthiGraphPanel;
 class TaraPanel;
 class DashaPanel;
 class AshtakavargaPanel;
+class SouthIndianChart;
 
 // Dense D1 research workspace: a wide placement table (sign, house, lords,
 // motion, nakshatra, pada, navamsa, dignity, solar distance) over a
@@ -56,6 +57,8 @@ public:
                          const QString& location);
 
     QTableWidget* table() const { return table_; }
+    SouthIndianChart* rasiChart() const { return d1Chart_; }
+    SouthIndianChart* navamsaChart() const { return d9Chart_; }
     SiderealAyanamsa ayanamsa() const { return ayanamsa_; }
     static QStringList columnHeaders();
 
@@ -83,6 +86,8 @@ private:
     void restoreSplitters();
     void persistSplitters();
     void updateActiveLords(bool syncTime = true);
+    void updateCharts(const QVector<Row>& rows, const NatalChart& vedicChart);
+    void selectBody(const QString& key);
 
     TropicalNatalEngine* engine_ = nullptr;
     SwissEph* swe_ = nullptr;
@@ -94,6 +99,9 @@ private:
     QTableWidget* table_ = nullptr;
     QSplitter* mainSplitter_ = nullptr;
     QSplitter* transitSplitter_ = nullptr;
+    QSplitter* chartSplitter_ = nullptr;
+    SouthIndianChart* d1Chart_ = nullptr;
+    SouthIndianChart* d9Chart_ = nullptr;
     MoorthiPanel* moorthiPanel_ = nullptr;
     MoorthiGraphPanel* moorthiGraphPanel_ = nullptr;
     TaraPanel* taraPanel_ = nullptr;

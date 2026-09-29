@@ -654,7 +654,18 @@ VedicBenchmarkPanel::VedicBenchmarkPanel(SwissEph* swe, QWidget* parent) : QWidg
         rescore();
     });
     connect(weights_,&QPushButton::clicked,this,[this]{editRules();});
-    connect(copy_,&QPushButton::clicked,this,[this]{copy();});
+    connect(copy_,&QPushButton::clicked,this,[this]{copySummary();});
+    // The complete per-sample export stays one right-click away.
+    copy_->setToolTip("Copy a summary, per-year overview and merged periods.\nRight-click for the full per-sample export.");
+    copy_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(copy_,&QWidget::customContextMenuRequested,this,[this](const QPoint& position){
+        if(samples_.isEmpty()) return;
+        QMenu menu(this);
+        QAction* summary=menu.addAction("Copy summary and periods");
+        QAction* full=menu.addAction("Copy full detail (every sample)");
+        QAction* chosen=menu.exec(copy_->mapToGlobal(position));
+        if(chosen==summary) copySummary(); else if(chosen==full) copyFullDetail();
+    });
     connect(activeDashas_,&QCheckBox::toggled,this,[this] {
         for (auto* check:levels_) check->setEnabled(activeDashasOnly());
         details_->setColumnHidden(15,!activeDashasOnly());
@@ -1335,7 +1346,141 @@ QString VedicBenchmarkPanel::ruleDescription() const {
     for(int i=0;i<9;++i) text+=planets[i]+": "+(i==1?"not applicable":rules_.useMalefic[i]?"malefic":"benefic")+" Moorthi rule\n";
     return text;
 }
-void VedicBenchmarkPanel::copy() {
+// Compact export for pasting into notes or a chat. Scores are only re-read from
+// the finished samples: nothing here recalculates or changes a value. Daily
+// snapshots repeat identical values between events, so consecutive samples whose
+// shown values match are merged into one period row without losing information.
+void VedicBenchmarkPanel::copySummary() {
+    if(samples_.isEmpty()) return;
+    const bool daily=sampling_->currentIndex()==0;
+    auto signedNumber=[](double value){ const QString text=number(value); return value>.00001?"+"+text:text; };
+    const QChar dot(0x00B7);
+    // Each sample holds until the next one (or the range end); summaries are
+    // weighted by that span so event sampling is not biased by event density.
+    QVector<double> spans(samples_.size());
+    for(int i=0;i<samples_.size();++i)
+        spans[i]=std::max(0.0,(i+1<samples_.size()?samples_[i+1].jd:end_)-samples_[i].jd);
+    auto dateText=[&](double value){ return localTime(value,zone_).toString(daily?"yyyy-MM-dd":"yyyy-MM-dd HH:mm"); };
+    auto daysText=[&](double days){ return daily?QString::number(qRound(days)):QString::number(days,'f',1); };
+
+    QStringList lines;
+    const QString name=input_.name.trimmed().isEmpty()?QString("Untitled"):input_.name.trimmed();
+    lines<<QString("Vedic transit score %1 %2 %1 %3 to %4 %1 %5").arg(dot).arg(name,
+        localTime(start_,zone_).date().toString(Qt::ISODate), localTime(end_-1/dayMs,zone_).date().toString(Qt::ISODate),
+        partial_?"PARTIAL (stopped or failed early)":"Complete");
+    lines<<QString("%2 %1 Sampling: %3 %1 %4 %1 %5 %1 %6%7").arg(dot).arg(scoreDescription(),
+        sampling_->currentText()+" "+(daily?time_->time().toString("HH:mm"):anchor_->currentText()),
+        zodiacDescription(input_.zodiacSystem,ayanamsa_), lunarNodePolicySummary(input_.lunarNodePolicy),
+        QString::fromUtf8(zone_.id()), d9RangeSummary());
+    lines<<"Planets: "+dashaDescription();
+    if(chartScope_->currentIndex()!=1 && scoreMode_->currentIndex()==0)
+        lines<<QString("Weights: Moorthi %2 %1 Tara %3 %1 BAV %4 %1 Kaksha %5").arg(dot)
+            .arg(rules_.weights[0]).arg(rules_.weights[1]).arg(rules_.weights[2]).arg(rules_.weights[3]);
+    lines<<QString("Birth %1 %2 %3").arg(input_.date.toString(Qt::ISODate),input_.time.toString("HH:mm:ss"),input_.timezone);
+    lines<<QString("Scores run -100 to +100. Rows below merge consecutive %1 whose values are identical. "
+                   "Right-click Copy results for every sample and the full scoring rules.").arg(daily?"days":"samples");
+
+    // --- Summary of the line shown on the graph ---
+    double total=0, weighted=0, positive=0, negative=0, high=-1e9, low=1e9;
+    int highCount=0, lowCount=0; double highFirst=0, lowFirst=0;
+    for(int i=0;i<samples_.size();++i) {
+        const double value=displayedScore(i);
+        if(!std::isfinite(value)) continue;
+        total+=spans[i]; weighted+=value*spans[i];
+        if(value>.00001) positive+=spans[i]; else if(value<-.00001) negative+=spans[i];
+        if(value>high+1e-9) {high=value; highCount=0; highFirst=samples_[i].jd;}
+        if(std::abs(value-high)<=1e-9) ++highCount;
+        if(value<low-1e-9) {low=value; lowCount=0; lowFirst=samples_[i].jd;}
+        if(std::abs(value-low)<=1e-9) ++lowCount;
+    }
+    // Longest unbroken positive and negative stretches.
+    struct Run { double days=0, from=0, to=0; };
+    Run bestPositive, bestNegative, current; int currentSign=0;
+    for(int i=0;i<=samples_.size();++i) {
+        const double value=i<samples_.size()?displayedScore(i):std::numeric_limits<double>::quiet_NaN();
+        const int sign=!std::isfinite(value)?0:value>.00001?1:value<-.00001?-1:0;
+        if(sign!=currentSign || i==samples_.size()) {
+            if(currentSign>0 && current.days>bestPositive.days) bestPositive=current;
+            if(currentSign<0 && current.days>bestNegative.days) bestNegative=current;
+            current={0, i<samples_.size()?samples_[i].jd:0, 0}; currentSign=sign;
+        }
+        if(i<samples_.size()) {current.days+=spans[i]; current.to=samples_[i].jd;}
+    }
+    const QString unit=daily?"days":"samples";
+    lines<<""<<"SUMMARY "+QString(dot)+" "+display_->currentText();
+    if(total>0) {
+        lines<<QString("Mean %2 %1 %3% of the time positive %1 %4% negative").arg(dot)
+            .arg(signedNumber(weighted/total)).arg(100*positive/total,0,'f',0).arg(100*negative/total,0,'f',0);
+        lines<<QString("High %1 on %2 %3 (first %4)").arg(signedNumber(high)).arg(highCount).arg(unit,dateText(highFirst));
+        lines<<QString("Low %1 on %2 %3 (first %4)").arg(signedNumber(low)).arg(lowCount).arg(unit,dateText(lowFirst));
+        if(bestPositive.days>0) lines<<QString("Longest positive stretch: %1 days, %2 to %3")
+            .arg(daysText(bestPositive.days),dateText(bestPositive.from),dateText(bestPositive.to));
+        if(bestNegative.days>0) lines<<QString("Longest negative stretch: %1 days, %2 to %3")
+            .arg(daysText(bestNegative.days),dateText(bestNegative.from),dateText(bestNegative.to));
+    } else lines<<"No scored samples for this line.";
+
+    // --- One row per calendar year (local time) ---
+    lines<<""<<"YEAR\tMean\tMin\tMax\t% positive\tDays";
+    for(int i=0;i<samples_.size();) {
+        const int year=localTime(samples_[i].jd,zone_).date().year();
+        double yearTotal=0, yearWeighted=0, yearPositive=0, yearHigh=-1e9, yearLow=1e9, yearDays=0;
+        for(;i<samples_.size() && localTime(samples_[i].jd,zone_).date().year()==year;++i) {
+            yearDays+=spans[i];
+            const double value=displayedScore(i);
+            if(!std::isfinite(value)) continue;
+            yearTotal+=spans[i]; yearWeighted+=value*spans[i];
+            if(value>.00001) yearPositive+=spans[i];
+            yearHigh=std::max(yearHigh,value); yearLow=std::min(yearLow,value);
+        }
+        lines<<(yearTotal>0
+            ? QString("%1\t%2\t%3\t%4\t%5\t%6").arg(year).arg(signedNumber(yearWeighted/yearTotal),signedNumber(yearLow),
+                  signedNumber(yearHigh)).arg(100*yearPositive/yearTotal,0,'f',0).arg(daysText(yearDays))
+            : QString("%1\tN/A\tN/A\tN/A\tN/A\t%2").arg(year).arg(daysText(yearDays)));
+    }
+
+    // --- Merged periods ---
+    QStringList planetColumns;
+    for(const auto& s:series_) planetColumns<<s.planet;
+    const bool showDasha=activeDashasOnly();
+    auto cellFor=[&](const VedicBenchmarkReading& r) {
+        if(!r.score.valid) return QString("N/A");
+        QString cell=signedNumber(r.score.net)+" "+signName(signIndex(r.longitude)).left(3)
+            +QString(" T%1 %2").arg(r.tara).arg(classifyVedicTara(natalStar_,r.nakshatra).name);
+        if(r.planetIndex!=1) cell+=" "+moorthiName(r.entry.moorthi);  // Moon has no Moorthi
+        if(!r.roles.isEmpty()) cell+=" ["+r.roles+"]";
+        return cell;
+    };
+    auto rowCells=[&](const VedicBenchmarkSample& sample) {
+        if(!sample.error.isEmpty()) return QStringList{"ERROR: "+sample.error};
+        QStringList cells{sample.scoredPlanets?signedNumber(sample.overall):"N/A"};
+        if(showDasha) cells<<sample.dashaPath;
+        for(const QString& planet:planetColumns) {
+            QString cell=QString::fromUtf8("—");
+            for(const auto& r:sample.readings) if(r.planet==planet) {cell=cellFor(r); break;}
+            cells<<cell;
+        }
+        return cells;
+    };
+    QStringList periodRows;
+    for(int i=0;i<samples_.size();) {
+        const QStringList cells=rowCells(samples_[i]);
+        int j=i; double days=0;
+        while(j<samples_.size() && rowCells(samples_[j])==cells) {days+=spans[j]; ++j;}
+        const QString to=daily?dateText(samples_[j-1].jd):dateText(j<samples_.size()?samples_[j].jd:end_);
+        periodRows<<QStringList{dateText(samples_[i].jd),to,daysText(days)}.join('\t')+'\t'+cells.join('\t');
+        i=j;
+    }
+    lines<<""<<QString("PERIODS %1 %2 rows from %3 %4 %1 cell = Net, sign, Tara, Moorthi%5")
+        .arg(dot).arg(periodRows.size()).arg(samples_.size()).arg(unit, showDasha?", [dasha roles]":"");
+    lines<<QStringList{"From",daily?"To (incl.)":"To (excl.)","Days","Overall"}.join('\t')
+        +(showDasha?"\tActive dashas":"")+'\t'+planetColumns.join('\t');
+    lines<<periodRows;
+    QApplication::clipboard()->setText(lines.join('\n'));
+    status_->setText(QString("Summary copied %1 %2 periods from %3 %4. Right-click Copy results for full detail.")
+        .arg(dot).arg(periodRows.size()).arg(samples_.size()).arg(unit));
+}
+
+void VedicBenchmarkPanel::copyFullDetail() {
     if(samples_.isEmpty()) return;
     QStringList lines{scoreDescription()+" · "+QString(partial_?"PARTIAL":"Complete"),
         input_.name+" · Birth "+input_.date.toString(Qt::ISODate)+" "+input_.time.toString("HH:mm:ss.zzz")+" · "+input_.timezone,

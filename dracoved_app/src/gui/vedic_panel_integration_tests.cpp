@@ -4,6 +4,7 @@
 #include "vedic_panel.h"
 #include "dasha_panel.h"
 #include "moorthi_graph_panel.h"
+#include "south_indian_chart.h"
 
 #include "../core/chart_types.h"
 #include "../core/tropical_natal.h"
@@ -23,6 +24,7 @@
 #include <QHash>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QSettings>
@@ -192,6 +194,52 @@ struct VedicPanelIntegrationChecks {
         }
     }
 
+    // South Indian D1/D9 charts must agree with the placements table they sit
+    // beside: every body in its table sign (D1) and table D9 sign (D9), the
+    // Lagna box marked, vargottama flagged exactly where the table shows '*'.
+    static void assertSouthIndianCharts(VedicPanel& panel) {
+        SouthIndianChart* d1 = panel.rasiChart();
+        SouthIndianChart* d9 = panel.navamsaChart();
+        require(d1 && d9 && d1->isVisible() && d9->isVisible(), "D1 and D9 charts are shown beside the table");
+        // Fixed South Indian frame: Pisces top-left, clockwise.
+        require(SouthIndianChart::gridCell(11) == QPoint(0, 0) && SouthIndianChart::gridCell(0) == QPoint(1, 0)
+                && SouthIndianChart::gridCell(3) == QPoint(3, 1) && SouthIndianChart::gridCell(5) == QPoint(3, 3)
+                && SouthIndianChart::gridCell(8) == QPoint(0, 3) && SouthIndianChart::gridCell(10) == QPoint(0, 1),
+                "South Indian sign frame");
+        QTableWidget* table = panel.table();
+        require(d1->entries().size() == table->rowCount() && d9->entries().size() == table->rowCount(),
+                "Every placement appears in both charts");
+        const QStringList signs = {"Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                                   "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"};
+        for (int i = 0; i < d1->entries().size(); ++i) {
+            const SouthIndianEntry& rasi = d1->entries()[i];
+            const SouthIndianEntry& navamsa = d9->entries()[i];
+            const int row = rowFor(table, rasi.key);
+            require(row >= 0 && navamsa.key == rasi.key, "Chart entry matches a table row");
+            require(signs.value(rasi.sign) == table->item(row, 1)->text(), "D1 box matches the table sign");
+            const QString d9Text = table->item(row, VedicPanel::ColNavamsa)->text();
+            require(signs.value(navamsa.sign) == d9Text.section(' ', 0, 0), "D9 box matches the table D9 sign");
+            require(rasi.vargottama == d9Text.endsWith('*') && navamsa.vargottama == rasi.vargottama,
+                    "Vargottama marks match the table");
+            require(rasi.lagna == (rasi.key == "Ascendant"), "Only the Ascendant marks the Lagna box");
+            require(navamsa.degree >= 0.0 && navamsa.degree < 30.0 && !rasi.tooltip.isEmpty(), "D9 degree and tooltip");
+        }
+        require(d1->entries().first().label == "As" && d1->entries().first().sign == 2, "Gemini Lagna in D1");
+        // Clicking a planet in the chart selects its table row; selecting a row
+        // highlights it in both charts.
+        d1->grab();
+        const QRectF moonRect = d1->entryRect("Moon");
+        require(!moonRect.isEmpty() && d1->signBox(3).contains(moonRect.center()), "Moon drawn inside the Cancer box");
+        QMouseEvent press(QEvent::MouseButtonPress, moonRect.center(), d1->mapToGlobal(moonRect.center()),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(d1, &press);
+        require(table->item(table->currentRow(), 0)->text() == "Moon"
+                && d9->highlightedKey() == "Moon", "Chart click selects the table row and both charts");
+        table->selectRow(rowFor(table, "Saturn"));
+        require(d1->highlightedKey() == "Saturn" && d9->highlightedKey() == "Saturn", "Table selection highlights both charts");
+        table->clearSelection();
+    }
+
     static void assertNodeMode(MainWindow& window, VedicPanel& panel,
                                LunarNodeMode mode, LunarNodeType primary,
                                int expectedRows, const QStringList& nodeLabels) {
@@ -268,6 +316,7 @@ struct VedicPanelIntegrationChecks {
         require(placements->item(mars, VedicPanel::ColMotion)->text().startsWith("D ")
                 && placements->item(mars, VedicPanel::ColDegree)->toolTip().contains("Virgo"),
                 "Motion and precise position tooltip");
+        assertSouthIndianCharts(*window.vedicPanel_);
         auto* tara = window.vedicPanel_->findChild<QWidget*>("taraPanel");
         require(tara && tara->isVisible(), "Tara is visible alongside Moorthi");
         tara->findChild<QDateEdit*>("taraDate")->setDate(QDate(2026, 1, 1));

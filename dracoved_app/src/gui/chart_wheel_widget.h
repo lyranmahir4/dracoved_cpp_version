@@ -65,6 +65,7 @@ struct ChartWheelTheme {
 class ChartWheelWidget : public QWidget {
     Q_OBJECT
     friend struct LunarReturnViewChecks;
+    friend struct ChartWheelRenderChecks;
 
 public:
     enum class Mode {
@@ -213,7 +214,11 @@ private:
         double minRadius,
         double maxRadius,
         double glyphSize,
-        const QPointF& center) const;
+        const QPointF& center,
+        // > 0 selects the label-stack layout: every body stays on baseRadius and
+        // neighbours are spread angularly to this minimum spacing (degrees),
+        // with pinned points (nodes, angles) moved only as a last resort.
+        double stackSpacingDeg = 0.0) const;
 
     NatalChart chart_;
     NatalChart overlayChart_;

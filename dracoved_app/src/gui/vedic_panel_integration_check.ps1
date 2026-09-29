@@ -16,6 +16,7 @@ try {
     $defines = (($ninja | Select-String '^  DEFINES = ' | Select-Object -First 1).Line -replace '^  DEFINES = ', '') -split ' '
     $sources = @(Get-ChildItem dracoved_app/src/gui -Filter 'main_window*.cpp' | ForEach-Object { $_.FullName }) + @(
         'dracoved_app/src/gui/vedic_panel.cpp',
+        'dracoved_app/src/gui/south_indian_chart.cpp',
         'dracoved_app/src/gui/ashtakavarga_panel.cpp',
         'dracoved_app/src/gui/vedic_benchmark_panel.cpp',
         'dracoved_app/src/core/vedic_benchmark.cpp',

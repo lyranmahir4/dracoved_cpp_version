@@ -4,6 +4,7 @@
 #include "tara_panel.h"
 #include "dasha_panel.h"
 #include "ashtakavarga_panel.h"
+#include "south_indian_chart.h"
 #include "../core/formatting.h"
 #include "../core/lunar_nodes.h"
 #include "../core/tajaka.h"
@@ -12,6 +13,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QFontDatabase>
+#include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
@@ -140,7 +142,16 @@ VedicPanel::VedicPanel(TropicalNatalEngine* engine, SwissEph* swe, QWidget* pare
     mainSplitter_->setChildrenCollapsible(false); mainSplitter_->setHandleWidth(6);
     auto* natal = new QWidget(mainSplitter_); auto* natalLayout = new QVBoxLayout(natal);
     natalLayout->setContentsMargins(0, 0, 0, 0); natalLayout->setSpacing(2);
-    table_ = new QTableWidget(0, ColumnCount, natal); table_->setHorizontalHeaderLabels(columnHeaders());
+    // South Indian D1 and D9 charts sit beside the placements table; the
+    // splitter lets the user trade chart size for table width.
+    chartSplitter_ = new QSplitter(Qt::Horizontal, natal); chartSplitter_->setObjectName("vedicChartSplitter");
+    chartSplitter_->setChildrenCollapsible(false); chartSplitter_->setHandleWidth(6);
+    auto* charts = new QWidget(chartSplitter_); auto* chartsLayout = new QHBoxLayout(charts);
+    chartsLayout->setContentsMargins(0, 0, 0, 0); chartsLayout->setSpacing(6);
+    d1Chart_ = new SouthIndianChart(charts); d1Chart_->setObjectName("vedicRasiChart");
+    d9Chart_ = new SouthIndianChart(charts); d9Chart_->setObjectName("vedicNavamsaChart");
+    chartsLayout->addWidget(d1Chart_, 1); chartsLayout->addWidget(d9Chart_, 1);
+    table_ = new QTableWidget(0, ColumnCount, chartSplitter_); table_->setHorizontalHeaderLabels(columnHeaders());
     table_->setObjectName("vedicTable"); table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows); table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true); table_->setShowGrid(false);
@@ -157,9 +168,19 @@ VedicPanel::VedicPanel(TropicalNatalEngine* engine, SwissEph* swe, QWidget* pare
     table_->horizontalHeaderItem(ColFromSun)->setToolTip("Shortest ecliptic longitude distance from the Sun, for Mercury through Saturn. No combustion thresholds applied.");
     table_->horizontalHeaderItem(ColHouse)->setToolTip("Whole-sign house counted from the Ascendant in the selected zodiac.");
     table_->horizontalHeaderItem(ColNavamsa)->setToolTip("Navamsa sign only; * marks the same sign in D1 and D9 (vargottama).");
-    natalLayout->addWidget(table_, 1);
+    chartSplitter_->addWidget(charts); chartSplitter_->addWidget(table_);
+    chartSplitter_->setStretchFactor(0, 2); chartSplitter_->setStretchFactor(1, 3);
+    natalLayout->addWidget(chartSplitter_, 1);
     statusLabel_ = new QLabel(this); statusLabel_->setObjectName("hintLabel"); natalLayout->addWidget(statusLabel_);
-    natal->setMinimumHeight(140);
+    natal->setMinimumHeight(200);
+    auto chartClicked = [this](const QString& key) { selectBody(key); };
+    d1Chart_->onEntryClicked = chartClicked;
+    d9Chart_->onEntryClicked = chartClicked;
+    connect(table_, &QTableWidget::itemSelectionChanged, this, [this] {
+        const auto* item = table_->item(table_->currentRow(), ColBody);
+        const QString key = item && item->isSelected() ? item->data(bodyKeyRole).toString() : QString();
+        d1Chart_->setHighlightedKey(key); d9Chart_->setHighlightedKey(key);
+    });
 
     transitSplitter_ = new QSplitter(Qt::Horizontal, mainSplitter_);
     transitSplitter_->setObjectName("vedicTransitSplitter"); transitSplitter_->setChildrenCollapsible(false);
@@ -193,6 +214,7 @@ VedicPanel::VedicPanel(TropicalNatalEngine* engine, SwissEph* swe, QWidget* pare
         activeOnly_->setVisible(index < 2); activeLabel_->setVisible(index != 2);
     });
     connect(mainSplitter_, &QSplitter::splitterMoved, this, [this] { persistSplitters(); });
+    connect(chartSplitter_, &QSplitter::splitterMoved, this, [this] { persistSplitters(); });
     connect(transitSplitter_, &QSplitter::splitterMoved, this, [this] { persistSplitters(); });
     connect(header, &QHeaderView::sortIndicatorChanged, this, [this](int column, Qt::SortOrder order) {
         if (!populating_) { sortColumn_ = column; sortOrder_ = order; updateStatus(); }
@@ -212,14 +234,73 @@ VedicPanel::VedicPanel(TropicalNatalEngine* engine, SwissEph* swe, QWidget* pare
 
 void VedicPanel::restoreSplitters() {
     QSettings settings;
-    mainSplitter_->setSizes({280, 480}); transitSplitter_->setSizes({1000, 760});
+    mainSplitter_->setSizes({380, 420}); transitSplitter_->setSizes({1000, 760});
+    chartSplitter_->setSizes({680, 1000});
     mainSplitter_->restoreState(settings.value("vedic/mainSplitter").toByteArray());
     transitSplitter_->restoreState(settings.value("vedic/transitSplitter").toByteArray());
+    chartSplitter_->restoreState(settings.value("vedic/chartSplitter").toByteArray());
 }
 void VedicPanel::persistSplitters() {
     QSettings settings;
     settings.setValue("vedic/mainSplitter", mainSplitter_->saveState());
     settings.setValue("vedic/transitSplitter", transitSplitter_->saveState());
+    settings.setValue("vedic/chartSplitter", chartSplitter_->saveState());
+}
+void VedicPanel::selectBody(const QString& key) {
+    for (int row = 0; row < table_->rowCount(); ++row) {
+        if (auto* item = table_->item(row, ColBody); item && item->data(bodyKeyRole).toString() == key) {
+            table_->selectRow(row); table_->scrollToItem(item);
+            break;
+        }
+    }
+    d1Chart_->setHighlightedKey(key); d9Chart_->setHighlightedKey(key);
+}
+void VedicPanel::updateCharts(const QVector<Row>& rows, const NatalChart& chart) {
+    static const QHash<QString, QString> abbreviations = {
+        {"Ascendant", "As"}, {"Sun", "Su"}, {"Moon", "Mo"}, {"Mars", "Ma"}, {"Mercury", "Me"},
+        {"Jupiter", "Ju"}, {"Venus", "Ve"}, {"Saturn", "Sa"}, {"Rahu", "Ra"}, {"Ketu", "Ke"},
+    };
+    auto shortLabel = [](const QString& body) {
+        // "Rahu (Mean)" -> "Ra(M)" when both node models are shown.
+        const QString name = body.section(" (", 0, 0);
+        QString label = abbreviations.value(name, name.left(2));
+        if (body.contains("(Mean)")) label += "(M)";
+        else if (body.contains("(True)")) label += "(T)";
+        return label;
+    };
+    const int lagna = !rows.isEmpty() && rows[0].valid ? signIndex(rows[0].longitude) : -1;
+    QVector<SouthIndianEntry> d1, d9;
+    for (const auto& row : rows) {
+        if (!row.valid) continue;
+        const double lon = normalizeDegrees(row.longitude);
+        const int sign = signIndex(lon);
+        const int navamsaSign = tajaka::divisionSign(9, lon);
+        // D9 longitude: each 3°20' navamsa spans a full 30° sign.
+        const double navamsaDegree = std::fmod(std::fmod(lon * 9.0, 360.0), 30.0);
+        const bool vargottama = sign == navamsaSign;
+        const bool isLagna = row.key == "Ascendant";
+        const bool retrograde = row.retrograde && !row.isNode;
+        const auto star = classifyVedicNakshatra(lon);
+        const QString house = lagna >= 0 ? QString(" %1 House %2").arg(QChar(0x00B7)).arg((sign - lagna + 12) % 12 + 1) : QString();
+        const QString starText = star.valid
+            ? QString(" %1 %2 pada %3 (%4)").arg(QChar(0x00B7)).arg(star.name).arg(star.pada).arg(star.lord) : QString();
+        const QString d1Tip = QString("%1%2 %3 %4 %5%6%7%8")
+            .arg(row.body, retrograde ? " (R)" : "", QString(QChar(0x00B7)), signName(sign), dms(degInSign(lon), true))
+            .arg(starText, isLagna ? QString() : house, vargottama ? QString(" %1 Vargottama").arg(QChar(0x00B7)) : QString());
+        const QString d9Tip = QString("%1 %2 D9 %3 %4 %5 D1 %6 %7%8")
+            .arg(row.body, QString(QChar(0x00B7)), signName(navamsaSign), dms(navamsaDegree, true), QString(QChar(0x00B7)),
+                 signName(sign), dms(degInSign(lon), true))
+            .arg(vargottama ? QString(" %1 Vargottama").arg(QChar(0x00B7)) : QString());
+        const QString label = shortLabel(row.body);
+        d1.push_back({row.key, label, sign, degInSign(lon), retrograde, vargottama, isLagna, d1Tip});
+        d9.push_back({row.key, label, navamsaSign, navamsaDegree, retrograde, vargottama, isLagna, d9Tip});
+    }
+    const QString zodiac = zodiac_ == ZodiacSystem::Tropical ? QString("Tropical")
+        : QString("Sidereal %1 %2").arg(QChar(0x00B7)).arg(siderealAyanamsaToString(ayanamsa_));
+    const QStringList details = {input_.name.trimmed().isEmpty() ? QString("Untitled") : input_.name.trimmed(),
+        chart.localDateTime.toString("d MMM yyyy, HH:mm"), zodiac};
+    d1Chart_->setChart("Rasi · D1", details, d1);
+    d9Chart_->setChart("Navamsa · D9", details, d9);
 }
 void VedicPanel::updateActiveLords(bool syncTime) {
     moorthiGraphPanel_->setDashaYearDays(dashaPanel_->yearDays());
@@ -284,6 +365,7 @@ void VedicPanel::refresh() {
     if (!ok) {
         table_->setRowCount(0); copyButton_->setEnabled(false); contextPlain_.clear();
         contextLabel_->setText("Vedic chart unavailable."); contextLabel_->setToolTip({});
+        d1Chart_->clear("Vedic chart unavailable."); d9Chart_->clear("Vedic chart unavailable.");
         statusLabel_->setText(error); moorthiPanel_->setContext(input_, {}); taraPanel_->setContext(input_, {});
         dashaPanel_->setContext(input_, {}, {});
         moorthiGraphPanel_->setContext(input_, {});
@@ -353,6 +435,8 @@ void VedicPanel::refresh() {
     for (int row = 0; row < table_->rowCount(); ++row)
         if (table_->item(row, ColBody)->data(bodyKeyRole).toString() == selected) { table_->selectRow(row); break; }
     populating_ = false; copyButton_->setEnabled(!rows.isEmpty()); updateStatus();
+    updateCharts(rows, chart);
+    d1Chart_->setHighlightedKey(selected); d9Chart_->setHighlightedKey(selected);
     moorthiPanel_->setContext(input_, chart); taraPanel_->setContext(input_, chart);
     moorthiGraphPanel_->setContext(input_, chart);
     updateFacts(chart, ayanamsaValue, hasValue);
