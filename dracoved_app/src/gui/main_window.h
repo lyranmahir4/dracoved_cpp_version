@@ -184,6 +184,7 @@ private:
     friend struct SolarTransitWorkspaceChecks;
     friend struct LunarReturnViewChecks;
     friend struct VedicPanelIntegrationChecks;
+    friend struct SolarTechniqueViewChecks;
     enum class AppTab {
         Natal = 0,
         Transits = 1,
@@ -624,6 +625,7 @@ private:
     void updateChartLegend();
     void refreshSolarTechniqueView();
     void updateSolarTechniqueMonthVisibility();
+    void applySolarTechniqueMarker();
     SolarTechniqueBodyFilter solarTechniqueBodyFilter() const;
     SolarTechniqueBodyPreset solarTechniqueBodyPresetFromFilter(const SolarTechniqueBodyFilter& filter) const;
     void applySolarTechniqueBodyPreset(SolarTechniqueBodyPreset preset, bool refreshView = true);
@@ -1222,6 +1224,11 @@ private:
     QDate solarTechniqueTableDate_;
     int solarTechniqueSortColumn_ = 0;
     Qt::SortOrder solarTechniqueSortOrder_ = Qt::AscendingOrder;
+    // Selected technique day drawn on the SR wheel (re-applied after the wheel is rebuilt).
+    bool solarTechniqueMarkerValid_ = false;
+    double solarTechniqueMarkerLon_ = 0.0;
+    QString solarTechniqueMarkerCaption_;
+    QVariantList solarTechniqueMarkerHits_;
     QSpinBox* solarFinderStartYearSpin_ = nullptr;
     QSpinBox* solarFinderEndYearSpin_ = nullptr;
     QComboBox* solarFinderPlanetCombo_ = nullptr;

@@ -15,6 +15,7 @@ try {
     $defines = (($ninja | Select-String '^  DEFINES = ' | Select-Object -First 1).Line -replace '^  DEFINES = ', '') -split ' '
     # All MainWindow translation units must be recompiled together when its layout changes.
     $sources = @(Get-ChildItem dracoved_app/src/gui -Filter 'main_window*.cpp' | ForEach-Object { $_.FullName }) + @(
+        'dracoved_app/src/gui/chart_wheel_widget.cpp',
         'dracoved_app/src/gui/solar_transit_panel.cpp', 'dracoved_app/src/gui/solar_transit_activity_panel.cpp',
         'dracoved_app/src/gui/solar_transit_calculation.cpp', 'dracoved_app/src/gui/solar_transit_workspace_tests.cpp',
         'dracoved_app/build/dracoved_app_autogen/mocs_compilation.cpp')

@@ -1,5 +1,6 @@
 #include "solar_transit_panel.h"
 #include "solar_transit_table_item.h"
+#include "solar_transit_table_style.h"
 #include "chart_wheel_widget.h"
 #include "transit_calc_service.h"
 #include "../core/formatting.h"
@@ -26,6 +27,7 @@
 #include <QVBoxLayout>
 #include <QCryptographicHash>
 #include <QSignalBlocker>
+#include <QStyledItemDelegate>
 #include <QLocale>
 #include <QMap>
 #include <QMenu>
@@ -214,6 +216,216 @@ private:
     int selected_ = -1;
 };
 
+namespace {
+// Dates table display roles. Item text stays the precise export value; these
+// carry the readable rendering the delegate paints instead.
+constexpr int DayKeyRole = Qt::UserRole + 3;      // column 0: local date (Julian day)
+constexpr int DisplayRole = Qt::UserRole + 4;     // readable cell text
+constexpr int CategoryRole = Qt::UserRole + 5;    // column 5: solarEventCategory bit
+constexpr int FullStampRole = Qt::UserRole + 6;   // column 0: date + time when ungrouped
+enum DateColumn { ColWhen, ColClock, ColTransit, ColTarget, ColAspect, ColEvent, ColOrb, ColMotion, ColUntil };
+
+QString bodyWithGlyph(const QString& name) {
+    const QString glyph = bodyGlyph(name);
+    if (glyph.size() != 1 || glyph[0].isLetterOrNumber() || glyph == "?") return name;
+    return glyph + "  " + name;
+}
+QString shortEventLabel(const QString& kind) {
+    if (kind == "Exact contact") return "Exact";
+    if (kind == "Exact at year start") return "Exact · year start";
+    if (kind == "Orb entry") return "Enters orb";
+    if (kind == "Orb exit") return "Leaves orb";
+    if (kind == "Already within orb") return "In orb at start";
+    if (kind == "Within orb all year") return "In orb all year";
+    if (kind == "Near miss at station") return "Near miss";
+    if (kind == "Approaching at year end") return "Approaching at end";
+    if (kind == "Station within orb") return "Station in orb";
+    return kind;
+}
+QColor eventColor(unsigned category) {
+    switch (category) {
+    case 1: return QColor("#1f8a70");
+    case 2: return QColor("#2f7fc1");
+    case 4: return QColor("#7a8794");
+    case 16: return QColor("#c0563f");
+    case 32: return QColor("#a0699e");
+    case 64: return QColor("#d0802a");
+    case 128: return QColor("#43899c");
+    }
+    return QColor("#b07d2b");
+}
+QString compactOrb(double orb) {
+    qint64 seconds = qRound64(std::abs(orb) * 3600.0);
+    return QString("%1°%2′%3″").arg(seconds / 3600).arg((seconds / 60) % 60, 2, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+}
+} // namespace
+
+// Dates table with day bands: while sorted by date, the first row of each local
+// day is taller and the band above its cells names the day and its event count.
+class SolarTransitDatesView final : public QTableWidget {
+public:
+    explicit SolarTransitDatesView(QWidget* parent) : QTableWidget(parent) {}
+    bool grouped() const { return grouped_; }
+    int bandAbove(int row) const { return grouped_ && row >= 0 && row < counts_.size() && counts_[row] > 0 ? bandHeight() : 0; }
+    int baseHeight() const { return fontMetrics().height() + 14; }
+    int bandHeight() const { return fontMetrics().height() + 16; }
+    void regroup() {
+        const int rows = rowCount();
+        const bool wasGrouped = grouped_;
+        grouped_ = rows > 0 && horizontalHeader()->sortIndicatorSection() == ColWhen;
+        counts_.fill(0, rows); exacts_.fill(0, rows);
+        if (grouped_) {
+            int start = 0; qint64 key = 0;
+            for (int row = 0; row < rows; ++row) {
+                auto* when = item(row, ColWhen); auto* event = item(row, ColEvent);
+                const qint64 rowKey = when ? when->data(DayKeyRole).toLongLong() : 0;
+                if (row == 0 || rowKey != key) { start = row; key = rowKey; }
+                ++counts_[start];
+                if (event && event->data(CategoryRole).toUInt() == 1) ++exacts_[start];
+            }
+        }
+        if (verticalHeader()->defaultSectionSize() != baseHeight()) verticalHeader()->setDefaultSectionSize(baseHeight());
+        for (int row = 0; row < rows; ++row) {
+            const int wanted = baseHeight() + bandAbove(row);
+            if (verticalHeader()->sectionSize(row) != wanted) setRowHeight(row, wanted);
+        }
+        if (wasGrouped != grouped_ || columnWidth(ColWhen) < 20) {
+            const auto metrics = fontMetrics();
+            const QString sample = grouped_ ? "12:59:59 PM" : "28 Dec 2026  12:59:59 PM";
+            const int header = metrics.horizontalAdvance(horizontalHeaderItem(ColWhen) ? horizontalHeaderItem(ColWhen)->text() : QString()) + 34;
+            setColumnWidth(ColWhen, std::max(header, metrics.horizontalAdvance(sample) + 22));
+        }
+        viewport()->update();
+    }
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QTableWidget::paintEvent(event);
+        if (!grouped_ || rowCount() == 0) return;
+        int first = rowAt(0), last = rowAt(viewport()->height() - 1);
+        if (first < 0) return;
+        if (last < 0) last = rowCount() - 1;
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing);
+        const auto colors = solarTableColors(palette());
+        QFont bold = font(); bold.setBold(true);
+        QFont small = font(); small.setPointSizeF(small.pointSizeF() * 0.9); small.setBold(true);
+        const QColor exact = eventColor(1);
+        for (int row = first; row <= last; ++row) {
+            if (row >= counts_.size() || counts_[row] == 0) continue;
+            const QRect band(0, rowViewportPosition(row), viewport()->width(), bandHeight());
+            painter.fillRect(band, colors.band);
+            painter.fillRect(QRect(band.left(), band.bottom(), band.width(), 1), colors.rule);
+            if (row > 0) painter.fillRect(QRect(band.left(), band.top(), band.width(), 1), colors.rule);
+            painter.setPen(Qt::NoPen); painter.setBrush(colors.accent);
+            painter.drawRoundedRect(QRectF(band.left() + 6, band.top() + 6, 3, band.height() - 12), 1.5, 1.5);
+            const QDate day = QDate::fromJulianDay(item(row, ColWhen)->data(DayKeyRole).toLongLong());
+            const QRect textRect = band.adjusted(18, 0, -12, 0);
+            painter.setFont(bold); painter.setPen(colors.ink);
+            const QString weekday = QLocale::c().toString(day, "ddd");
+            painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, weekday);
+            const int dateLeft = QFontMetrics(bold).horizontalAdvance(weekday + "  ");
+            painter.drawText(textRect.adjusted(dateLeft, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, QLocale::c().toString(day, "d MMMM yyyy"));
+            // Right side: optional "N exact" chip, then the muted event count.
+            int right = textRect.right();
+            const QString total = QString("%1 %2").arg(counts_[row]).arg(counts_[row] == 1 ? "event" : "events");
+            painter.setFont(font()); painter.setPen(colors.muted);
+            const int totalWidth = QFontMetrics(font()).horizontalAdvance(total);
+            painter.drawText(QRect(right - totalWidth, band.top(), totalWidth, band.height()), Qt::AlignRight | Qt::AlignVCenter, total);
+            right -= totalWidth + 10;
+            if (exacts_[row] > 0) {
+                const QString chip = QString("%1 exact").arg(exacts_[row]);
+                const QFontMetrics metrics(small);
+                const int height = metrics.height() + 2, width = metrics.horizontalAdvance(chip) + 14;
+                const QRect pill(right - width, band.center().y() - height / 2 + 1, width, height);
+                QColor back = exact; back.setAlpha(colors.dark ? 80 : 30);
+                painter.setPen(Qt::NoPen); painter.setBrush(back);
+                painter.drawRoundedRect(pill, height / 2.0, height / 2.0);
+                painter.setFont(small); painter.setPen(colors.dark ? exact.lighter(160) : exact.darker(110));
+                painter.drawText(pill, Qt::AlignCenter, chip);
+            }
+        }
+    }
+private:
+    bool grouped_ = false;
+    QVector<int> counts_, exacts_;
+};
+
+// Paints readable cells (glyphs, aspect symbol, event tags, DMS orbs, motion)
+// from the display roles, beneath any day band reserved by the view.
+class SolarTransitDateDelegate final : public QStyledItemDelegate {
+public:
+    explicit SolarTransitDateDelegate(SolarTransitDatesView* view) : QStyledItemDelegate(view), view_(view) {}
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        opt.rect.setTop(opt.rect.top() + view_->bandAbove(index.row()));
+        const QString text = cellText(index);
+        const auto colors = solarTableColors(opt.palette);
+        painter->save();
+        paintSolarRowBackground(painter, opt, index, colors);
+        if (text.isEmpty()) { painter->restore(); return; }
+        painter->setRenderHint(QPainter::Antialiasing);
+        const bool selected = opt.state & QStyle::State_Selected;
+        const bool dark = colors.dark;
+        const QColor ink = selected ? colors.selectedInk : colors.ink;
+        const QColor muted = solarBlend(selected ? colors.selected : colors.base, ink, 0.6);
+        const QRect rect = opt.rect.adjusted(9, 0, -8, 0);
+        const int column = index.column();
+        painter->setFont(opt.font);
+        if (column == ColAspect) {
+            QFont font = opt.font; font.setPointSizeF(font.pointSizeF() * 1.25); font.setBold(true);
+            painter->setFont(font);
+            const QColor color = index.data(Qt::ForegroundRole).value<QBrush>().color();
+            painter->setPen(!color.isValid() ? ink : (dark ? color.lighter(130) : color));
+            painter->drawText(opt.rect, Qt::AlignCenter, text);
+        } else if (column == ColEvent) {
+            const QColor color = eventColor(index.data(CategoryRole).toUInt());
+            QFont font = opt.font; font.setPointSizeF(font.pointSizeF() * 0.92); font.setBold(true);
+            painter->setFont(font);
+            const QFontMetrics metrics(font);
+            const int height = metrics.height() + 4;
+            const QRect pill(rect.left(), rect.center().y() - height / 2 + 1, metrics.horizontalAdvance(text) + 16, height);
+            QColor back = color; back.setAlpha(dark ? 75 : 30);
+            painter->setPen(Qt::NoPen); painter->setBrush(back);
+            painter->drawRoundedRect(pill, height / 2.0, height / 2.0);
+            painter->setPen(dark ? color.lighter(150) : color.darker(115));
+            painter->drawText(pill, Qt::AlignCenter, text);
+        } else if (column == ColMotion) {
+            const QString symbol = text.section(' ', 0, 0);
+            const QString rest = text.section(' ', 1);
+            QColor symbolColor = ink;
+            if (symbol == QString(QChar(0x211E))) symbolColor = QColor(dark ? "#ff7a6b" : "#c43c2c");
+            else if (symbol == "St") symbolColor = QColor(dark ? "#f0a24a" : "#b8691b");
+            QFont font = opt.font; font.setBold(symbol != "D");
+            painter->setFont(font); painter->setPen(symbol == "D" ? muted : symbolColor);
+            painter->drawText(rect, Qt::AlignLeft | Qt::AlignVCenter, symbol);
+            const int offset = QFontMetrics(font).horizontalAdvance(symbol + " ");
+            painter->setFont(opt.font); painter->setPen(muted);
+            painter->drawText(rect.adjusted(offset, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, rest);
+        } else {
+            const bool dim = (column == ColOrb && text == "0°00′00″") || column == ColUntil;
+            painter->setPen(dim ? muted : ink);
+            const Qt::Alignment align = column == ColOrb || column == ColWhen ? Qt::AlignRight : Qt::AlignLeft;
+            painter->drawText(rect, align | Qt::AlignVCenter, QFontMetrics(opt.font).elidedText(text, Qt::ElideRight, rect.width()));
+        }
+        painter->restore();
+    }
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        const QFontMetrics metrics(option.font);
+        int width = metrics.horizontalAdvance(cellText(index)) + 20;
+        if (index.column() == ColAspect) width = metrics.height() * 2 + 8;
+        if (index.column() == ColEvent) width += 18;
+        return {width, view_->baseHeight() + view_->bandAbove(index.row())};
+    }
+private:
+    QString cellText(const QModelIndex& index) const {
+        if (index.column() == ColWhen && !view_->grouped()) return index.data(FullStampRole).toString();
+        const QVariant display = index.data(DisplayRole);
+        return display.isValid() ? display.toString() : index.data(Qt::DisplayRole).toString();
+    }
+    SolarTransitDatesView* view_;
+};
+
 SolarTransitPanel::SolarTransitPanel(SourceProvider provider, QWidget* parent)
     : QWidget(parent), provider_(std::move(provider)) {
     auto* outerLayout = new QVBoxLayout(this);
@@ -343,17 +555,36 @@ SolarTransitPanel::SolarTransitPanel(SourceProvider provider, QWidget* parent)
         connect(action, &QAction::triggered, this, [this, preset]() { eventVisibility_ = preset.second; updateEventMenu(); renderResults(); });
     }
     eventMenu_->addSeparator();
+    connect(eventMenu_->addAction("Sort by time of day"), &QAction::triggered, this, [this]() {
+        const auto* header = dates_->horizontalHeader();
+        const bool ascending = header->sortIndicatorSection() != ColClock || header->sortIndicatorOrder() == Qt::DescendingOrder;
+        dates_->sortItems(ColClock, ascending ? Qt::AscendingOrder : Qt::DescendingOrder);
+    });
+    connect(eventMenu_->addAction("Group by day (sort by date)"), &QAction::triggered, this, [this]() {
+        dates_->sortItems(ColWhen, Qt::AscendingOrder);
+    });
+    eventMenu_->addSeparator();
     connect(eventMenu_->addAction("Copy visible dates"), &QAction::triggered, this, &SolarTransitPanel::copyVisibleDates);
     eventFilter_->setMenu(eventMenu_);
     dateLayout->addWidget(eventFilter_);
-    dates_ = new QTableWidget(datePage); dates_->setObjectName("solarTransitDates"); dates_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    auto* datesView = new SolarTransitDatesView(datePage);
+    dates_ = datesView; dates_->setObjectName("solarTransitDates"); dates_->setSelectionBehavior(QAbstractItemView::SelectRows);
     dates_->setSelectionMode(QAbstractItemView::SingleSelection); dates_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    dates_->setAlternatingRowColors(true); dates_->verticalHeader()->hide();
+    dates_->verticalHeader()->hide();
+    applySolarTableStyle(dates_, new SolarTransitDateDelegate(datesView));
     dates_->setColumnCount(9);
-    dates_->setHorizontalHeaderLabels({"Date", "Local time", "Transit", "SR target", "Aspect", "Event", "Orb", "Motion / pass", "Until"});
+    dates_->setHorizontalHeaderLabels({"Date / time", "Local time", "Transit", "SR target", "Asp", "Event", "Orb", "Motion", "Until"});
+    for (int column = 0; column < dates_->columnCount(); ++column) {
+        const Qt::Alignment align = column == ColOrb || column == ColWhen ? Qt::AlignRight : column == ColAspect ? Qt::AlignHCenter : Qt::AlignLeft;
+        dates_->horizontalHeaderItem(column)->setTextAlignment(align | Qt::AlignVCenter);
+    }
+    dates_->horizontalHeaderItem(ColAspect)->setToolTip("Aspect");
+    dates_->horizontalHeader()->moveSection(ColAspect, ColTarget); // reads as "Transit  aspect  SR target"
+    dates_->setColumnHidden(ColClock, true);
     dates_->horizontalHeader()->setSortIndicator(0, Qt::AscendingOrder);
     dates_->setSortingEnabled(true);
-    dates_->horizontalHeader()->setToolTip("Click a heading to sort; click again to reverse. Date restores chronological order.");
+    dates_->horizontalHeader()->setToolTip("Click a heading to sort; click again to reverse. Date / time groups the dates by day.");
+    connect(dates_->model(), &QAbstractItemModel::layoutChanged, dates_, [datesView]() { datesView->regroup(); });
     dates_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(dates_, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
         eventMenu_->popup(dates_->viewport()->mapToGlobal(position));
@@ -526,10 +757,38 @@ void SolarTransitPanel::renderResults() {
         }
         dates_->item(row, 0)->setData(Qt::UserRole, index);
         dates_->item(row, 4)->setForeground(aspectColor(event.aspect));
+        // Readable rendering; item text above remains the precise export value.
+        auto* when = dates_->item(row, ColWhen);
+        when->setData(DayKeyRole, local.date().toJulianDay());
+        when->setData(DisplayRole, local.toString("h:mm:ss AP"));
+        when->setData(FullStampRole, QLocale::c().toString(local, "d MMM yyyy  h:mm:ss AP"));
+        when->setToolTip(localStamp(event.utc, result_->query.source) + " (" + result_->query.source.returnChart.timezoneLabel + ")");
+        dates_->item(row, ColTransit)->setData(DisplayRole, bodyWithGlyph(event.body));
+        dates_->item(row, ColTarget)->setData(DisplayRole, event.houseCrossing ? event.target : bodyWithGlyph(event.target));
+        dates_->item(row, ColAspect)->setData(DisplayRole, event.houseCrossing ? QString("—") : solarTransitAspectLabel(event.aspect).section(' ', 0, 0));
+        auto* kind = dates_->item(row, ColEvent);
+        kind->setData(DisplayRole, shortEventLabel(event.kind)); kind->setData(CategoryRole, solarEventCategory(event));
+        if (!event.note.isEmpty()) kind->setToolTip(event.kind + "\n" + event.note);
+        dates_->item(row, ColOrb)->setData(DisplayRole, event.houseCrossing ? QString("—") : compactOrb(event.orb));
+        const QString symbol = std::abs(event.speed) < 1e-5 ? "St" : event.speed < 0 ? QString(QChar(0x211E)) : "D";
+        QString motionText = symbol;
+        QString motionTip = motion(event.speed);
+        if (event.totalPasses > 0) {
+            motionText += QString(" %1/%2").arg(event.pass).arg(event.totalPasses);
+            motionTip += QString(" · contact %1 of %2 for this combination this year").arg(event.pass).arg(event.totalPasses);
+        }
+        dates_->item(row, ColMotion)->setData(DisplayRole, motionText); dates_->item(row, ColMotion)->setToolTip(motionTip);
+        if (event.untilUtc.isValid()) {
+            const auto until = event.untilUtc.toTimeZone(result_->query.source.returnChart.localDateTime.timeZone());
+            dates_->item(row, ColUntil)->setData(DisplayRole, QLocale::c().toString(until, "d MMM yyyy  h:mm AP"));
+        }
         if (index == selectedEvent_) selectedItem = dates_->item(row, 0);
     }
     dates_->setSortingEnabled(true);
+    auto* datesView = static_cast<SolarTransitDatesView*>(dates_);
+    datesView->regroup();
     dates_->resizeColumnsToContents(); dates_->horizontalHeader()->setStretchLastSection(true);
+    datesView->regroup();
     if (selectedItem) dates_->selectRow(selectedItem->row());
     block.unblock();
     if (selectedEvent_ >= 0 && !selectedItem) {
@@ -556,9 +815,7 @@ void SolarTransitPanel::updateEventMenu() {
 
 void SolarTransitPanel::copyVisibleDates() {
     QStringList lines;
-    QStringList headers;
-    for (int column = 0; column < dates_->columnCount(); ++column) headers << dates_->horizontalHeaderItem(column)->text();
-    lines << headers.join('\t');
+    lines << QStringList{"Date", "Local time", "Transit", "SR target", "Aspect", "Event", "Orb", "Motion / pass", "Until"}.join('\t');
     for (int row = 0; row < dates_->rowCount(); ++row) {
         QStringList fields;
         for (int column = 0; column < dates_->columnCount(); ++column) fields << clean(dates_->item(row, column)->text());

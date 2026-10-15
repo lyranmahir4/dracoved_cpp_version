@@ -589,6 +589,12 @@
 			null
 		],
 		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_technique_table_style.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_technique_table_style.cpp",
+			null
+		],
+		[
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_activity.h",
 			"MU",
 			"MXUWEOXILK/moc_solar_transit_activity.cpp",
@@ -610,6 +616,12 @@
 			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_table_item.h",
 			"MU",
 			"MXUWEOXILK/moc_solar_transit_table_item.cpp",
+			null
+		],
+		[
+			"C:/Users/Mahir/Downloads/DracoVed/DracoVed/DracoVed_cpp_version/dracoved_app/src/gui/solar_transit_table_style.h",
+			"MU",
+			"MXUWEOXILK/moc_solar_transit_table_style.cpp",
 			null
 		],
 		[

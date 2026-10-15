@@ -95,6 +95,19 @@ public:
     // because a planet on the partner's Descendant is a primary contact.
     void setOverlayAnglesVisible(bool visible);
     void setChartNote(const QString& note);
+    // Solar Return technique: the directed SR Ascendant for one selected day and
+    // the aspects it makes. Natal targets are drawn as ghost markers because the
+    // SR wheel has no natal ring. Chart changes clear it, like the chart note.
+    struct DirectedPointHit {
+        QString target;
+        bool natal = false;
+        QString aspect;           // "Conjunction", "Sextile", "Square", "Trine", "Opposition"
+        double targetLongitude = 0.0;
+        double orb = 0.0;
+    };
+    void setDirectedPoint(double longitude, const QString& caption, const QVector<DirectedPointHit>& hits);
+    void clearDirectedPoint();
+    bool hasDirectedPoint() const { return hasDirectedPoint_; }
     void setOverlayAspectScopes(bool transitNatal, bool transitTransit, bool natalNatal);
     void setAspectDisplayMaxOrb(double maxOrb);
     void setZoom(double zoom);
@@ -255,6 +268,10 @@ private:
     QString baseLabel_ = "Natal";
     bool overlayAnglesVisible_ = false;
     QString chartNote_;
+    bool hasDirectedPoint_ = false;
+    double directedLongitude_ = 0.0;
+    QString directedCaption_;
+    QVector<DirectedPointHit> directedHits_;
     QHash<QString, QPixmap> glyphPixmapCache_;
     ChartWheelTheme theme_;
     QVector<QRectF> planetHitAreas_;

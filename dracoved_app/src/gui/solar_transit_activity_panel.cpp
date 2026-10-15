@@ -1,5 +1,6 @@
 #include "solar_transit_panel.h"
 #include "solar_transit_table_item.h"
+#include "solar_transit_table_style.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
@@ -21,7 +22,8 @@ void prepareTable(QTableWidget* table, const QStringList& headers) {
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setAlternatingRowColors(true); table->verticalHeader()->hide();
+    table->verticalHeader()->hide();
+    applySolarTableStyle(table);
     table->horizontalHeader()->setStretchLastSection(true);
     table->setMinimumHeight(130);
 }

@@ -48,6 +48,11 @@ QString aspectSymbolForLabel(const QString& label) {
 // Distinct color per aspect type. Scope (transit-natal / transit-transit /
 // natal-natal) is encoded separately via line style, so colour can be used
 // purely to differentiate the five Ptolemaic aspects for easier reading.
+// Accent for the SR technique's directed point: distinct from the five aspect hues.
+QColor directedPointAccent(const QColor& background) {
+    return background.lightness() < 128 ? QColor("#F06595") : QColor("#C2255C");
+}
+
 QColor aspectTypeColor(const QString& label) {
     if (label == "Conjunction") return QColor("#C99A2E");  // amber/gold
     if (label == "Sextile")     return QColor("#3FA7D6");  // cyan-blue
@@ -378,6 +383,8 @@ void ChartWheelWidget::setChart(const NatalChart& chart, HouseSystem system) {
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
     chartNote_.clear();
+    hasDirectedPoint_ = false;
+    directedHits_.clear();
     update();
 }
 
@@ -391,6 +398,8 @@ void ChartWheelWidget::setTransitChart(const NatalChart& chart, HouseSystem syst
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
     chartNote_.clear();
+    hasDirectedPoint_ = false;
+    directedHits_.clear();
     update();
 }
 
@@ -408,6 +417,8 @@ void ChartWheelWidget::setOverlayCharts(const NatalChart& natal, const NatalChar
     hoveredAspectIndex_ = -1;
     aspectLines_.clear();
     chartNote_.clear();
+    hasDirectedPoint_ = false;
+    directedHits_.clear();
     update();
 }
 
@@ -430,6 +441,24 @@ void ChartWheelWidget::setOverlayAnglesVisible(bool visible) {
 
 void ChartWheelWidget::setChartNote(const QString& note) {
     chartNote_ = note;
+    update();
+}
+
+void ChartWheelWidget::setDirectedPoint(double longitude, const QString& caption, const QVector<DirectedPointHit>& hits) {
+    hasDirectedPoint_ = true;
+    directedLongitude_ = normalizeDegrees(longitude);
+    directedCaption_ = caption;
+    directedHits_ = hits;
+    update();
+}
+
+void ChartWheelWidget::clearDirectedPoint() {
+    if (!hasDirectedPoint_) {
+        return;
+    }
+    hasDirectedPoint_ = false;
+    directedHits_.clear();
+    directedCaption_.clear();
     update();
 }
 
@@ -699,6 +728,8 @@ void ChartWheelWidget::clearChart() {
     hasFocus_ = false;
     focusBody_.clear();
     chartNote_.clear();
+    hasDirectedPoint_ = false;
+    directedHits_.clear();
     update();
 }
 
@@ -1738,6 +1769,23 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             drawInfoLine(chartNote_);
         }
 
+        // Selected technique day: the directed point's caption.
+        if (hasDirectedPoint_ && !directedCaption_.isEmpty()) {
+            infoY += 3;
+            const QColor accent = directedPointAccent(theme_.background);
+            painter.setFont(wheelFont(WheelText::Micro, fontScale_));
+            painter.setPen(withAlpha(accent, 200));
+            drawInfoLine("SR TECHNIQUE");
+            const QStringList lines = directedCaption_.split('\n');
+            QFont captionFont = wheelFont(WheelText::Label, fontScale_);
+            captionFont.setWeight(QFont::DemiBold);
+            for (int i = 0; i < lines.size(); ++i) {
+                painter.setFont(i == 0 ? captionFont : wheelFont(WheelText::Caption, fontScale_));
+                painter.setPen(i == 0 ? accent : withAlpha(theme_.body, 170));
+                drawInfoLine(lines[i]);
+            }
+        }
+
         // If overlay, show transit date on a second line
         if (overlay && overlayChart_.localDateTime.isValid()) {
             infoY += 3;
@@ -2547,6 +2595,10 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
             } else if (isHover || isSelected) {
                 opacity = std::min(1.0, opacity + 0.35);
                 width += 0.8;
+            }
+            // A selected technique day draws its own aspect lines; recede the chart's web.
+            if (hasDirectedPoint_ && !isHover && !isSelected) {
+                opacity *= 0.16;
             }
             painter.save();
             painter.setOpacity(opacity);
@@ -3556,6 +3608,116 @@ void ChartWheelWidget::paintEvent(QPaintEvent* event) {
                                     maxTextW + 4.0, rowH),
                              Qt::AlignVCenter | Qt::AlignLeft, scopeNames[r]);
         }
+        painter.restore();
+    }
+
+    // --- SR technique: directed point, its aspect lines and natal ghost markers ---
+    if (hasChart_ && hasDirectedPoint_) {
+        painter.save();
+        const QColor accent = directedPointAccent(theme_.background);
+        const double pointAngle = angleForLongitude(directedLongitude_);
+        const QPointF dot = pointOnCircle(center, aspectRadius, pointAngle);
+
+        // Spoke from the aspect disc to the zodiac rim, solid across the sign band.
+        painter.setPen(QPen(withAlpha(accent, 140), 1.2, Qt::DashLine, Qt::RoundCap));
+        painter.drawLine(dot, pointOnCircle(center, zodiacInner, pointAngle));
+        painter.setPen(QPen(accent, 2.6, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(pointOnCircle(center, zodiacInner, pointAngle), pointOnCircle(center, zodiacOuter, pointAngle));
+        // Arrowhead just outside the rim, pointing at the degree.
+        {
+            const double baseRadius = zodiacOuter + 11.0 * fontScale_;
+            const double halfSpread = qRadiansToDegrees(5.5 * fontScale_ / std::max(1.0, baseRadius));
+            QPolygonF arrow;
+            arrow << pointOnCircle(center, zodiacOuter + 1.0, pointAngle)
+                  << pointOnCircle(center, baseRadius, pointAngle - halfSpread)
+                  << pointOnCircle(center, baseRadius, pointAngle + halfSpread);
+            painter.setPen(QPen(theme_.background, 1.0));
+            painter.setBrush(accent);
+            painter.drawPolygon(arrow);
+        }
+
+        const QFont symbolFont = wheelFont(WheelText::AspectSymbol, fontScale_);
+        QFont ghostFont = wheelFont(WheelText::BodyGlyph, fontScale_);
+        ghostFont.setPointSizeF(ghostFont.pointSizeF() * 0.78);
+        QFont ghostTag = wheelFont(WheelText::Micro, fontScale_);
+        ghostTag.setBold(true);
+        auto glyphFor = [](const QString& name) {
+            const QString glyph = bodyGlyph(name);
+            if (glyph.trimmed().isEmpty() || glyph == "?") {
+                return name == "Ascendant" ? QString("AC") : name == "Midheaven" ? QString("MC")
+                    : name == "Descendant" ? QString("DC") : name == "IC" ? QString("IC") : name.left(2);
+            }
+            return glyph;
+        };
+
+        // Lines first (widest orb first so the tightest hit sits on top).
+        QVector<int> order(directedHits_.size());
+        for (int i = 0; i < order.size(); ++i) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return directedHits_[a].orb > directedHits_[b].orb; });
+        for (int i : order) {
+            const auto& hit = directedHits_[i];
+            const QColor color = aspectTypeColor(hit.aspect);
+            const QPointF target = pointOnCircle(center, aspectRadius, angleForLongitude(hit.targetLongitude));
+            if (hit.aspect == "Conjunction") {
+                painter.setPen(QPen(color, 2.0));
+                painter.setBrush(withAlpha(color, 40));
+                painter.drawEllipse(target, 10.0 * fontScale_, 10.0 * fontScale_);
+                continue;
+            }
+            painter.setPen(QPen(withAlpha(theme_.background, 220), 6.5, Qt::SolidLine, Qt::RoundCap));
+            painter.drawLine(dot, target);
+            painter.setPen(QPen(color, 3.0, hit.natal ? Qt::DashLine : Qt::SolidLine, Qt::RoundCap));
+            painter.drawLine(dot, target);
+            // Aspect symbol chip at the chord's midpoint.
+            const QPointF mid = (dot + target) * 0.5;
+            const double chip = 8.5 * fontScale_;
+            painter.setPen(QPen(color, 1.2));
+            painter.setBrush(theme_.background);
+            painter.drawEllipse(mid, chip, chip);
+            painter.setFont(symbolFont);
+            painter.setPen(color);
+            painter.drawText(QRectF(mid.x() - chip, mid.y() - chip, chip * 2, chip * 2), Qt::AlignCenter, aspectSymbolForLabel(hit.aspect));
+        }
+
+        // Target markers: SR points get a solid dot on the disc; natal points a
+        // hollow ghost marker with their glyph and an "N" tag just inside it.
+        for (const auto& hit : directedHits_) {
+            const QColor color = aspectTypeColor(hit.aspect);
+            const double angle = angleForLongitude(hit.targetLongitude);
+            const QPointF target = pointOnCircle(center, aspectRadius, angle);
+            if (!hit.natal) {
+                painter.setPen(QPen(theme_.background, 1.2));
+                painter.setBrush(color);
+                painter.drawEllipse(target, 3.6 * fontScale_, 3.6 * fontScale_);
+                continue;
+            }
+            painter.setPen(QPen(color, 1.8));
+            painter.setBrush(theme_.background);
+            painter.drawEllipse(target, 4.6 * fontScale_, 4.6 * fontScale_);
+            const QPointF labelPos = pointOnCircle(center, aspectRadius - 17.0 * fontScale_, angle);
+            const QString glyph = glyphFor(hit.target);
+            const QFontMetricsF glyphMetrics(ghostFont), tagMetrics(ghostTag);
+            const double glyphWidth = glyphMetrics.horizontalAdvance(glyph);
+            const double tagWidth = tagMetrics.horizontalAdvance("N");
+            const double totalWidth = glyphWidth + tagWidth + 1.0;
+            const QRectF plate(labelPos.x() - totalWidth / 2 - 3, labelPos.y() - glyphMetrics.height() / 2,
+                               totalWidth + 6, glyphMetrics.height());
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(withAlpha(theme_.background, 215));
+            painter.drawRoundedRect(plate, 4, 4);
+            painter.setFont(ghostFont);
+            painter.setPen(theme_.natalBody.isValid() ? theme_.natalBody : theme_.body);
+            painter.drawText(QRectF(plate.left() + 3, plate.top(), glyphWidth, plate.height()), Qt::AlignCenter, glyph);
+            painter.setFont(ghostTag);
+            painter.setPen(color);
+            painter.drawText(QRectF(plate.left() + 3 + glyphWidth + 1, plate.top() + plate.height() * 0.25, tagWidth, plate.height() * 0.75),
+                             Qt::AlignLeft | Qt::AlignVCenter, "N");
+        }
+
+        // The point itself, on top of everything it touches.
+        painter.setPen(QPen(theme_.background, 2.0));
+        painter.setBrush(accent);
+        painter.drawEllipse(dot, 6.0 * fontScale_, 6.0 * fontScale_);
         painter.restore();
     }
 

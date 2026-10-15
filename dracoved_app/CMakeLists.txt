@@ -43,6 +43,8 @@ add_executable(dracoved_app
     src/gui/solar_transit_panel.h
     src/gui/solar_transit_panel.cpp
     src/gui/solar_transit_table_item.h
+    src/gui/solar_transit_table_style.h
+    src/gui/solar_technique_table_style.h
     src/gui/solar_transit_activity.h
     src/gui/solar_transit_activity_panel.cpp
     src/gui/main_window_natal_report.cpp
